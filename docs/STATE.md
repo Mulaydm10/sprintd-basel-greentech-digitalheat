@@ -7,6 +7,8 @@ mode: team
 attention: active
 merge: human
 design: Mulaydm10
+design-node: claude@omen
+merger: design
 <!-- design: <login>   set by design on join, via claim/state; absent = repo not live, workers report "no design node" -->
 <!-- mode: solo | team.  attention: active | paused (workers' cross-repo pick order skips paused repos; design sessions do not wake).
      merge: human | auto-lane (auto-lane = you give up human code review of lane PRs for throughput; design sets auto-merge on green + approved claim PRs; refused unless main requires lane+run; design/* always human).

@@ -15,7 +15,7 @@ servers, proven by a real process that pauses/resumes/migrates on a heat signal.
 ## Read order (cold agent)
 `CLAUDE.md` -> `STATE.md` -> `VISION.md` -> `COMPETITION.md` -> `GOVERNANCE.md` -> `AGENTS-project.md` (ACCESS RULES) -> `AGENTS.md` -> tail of `workflow.md` -> `runs/experiment_tracker.md`.
 Then your lane's `src/<pkg>/README.md` and the matching `tasks/0X_*/README.md`. Work order: `tasks/README.md`.
-Pasteable prompt: `notes/2026-11-21_onboarding_addendum.md` (supersedes the stale `notes/ai_onboarding_prompt.md`).
+**New teammate Claude? Start with `ONBOARDING.md`** (setup → handshake issue → claim). Older notes in `notes/` are superseded by it.
 If a doc is still `TODO(<owner>)`, say so; never invent a fact, price, rule or number.
 
 ## Governance in one paragraph
@@ -33,7 +33,7 @@ Task folders `tasks/01..04` keep their names; they are the work packages, refere
 uv sync --extra dev                  # once, human-approved (agents: do not install unprompted)
 uv run pytest                        # must be green before any handoff
 uv run python -m simulate_year       # yearly balance (stub until T03 lands)
-uv run uvicorn live_agent.app:app --port 8001   # per-node agent (package installed by uv sync)
+uv run uvicorn live_agent.app:app --port 8710   # per-node agent (package installed by uv sync)
 ```
 Whoever changes a command updates this block in the same change.
 
@@ -42,8 +42,8 @@ Whoever changes a command updates this block in the same change.
 2. `src/scheduler` is pure policy (no I/O); the simulator and live agent MUST both import it. Never fork the logic.
 3. Stay in your lane (`src/<pkg>`) unless you hold a handoff; see `AGENTS.md`.
 4. `DEMO.md` must stay runnable. A broken demo path outranks new features.
-5. No data/weights/logs/secrets committed. No push, no remote, no commit unless Main Human says so.
-6. No package installs or model/data downloads without Main Human approval.
+5. No data/weights/logs/secrets committed. Workers commit and push **only** to their `claim/<n>` branch and open a PR; only the design session (Omen) writes `main`.
+6. Installing `requirements-dev.txt` / `uv sync --extra dev` is approved for setup. Anything else (models, large data) needs your human's OK.
 7. Times: always CET with explicit zone; the host may run in another timezone.
 
 ## End-of-session checklist

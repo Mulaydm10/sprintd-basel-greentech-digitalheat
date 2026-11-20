@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Workers never push to main. Only the Omen design session may (it sets BUS_ROLE=design).
+[ "${BUS_ROLE:-}" = "design" ] && exit 0
+while read -r _ _ remote_ref _; do
+  case "$remote_ref" in
+    refs/heads/main|refs/heads/master)
+      echo "pre-push: workers may not push to main. Work on claim/<n> and open a PR." >&2; exit 1;;
+  esac
+done
+exit 0

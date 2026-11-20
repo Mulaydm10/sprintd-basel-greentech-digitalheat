@@ -1,0 +1,22 @@
+# Single source of truth for all numbers. Mirror every change in docs/ASSUMPTIONS.md.
+location: {lat: 47.56, lon: 7.59, tz: Europe/Zurich, year: 2025}
+weather: {source: open-meteo-archive, vars: [temperature_2m, shortwave_radiation], file: data/basel_2025_hourly.csv}
+house:
+  design_kw: 10.0
+  t_base_c: 20.0
+  t_design_span_c: 25.6
+  heating_day_mean_t_c: 12.0
+  hot_water_kwh_per_day: 12.0
+  tank_kwh: 35.0
+  tank_lossless: true
+server:
+  electric_kw: 1.0
+  heat_recovery_fraction: 0.8
+price:
+  elcom_year: 2026
+  utility: IWB Basel
+  category: H4
+  chf_per_kwh: null   # TODO: look up ElCom 2026 H4 IWB Basel, record source URL
+  heat_value_divisor: 2.5
+expected_checks: {annual_heating_kwh: 27000, heating_days: 206, verified_annual_heating_kwh: 26851}  # 27000 is rounded; 26851 verified per brief
+jobs: []            # TODO: runtime/energy/interruptible/deadline/access_class per job type

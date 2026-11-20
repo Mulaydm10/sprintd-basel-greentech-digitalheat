@@ -1,2 +1,8 @@
 # <lane>: <command>   one per lane, design-owned. Plain words only (no metacharacters, globs, quotes); run from repo root after docs/setup.sh as on main.
 canary: python3 -m pytest tests/canary -q
+src/house_model: python3 -m pytest tests/src/house_model -q
+src/jobs: python3 -m pytest tests/src/jobs -q
+src/scheduler: python3 -m pytest tests/src/scheduler -q
+src/simulate_year: python3 -m pytest tests/src/simulate_year -q
+src/live_agent: python3 -m pytest tests/src/live_agent -q
+src/dashboard: python3 -m pytest tests/src/dashboard -q

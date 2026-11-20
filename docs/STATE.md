@@ -3,7 +3,7 @@
 ## Purpose
 <one paragraph: what this repo is building, and the deadline>
 
-mode: solo
+mode: team
 attention: active
 merge: human
 <!-- design: <login>   set by design on join, via claim/state; absent = repo not live, workers report "no design node" -->
@@ -16,6 +16,12 @@ merge: human
 | lane | directory | purpose | contract |
 |------|-----------|---------|----------|
 | `lane:canary` | `canary/` | two standing issues: post-merge canary (permanent claim, draft PR) and pre-merge canary (transient claim per workflow PR) | — |
+| `lane:src/dashboard` | `src/dashboard/` | <purpose> | `contracts/src/dashboard.md` |
+| `lane:src/live_agent` | `src/live_agent/` | <purpose> | `contracts/src/live_agent.md` |
+| `lane:src/simulate_year` | `src/simulate_year/` | <purpose> | `contracts/src/simulate_year.md` |
+| `lane:src/scheduler` | `src/scheduler/` | <purpose> | `contracts/src/scheduler.md` |
+| `lane:src/jobs` | `src/jobs/` | <purpose> | `contracts/src/jobs.md` |
+| `lane:src/house_model` | `src/house_model/` | <purpose> | `contracts/src/house_model.md` |
 <!-- bootstrap.sh appends one row per lane you pass it; design edits after that. A lane may be a nested path (`src/01_ingest`); no lane may be a prefix of another. -->
 
 ## Verify environment
@@ -35,4 +41,4 @@ merge: human
 - Actions minutes are one pool per repo; check quota before a team event.
 
 ## Log
-- <date>: repo created from agent-bus-template; bootstrap run.
+- 2026-11-20: repo created from agent-bus-template; bootstrap run (mode=team).

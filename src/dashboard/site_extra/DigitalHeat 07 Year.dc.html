@@ -11,6 +11,7 @@
 <helmet>
 <link rel="stylesheet" href="./vendor/fonts/fonts.css">
 <script src="./year3d.js"></script>
+<script type="module" src="./basel3d.js"></script>
 <style>
 html,body{margin:0;background:#f2efe9;color:#141414}
 html{scroll-behavior:smooth}
@@ -63,7 +64,32 @@ input[type=range]{accent-color:#c93c05}
       </sc-for>
     </div>
 
-    <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;padding:16px 18px 12px;margin-bottom:14px">
+    <div data-dh-views style="display:flex;gap:4px;padding:5px;border:1px solid #dcd6cc;border-radius:999px;width:max-content;max-width:100%;flex-wrap:wrap;margin-bottom:12px;font-family:'Geist Mono',monospace;font-size:12px">
+      <sc-for list="{{ views }}" as="v" hint-placeholder-count="3">
+        <button onClick="{{ v.on }}" style="border:0;cursor:pointer;padding:9px 16px;border-radius:999px;font:inherit;color:{{ v.c }};background:{{ v.bg }};transition:all .3s">{{ v.label }}</button>
+      </sc-for>
+    </div>
+
+    <div data-dh-basel style="display:{{ mapDisp }};position:relative;border-radius:20px;background:#0b0b0d;overflow:hidden;margin-bottom:14px;border:1px solid #141414">
+      <div id="dh-basel-host" style="position:relative;width:100%;height:min(78vh,720px)"></div>
+      <div style="position:absolute;top:16px;left:18px;right:18px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;pointer-events:none;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#c4bcae">
+        <span>Basel 2025 run by our scheduler · N = {{ nVal }} per house · {{ polLabel }}</span><span style="color:#f2efe9">{{ clock }} · {{ tempNow }}</span>
+      </div>
+      <div data-dh-hud style="position:absolute;top:44px;left:18px;max-width:min(520px,80%);pointer-events:none;padding:10px 14px;border-radius:12px;background:rgba(14,13,12,0.62);border:1px solid rgba(242,239,233,0.14);font-family:'Geist Mono',monospace;font-size:12px;line-height:1.5;color:#f2efe9">
+        <div style="color:{{ decC }};font-weight:700;letter-spacing:0.06em">{{ decision }}</div><div style="color:#c4bcae">{{ decWhy }}</div>
+      </div>
+      <div style="position:absolute;right:18px;top:44px;display:flex;flex-direction:column;gap:6px;font-family:'Geist Mono',monospace;font-size:11px">
+        <sc-for list="{{ presets }}" as="pr" hint-placeholder-count="3">
+          <button onClick="{{ pr.on }}" style="cursor:pointer;padding:7px 12px;border-radius:999px;border:1px solid rgba(242,239,233,0.25);background:rgba(14,13,12,0.55);color:#f2efe9;font:inherit">{{ pr.label }}</button>
+        </sc-for>
+      </div>
+      <div style="position:absolute;bottom:12px;left:18px;right:18px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;pointer-events:none;font-family:'Geist Mono',monospace;font-size:10.5px;color:#a8a298;line-height:1.5">
+        <span><span style="color:#ff8c1f">●</span> server heat into the house · <span style="color:#3d7fd6">●</span> demand left to the backup heater · <span style="color:#ff3355">●</span> heat dumped (sparks) · dark = servers held · <span style="color:#ffb36b">|</span> coordinator, trails to running houses · the brightest house is the reference house (real simulation); the other {{ fleetN }} are an illustrative fleet scaled from it</span>
+        <span>{{ mapNote }} · Map data © OpenStreetMap contributors, ODbL</span>
+      </div>
+    </div>
+
+    <div style="display:{{ chartDisp }};border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;padding:16px 18px 12px;margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c;margin-bottom:10px"><span>where every kWh went · {{ polLabel }}</span><span style="color:#141414">{{ clock }}</span></div>
       <canvas id="dh-year-canvas" data-dh-year style="width:100%;height:300px;display:block;cursor:pointer" onClick="{{ seek }}"></canvas>
       <div style="display:grid;grid-template-columns:repeat(12,minmax(0,1fr));font-family:'Geist Mono',monospace;font-size:10px;color:#6e6a63;margin-top:6px">
@@ -76,7 +102,7 @@ input[type=range]{accent-color:#c93c05}
       </div>
     </div>
 
-    <div data-dh-year3d style="position:relative;border-radius:20px;background:#0e0d0c;overflow:hidden;margin-bottom:14px;border:1px solid #141414">
+    <div data-dh-year3d style="display:{{ helixDisp }};position:relative;border-radius:20px;background:#0e0d0c;overflow:hidden;margin-bottom:14px;border:1px solid #141414">
       <div id="dh-year-3d-host" style="width:100%;height:min(72vh,620px)"></div>
       <div style="position:absolute;top:16px;left:18px;right:18px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;pointer-events:none;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#c4bcae">
         <span>the year as a helix · one turn = one day · 1 Jan at the bottom · {{ polLabel }}</span><span style="color:#f2efe9">{{ clock }}</span>
@@ -128,7 +154,7 @@ input[type=range]{accent-color:#c93c05}
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props="{&quot;apiBase&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;.&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
 class Component extends DCLogic {
-  state = { n: null, pol: "ours", h: 0, playing: false, speed: 240, idx: null, run: null, err: null, loading: true };
+  state = { n: null, pol: "ours", h: 0, playing: false, speed: 96, view: "map", idx: null, run: null, err: null, loading: true };
   static MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   static C = { temp: "#1d6bb3", tempHot: "#c93c05", used: "#c93c05", dump: "#d1173a", backup: "#c4bcae", demand: "#141414", srv: "#c93c05", grid: "#ebe6dd" };
   componentDidMount() {
@@ -146,13 +172,40 @@ class Component extends DCLogic {
       } else this.hf = this.state.h;
       this.draw(this.hf);
       this.sync3d(this.hf);
+      this.syncMap(this.hf);
       if (now - lastUi > 80 && Math.floor(this.hf) !== this.state.h) { lastUi = now; this.setState({ h: Math.floor(this.hf) }); }
     };
     this.raf = requestAnimationFrame(loop);
     this.onResize = () => { this.bg = null; };
     addEventListener("resize", this.onResize);
   }
-  componentWillUnmount() { cancelAnimationFrame(this.raf); removeEventListener("resize", this.onResize); if (this.v3) this.v3.destroy(); }
+  componentWillUnmount() { cancelAnimationFrame(this.raf); removeEventListener("resize", this.onResize); if (this.v3) this.v3.destroy(); if (this.vm) this.vm.destroy(); }
+  syncMap(hf) {  // #109: the 3D Basel map follows the same run, policy and playhead (basel3d.js, three.js r170)
+    const host = document.getElementById("dh-basel-host");
+    if (!host || !window.DHBasel3D || this.vm === false || !this.state.run) return;
+    if (!this.mapEl) { this.mapEl = document.createElement("div"); this.mapEl.style.cssText = "position:absolute;inset:0"; }
+    if (this.mapEl.parentNode !== host) host.appendChild(this.mapEl);  // survives template re-renders (see sync3d)
+    if (this.vm === undefined) {
+      this.vm = null;
+      window.DHBasel3D.create(this.mapEl, { map: "./data/basel3d.json" })
+        .then((v) => { this.vm = v || false; if (!v) this.setState({ mapOff: true }); })
+        .catch((e) => { console.warn("basel3d", e); this.vm = false; this.setState({ mapOff: true }); });
+      return;
+    }
+    if (!this.vm) return;
+    if (this.vmRun !== this.state.run) { this.vmRun = this.state.run; this.vm.setRun(this.state.run); }
+    this.vm.setPolicy(this.state.pol);
+    this.vm.setHour(hf);
+  }
+  decision(s, i, n) {  // the scheduler's outcome this hour, in words (derived from the yearview run, not invented)
+    if (!s) return ["–", "", "#c4bcae"];
+    const on = Math.round(s.servers_on[i]), dump = s.dumped_kwh[i], fill = s.ballast_units ? s.ballast_units[i] : 0, paid = s.units_done ? s.units_done[i] : 0;
+    if (s.paused[i] && on === 0) return ["HOLD · servers off", "no heat wanted and no paid deadline due: the scheduler keeps the site idle (hysteresis)", "#8fa3bf"];
+    if (on === 0) return ["IDLE", "nothing worth running this hour", "#8fa3bf"];
+    if (dump > 1e-3) return [`RUN ${on}/${n} · heat dumped`, `a paid deadline is due, so work runs although the house wants no heat: ${dump.toFixed(2)} kWh dumped`, "#ff3355"];
+    if (fill > 0) return [`RUN ${on}/${n} · heat wanted`, `${paid} paid units + ${fill} heat-backed filler units: all ${s.heat_used_kwh[i].toFixed(2)} kWh go into the house and tank`, "#ff8c1f"];
+    return [`RUN ${on}/${n} · paid work`, `${paid} paid units; their ${s.heat_used_kwh[i].toFixed(2)} kWh of heat are used by the house`, "#ff8c1f"];
+  }
   sync3d(hf) {  // #101: the 3D helix follows this page's run, policy and playhead (year3d.js, raw WebGL2)
     // the template re-renders this card (its clock updates), replacing child elements: the WebGL canvas is created
     // once here and re-attached to the current host, so its context and state survive every re-render
@@ -284,6 +337,7 @@ class Component extends DCLogic {
     ];
     const pays = A ? !!A.pays_off : null;
     const sz = idx && idx.sizing;
+    const dec = this.decision(s, i, run ? run.n : n);
     const recRow = sz && idx.by_n ? idx.by_n.find((r) => r.n === sz.recommended_n) : null, R = recRow && recRow.ours;
     const heroVerdict = R ? `${pct(R.coverage_pct)} of the heat · ${pct(R.missed_pct)} paid deadlines missed · ${pct(dumpShare(R))} dumped · ${R.pays_off ? "pays off" : "does not pay off"} at ${price} CHF/server-h (needs ${chf(R.pays_off_above_chf_per_server_h)})`
       : err ? "no year simulation loaded" : "loading the sizing…";
@@ -316,7 +370,14 @@ class Component extends DCLogic {
       seek: (e) => { const cv = e.currentTarget, r = cv.getBoundingClientRect(); const v = Math.round(((e.clientX - r.left) / r.width) * (hours - 1)); this.hf = v; this.setState({ h: v, playing: false }); },
       hMax: hours - 1, hNow: i,
       nVal: n, setN: (e) => this.load(Number(e.target.value)),
-      speeds: [sp(120, "½ day / 0.1 s"), sp(240, "1 day / 0.1 s"), sp(720, "3 days / 0.1 s")],
+      speeds: [sp(24, "1x"), sp(48, "2x"), sp(96, "4x"), sp(192, "8x")],  // 1x = one day per second (#109)
+      views: [["map", "Map"], ["helix", "Helix"], ["chart", "Chart"]].map(([id, label]) => ({ label,
+        on: () => { this.bg = null; this.setState({ view: id }); }, c: this.state.view === id ? "#ffffff" : "#55524c", bg: this.state.view === id ? "#141414" : "transparent" })),
+      mapDisp: this.state.view === "map" ? "block" : "none", helixDisp: this.state.view === "helix" ? "block" : "none",
+      chartDisp: this.state.view === "chart" ? "block" : "none",
+      presets: [["city", "City"], ["district", "District"], ["house", "Reference house"]].map(([id, label]) => ({ label, on: () => this.vm && this.vm.focus(id) })),
+      decision: dec[0], decWhy: dec[1], decC: dec[2], tempNow: w ? w.temp_c[i].toFixed(1) + " °C" : "–",
+      fleetN: 48, mapNote: this.state.mapOff ? "3D map needs WebGL2: switch to Chart" : "drag to orbit · scroll to zoom · hover a glowing house",
       tankPct: s ? Math.max(0, Math.min(100, (100 * s.tank_kwh[i]) / tankCap)) : 0, tankLabel: s ? s.tank_kwh[i].toFixed(1) + " kWh" : "–",
       racks, nowNote,
       recN: sz ? sz.recommended_n : "–", recWhy: sz ? sz.reason + (sz.rule ? " Rule: " + sz.rule : "") : (err ? "No sizing without the year simulation." : "…"),

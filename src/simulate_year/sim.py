@@ -87,19 +87,21 @@ class _Acc:
 
 def simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h: float = 0.0, load: float = 0.0,
              seed: int = 0, a_hash: str = "", hourly: bool = True,
-             ballast: bool = False, admission: bool = False) -> tuple[dict, pd.DataFrame | None]:
+             ballast: bool = False, admission: bool = False, detail: bool = False) -> tuple[dict, pd.DataFrame | None]:
     """Run one year. ballast=True (merit only, #37) offers unlimited heat-backed filler work each hour at
     `ballast.bid_chf_per_server_h`, which must satisfy MC_used <= bid < MC_dump, so it runs only where its
     heat is used and never dumps; unassigned filler is dropped each hour (never queued, never missed).
     admission=True gates every arriving job with scheduler.admit (contract v2.2): persistence forecast of the
     last 24 h of heat-used capacity, net of queued work; rejected units never enter the queue and are not
-    counted as missed. Both off by default (golden numbers unchanged). Defers the cyclic GC for the loop (8,760 decide() calls allocate many short-lived
+    counted as missed. Both off by default (golden numbers unchanged). detail=True (#95 yearview) adds the hourly
+    columns units_done (paid units completed) and ballast_units (filler units run); off by default so hourly.csv
+    keeps its columns. Defers the cyclic GC for the loop (8,760 decide() calls allocate many short-lived
     actions; refcounting still frees them) and restores its previous state. scheduler.decide() itself
     never touches GC (#21 review)."""
     was = gc.isenabled()
     gc.disable()
     try:
-        return _simulate(profile, a, servers, policy, slack_h, load, seed, a_hash, hourly, ballast, admission)
+        return _simulate(profile, a, servers, policy, slack_h, load, seed, a_hash, hourly, ballast, admission, detail)
     finally:
         if was:
             gc.enable()
@@ -107,7 +109,7 @@ def simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h:
 
 def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h: float, load: float,
               seed: int, a_hash: str, hourly: bool, ballast: bool = False,
-              admission: bool = False) -> tuple[dict, pd.DataFrame | None]:
+              admission: bool = False, detail: bool = False) -> tuple[dict, pd.DataFrame | None]:
     validate_assumptions(a)  # typed ConfigError for missing/invalid keys (#38/#39, red team F13-F16)
     if policy not in POLICIES:
         raise ValueError(f"policy {policy!r} not in {POLICIES}")
@@ -145,6 +147,7 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
     rec_cols = {c: np.zeros(H) for c in ("demand", "servers_on", "space", "dhw", "tank_in", "tank_draw",
                                          "dump", "backup", "tank_level", "queue_len", "missed")} if hourly else None
     modes = np.zeros(H, dtype=bool) if hourly else None
+    extra = {c: np.zeros(H) for c in ("units_done", "ballast_units")} if hourly and detail else None
     slack_int = int(math.ceil(slack_h))
     if admission and slack_h < params.deadline_safety_h:
         raise ValueError(f"--admission needs slack_h >= scheduler.deadline_safety_h ({params.deadline_safety_h:g} h): "
@@ -236,6 +239,9 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
                          ("tank_level", lvl), ("queue_len", len(queue)), ("missed", late)):
                 rec_cols[c][h] = v
             modes[h] = mode
+            if extra is not None:
+                extra["units_done"][h] = len(done)
+                extra["ballast_units"][h] = n_ballast
     t.units_in = k
 
     ballast_income = t.ballast_kwh / kw * b_bid if use_ballast else None
@@ -262,6 +268,9 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
                  "mode", "queue_len", "missed"]]
         df["queue_len"] = df["queue_len"].astype(int)
         df["missed"] = df["missed"].astype(int)
+        if extra is not None:
+            for c, v in extra.items():
+                df[c] = v.astype(int)
     return bal, df
 
 

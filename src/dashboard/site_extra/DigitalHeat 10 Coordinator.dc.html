@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<script src="./vendor/resources.js"></script>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="./vendor/fonts/fonts.css">
+<style>
+html,body{margin:0;background:#f2efe9;color:#141414}
+html{scroll-behavior:smooth}
+body{font-family:'Geist',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#c93c05}a:hover{color:#a86400}
+::selection{background:#c93c05;color:#ffffff}
+input[type=range]{accent-color:#c93c05}
+input[type=text],input[type=password]{font-family:'Geist Mono',monospace;font-size:13px;padding:10px 12px;border:1px solid #c4bcae;border-radius:12px;background:#ffffff;color:#141414;min-width:0}
+@keyframes dhPulse{0%,100%{opacity:1}50%{opacity:.3}}
+</style>
+</helmet>
+<div style="min-height:100vh;background:#f2efe9;overflow-x:hidden">
+  <header style="position:fixed;top:0;left:0;right:0;z-index:40;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:16px clamp(16px,4vw,40px);font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.1em;text-transform:uppercase;color:#55524c;background:linear-gradient(#f2efe9,rgba(242,239,233,0))">
+    <div style="display:flex;align-items:center;gap:10px;color:#141414"><span style="width:9px;height:9px;border-radius:50%;background:#c93c05;box-shadow:0 0 14px #c93c05"></span>DigitalHeat</div>
+    <div style="display:flex;gap:14px;align-items:center"><span data-dh-src style="display:flex;gap:6px;align-items:center;color:{{ srcC }}"><span style="width:6px;height:6px;border-radius:50%;background:{{ srcC }};animation:dhPulse 1.2s infinite"></span>{{ srcLabel }}</span><span>10 · Coordinator · {{ navPos }} / __NAV_TOTAL__</span></div>
+  </header>
+
+  <section style="padding:110px clamp(12px,3vw,32px) 20px;max-width:1560px;margin:0 auto">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:16px;margin-bottom:18px">
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#a86400">Coordinator · operator view · {{ roleLabel }}</span>
+        <h1 style="margin:0;font-weight:760;font-stretch:118%;font-size:clamp(36px,5vw,72px);line-height:0.9;letter-spacing:-0.04em">Every node, <span style="color:#c93c05">every lease.</span></h1>
+      </div>
+      <sc-if value="{{ signedIn }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;gap:8px;align-items:center;font-family:'Geist Mono',monospace;font-size:12px;color:#55524c">
+          <span>{{ coordShort }}</span>
+          <button data-dh-signout onClick="{{ signOut }}" style="cursor:pointer;padding:10px 16px;border-radius:999px;border:1px solid #c4bcae;background:#f8f6f1;color:#141414;font:inherit">Sign out</button>
+        </div>
+      </sc-if>
+    </div>
+
+    <sc-if value="{{ showSignIn }}" hint-placeholder-val="{{ true }}">
+      <form data-dh-signin onSubmit="{{ signIn }}" style="border:1px solid #c93c05;border-radius:20px;background:#ffffff;padding:20px;margin-bottom:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px;align-items:end">
+        <label style="display:flex;flex-direction:column;gap:6px;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#55524c">coordinator<input name="url" type="text" value="{{ urlDraft }}" onInput="{{ setUrl }}" autocomplete="off" spellcheck="false"></label>
+        <label style="display:flex;flex-direction:column;gap:6px;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#55524c">admin or observer token<input name="token" type="password" value="{{ tokDraft }}" onInput="{{ setTok }}" autocomplete="off" spellcheck="false"></label>
+        <button type="submit" style="cursor:pointer;padding:11px 18px;border-radius:999px;border:0;background:#c93c05;color:#ffffff;font-family:'Geist Mono',monospace;font-size:12px;font-weight:700">Sign in</button>
+        <span style="grid-column:1 / -1;font-size:15px;line-height:1.5;color:#2e2b27">{{ signInNote }}</span>
+      </form>
+    </sc-if>
+
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:#dcd6cc;border:1px solid #dcd6cc;border-radius:18px;overflow:hidden;margin-bottom:14px">
+      <sc-for list="{{ tiles }}" as="k" hint-placeholder-count="8">
+        <div style="background:#ffffff;padding:12px 14px 10px;display:flex;flex-direction:column;gap:4px;min-width:0">
+          <span style="font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:#6e6a63;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ k.l }}</span>
+          <span style="font-weight:660;font-stretch:108%;font-size:24px;font-variant-numeric:tabular-nums;color:{{ k.c }};line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ k.v }}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <sc-if value="{{ hasPending }}" hint-placeholder-val="{{ false }}">
+      <div data-dh-confirm style="border:1px solid #d1173a;border-radius:20px;padding:16px 20px;margin-bottom:14px;background:#fdf1f1;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between">
+        <span style="font-size:clamp(16px,1.6vw,20px);font-weight:660">{{ pendingText }}</span>
+        <div style="display:flex;gap:8px;font-family:'Geist Mono',monospace;font-size:12px">
+          <button data-dh-confirm-yes onClick="{{ confirmYes }}" style="cursor:pointer;padding:10px 16px;border-radius:999px;border:0;background:#d1173a;color:#ffffff;font:inherit;font-weight:700">Confirm</button>
+          <button onClick="{{ confirmNo }}" style="cursor:pointer;padding:10px 16px;border-radius:999px;border:1px solid #c4bcae;background:#ffffff;color:#141414;font:inherit">Cancel</button>
+        </div>
+      </div>
+    </sc-if>
+    <sc-if value="{{ hasMsg }}" hint-placeholder-val="{{ false }}">
+      <div data-dh-msg style="font-family:'Geist Mono',monospace;font-size:12px;color:{{ msgC }};margin:-4px 0 12px">{{ msg }}</div>
+    </sc-if>
+
+    <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;overflow:hidden;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;padding:14px 20px;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c;background:#f8f6f1"><span>nodes</span><span>{{ nodesNote }}</span></div>
+      <sc-for list="{{ nodes }}" as="n" hint-placeholder-count="3">
+        <div data-dh-node style="display:grid;grid-template-columns:minmax(140px,1.2fr) minmax(90px,.8fr) minmax(160px,1.4fr) minmax(70px,.5fr) minmax(260px,2fr);gap:10px;align-items:center;padding:12px 20px;border-top:1px solid #ebe6dd;font-family:'Geist Mono',monospace;font-size:13px">
+          <span style="color:#141414">{{ n.id }}<span style="color:#6e6a63"> · {{ n.site }}</span></span>
+          <span style="color:{{ n.sc }}">{{ n.state }}</span>
+          <span style="color:#55524c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ n.unit }}</span>
+          <span style="color:#55524c">{{ n.watts }}</span>
+          <span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+            <sc-for list="{{ n.actions }}" as="a" hint-placeholder-count="3">
+              <button onClick="{{ a.on }}" disabled="{{ a.off }}" title="{{ a.tip }}" style="cursor:pointer;padding:6px 12px;border-radius:999px;border:1px solid {{ a.bd }};background:#ffffff;color:{{ a.c }};font:inherit;font-size:12px;opacity:{{ a.op }}">{{ a.label }}</button>
+            </sc-for>
+          </span>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,520px),1fr));gap:14px;margin-bottom:14px">
+      <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;overflow:hidden">
+        <div style="display:flex;justify-content:space-between;padding:14px 20px;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c;background:#f8f6f1"><span>jobs</span><span>{{ jobsNote }}</span></div>
+        <sc-for list="{{ jobs }}" as="j" hint-placeholder-count="4">
+          <div style="display:grid;grid-template-columns:minmax(130px,1.3fr) minmax(70px,.7fr) minmax(80px,.7fr) minmax(90px,1fr);gap:10px;align-items:center;padding:11px 20px;border-top:1px solid #ebe6dd;font-family:'Geist Mono',monospace;font-size:12.5px">
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ j.id }}<span style="color:#6e6a63"> · {{ j.type }}</span></span>
+            <span style="color:{{ j.sc }}">{{ j.status }}</span>
+            <span style="color:#55524c">{{ j.cls }}</span>
+            <span style="display:flex;align-items:center;gap:8px"><span style="flex:1;height:6px;border-radius:3px;background:#ebe6dd;overflow:hidden"><span style="display:block;height:100%;width:{{ j.pct }}%;background:{{ j.bar }}"></span></span><span style="color:#55524c;min-width:36px;text-align:right">{{ j.pctLabel }}</span></span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;overflow:hidden">
+        <div style="display:flex;justify-content:space-between;padding:14px 20px;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c;background:#f8f6f1"><span>sites · heat signal</span><span>{{ sitesNote }}</span></div>
+        <sc-for list="{{ sites }}" as="s" hint-placeholder-count="2">
+          <div style="display:grid;grid-template-columns:minmax(110px,1fr) minmax(150px,1.4fr) minmax(170px,1.2fr);gap:10px;align-items:center;padding:11px 20px;border-top:1px solid #ebe6dd;font-family:'Geist Mono',monospace;font-size:12.5px">
+            <span>{{ s.id }}<span style="color:{{ s.sc }}"> · {{ s.state }}</span></span>
+            <span style="color:#55524c">{{ s.heat }}</span>
+            <span style="display:flex;gap:4px;justify-content:flex-end">
+              <sc-for list="{{ s.scen }}" as="b" hint-placeholder-count="2">
+                <button onClick="{{ b.on }}" disabled="{{ b.off }}" style="cursor:pointer;padding:6px 12px;border-radius:999px;border:1px solid #c4bcae;background:{{ b.bg }};color:{{ b.c }};font:inherit;font-size:12px;opacity:{{ b.op }}">{{ b.label }}</button>
+              </sc-for>
+            </span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,520px),1fr));gap:14px">
+      <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;padding:18px 20px;display:flex;flex-direction:column;gap:10px;min-height:300px">
+        <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c"><span>live events</span><span style="display:flex;gap:6px;align-items:center;color:{{ streamC }}"><span style="width:6px;height:6px;border-radius:50%;background:{{ streamC }};animation:dhPulse 1.2s infinite"></span>{{ streamLabel }}</span></div>
+        <div data-dh-events style="display:flex;flex-direction:column;gap:6px;font-family:'Geist Mono',monospace;font-size:12.5px;line-height:1.45">
+          <sc-for list="{{ events }}" as="e" hint-placeholder-count="6">
+            <div style="display:grid;grid-template-columns:64px minmax(0,1fr);gap:10px"><span style="color:#6e6a63">{{ e.ts }}</span><span style="color:{{ e.c }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ e.t }}</span></div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;padding:18px 20px;display:flex;flex-direction:column;gap:10px;min-height:300px">
+        <div style="display:flex;justify-content:space-between;align-items:center;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c"><span>audit log · hash chain</span><span data-dh-verify style="padding:5px 10px;border-radius:999px;border:1px solid {{ verifyC }};color:{{ verifyC }}">{{ verifyLabel }}</span></div>
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;color:#55524c">{{ headLabel }}</span>
+        <div style="display:flex;flex-direction:column;gap:6px;font-family:'Geist Mono',monospace;font-size:12.5px;line-height:1.45">
+          <sc-for list="{{ audit }}" as="a" hint-placeholder-count="6">
+            <div style="display:grid;grid-template-columns:48px minmax(0,1fr) 88px;gap:10px"><span style="color:#6e6a63">#{{ a.idx }}</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:{{ a.c }}">{{ a.t }}</span><span style="color:#6e6a63">{{ a.h }}</span></div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+    <p style="margin:14px 0 120px;font-family:'Geist Mono',monospace;font-size:12px;color:#6e6a63;line-height:1.5">{{ footNote }}</p>
+  </section>
+  <dc-import name="Nav" active="{{ navActive }}" hint-size="100%,60px"></dc-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;coordinator&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;https://dhruvs-mac-mini.tailaf7ebe.ts.net&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  // The token lives ONLY in sessionStorage (this tab) and in memory. Never in a URL, persistent storage or a cookie.
+  static TOK = "dh.coordinator.token";
+  static URL = "dh.coordinator.url";
+  static PROBE = "role-probe-nonexistent";  // undrain of an unknown node: admin -> 404, observer -> 403, nothing changes
+  state = { tok: null, url: null, role: null, urlDraft: "", tokDraft: "", data: null, events: [], stream: "off",
+            pending: null, msg: "", msgC: "#55524c", err: null };
+  componentDidMount() {
+    let tok = null, url = null;
+    try { tok = sessionStorage.getItem(Component.TOK); url = sessionStorage.getItem(Component.URL); } catch (e) {}
+    const def = (this.props.coordinator || "").trim();
+    this.setState({ urlDraft: url || def, url: url || def });
+    if (tok) this.start(url || def, tok);
+    this.iv = setInterval(() => { if (this.state.tok) this.refresh(); }, 10000);
+  }
+  componentWillUnmount() { clearInterval(this.iv); this.stopStream(); }
+  api(path, opt = {}) {
+    const { url, tok } = this.state;
+    return fetch(url.replace(/\/$/, "") + path, { ...opt, cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer",
+      headers: { ...(opt.headers || {}), Authorization: "Bearer " + tok, ...(opt.body ? { "Content-Type": "application/json" } : {}) } });
+  }
+  async start(url, tok) {
+    this.setState({ url, tok, err: null, msg: "Signing in…", msgC: "#a86400" });
+    try {
+      const r = await fetch(url.replace(/\/$/, "") + "/v1/ops/overview", { headers: { Authorization: "Bearer " + tok }, cache: "no-store", credentials: "omit" });
+      if (r.status === 401 || r.status === 403) { this.signOut(r.status === 401 ? "Token rejected (401)." : "This token is not an admin or observer token (403)."); return; }
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const p = await fetch(url.replace(/\/$/, "") + `/v1/ops/nodes/${Component.PROBE}/undrain`, { method: "POST", headers: { Authorization: "Bearer " + tok }, credentials: "omit" });
+      const role = p.status === 404 ? "admin" : "observer";
+      try { sessionStorage.setItem(Component.TOK, tok); sessionStorage.setItem(Component.URL, url); } catch (e) {}
+      this.setState({ role, tokDraft: "", msg: "", err: null });
+      await this.refresh();
+      this.startStream();
+    } catch (e) { this.setState({ err: String(e.message || e), msg: `Could not reach ${url}: ${e.message || e}. Check the URL and that the coordinator allows this origin (DH_CORS_ORIGINS).`, msgC: "#d1173a" }); }
+  }
+  signOut(why) {
+    this.stopStream();
+    try { sessionStorage.removeItem(Component.TOK); sessionStorage.removeItem(Component.URL); } catch (e) {}
+    this.setState({ tok: null, role: null, data: null, events: [], pending: null, tokDraft: "", stream: "off",
+                    msg: typeof why === "string" ? why : "Signed out. The token was removed from this tab.", msgC: typeof why === "string" ? "#d1173a" : "#55524c" });
+  }
+  async refresh() {
+    if (!this.state.tok) return;
+    try {
+      const get = async (p) => { const r = await this.api(p); if (r.status === 401) throw Object.assign(new Error("401"), { auth: true }); return r.ok ? r.json() : null; };
+      const [overview, nodes, jobs, sites, audit] = await Promise.all([get("/v1/ops/overview"), get("/v1/ops/nodes?limit=200"),
+        get("/v1/ops/jobs?limit=50"), get("/v1/ops/sites?limit=200"), get("/v1/ops/audit?limit=12")]);
+      this.setState({ data: { overview, nodes, jobs, sites, audit, at: new Date() }, err: null });
+    } catch (e) { if (e.auth) this.signOut("Token rejected (401)."); else this.setState({ err: String(e.message || e) }); }
+  }
+  addEvents(evs) {
+    if (!evs.length) return;
+    this.lastId = Math.max(this.lastId || 0, ...evs.map((e) => e.id));
+    this.setState((s) => ({ events: [...evs.slice().reverse(), ...s.events].slice(0, 40) }));
+    clearTimeout(this.rt); this.rt = setTimeout(() => this.refresh(), 800);  // coalesce bursts
+  }
+  stopStream() { this.streamGen = (this.streamGen || 0) + 1; if (this.abort) this.abort.abort(); clearTimeout(this.pollT); }
+  async startStream() {
+    this.stopStream();
+    const gen = this.streamGen;
+    // EventSource cannot send an Authorization header, so read the SSE stream with fetch.
+    try {
+      this.abort = new AbortController();
+      const r = await this.api("/v1/events", { signal: this.abort.signal, headers: this.lastId ? { "Last-Event-ID": String(this.lastId) } : {} });
+      if (!r.ok || !r.body) throw new Error("HTTP " + r.status);
+      this.setState({ stream: "sse" });
+      const rd = r.body.getReader(), dec = new TextDecoder();
+      let buf = "";
+      while (gen === this.streamGen) {
+        const { value, done } = await rd.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let k;
+        while ((k = buf.indexOf("\n\n")) >= 0) {
+          const block = buf.slice(0, k); buf = buf.slice(k + 2);
+          const f = {}; for (const line of block.split("\n")) { const m = line.match(/^(id|event|data): (.*)$/); if (m) f[m[1]] = m[2]; }
+          if (f.data) { try { const d = JSON.parse(f.data); this.addEvents([{ id: Number(f.id), type: f.event, ...d }]); } catch (e) {} }
+        }
+      }
+    } catch (e) { if (gen !== this.streamGen) return; }
+    if (gen === this.streamGen && this.state.tok) this.poll(gen);  // stream ended or refused (e.g. 429): poll instead
+  }
+  async poll(gen) {
+    this.setState({ stream: "poll" });
+    try {
+      const r = await this.api("/v1/events/poll?after=" + (this.lastId || 0));
+      if (r.ok) this.addEvents((await r.json()).events || []);
+    } catch (e) {}
+    if (gen === this.streamGen && this.state.tok) this.pollT = setTimeout(() => this.poll(gen), 2000);
+  }
+  ask(kind, id, extra) {
+    const verb = { drain: "Drain", undrain: "Undrain", kill: "Kill (revoke its lease now)", tamper: "Tamper (permanent: its key is never released again)", scenario: "Switch scenario of" }[kind];
+    this.setState({ pending: { kind, id, extra, text: `${verb} ${id}${extra ? " → " + extra : ""}?` } });
+  }
+  async act() {
+    const p = this.state.pending; if (!p) return;
+    this.setState({ pending: null, msg: "Sending…", msgC: "#a86400" });
+    const path = p.kind === "scenario" ? `/v1/ops/sites/${p.id}/scenario` : `/v1/ops/nodes/${p.id}/${p.kind}`;
+    try {
+      const r = await this.api(path, { method: "POST", body: p.kind === "scenario" ? JSON.stringify({ replay: p.extra }) : undefined });
+      const j = await r.json().catch(() => ({}));
+      this.setState({ msg: r.ok ? `✓ ${p.kind} ${p.id}${p.extra ? " → " + p.extra : ""}` : `✗ ${p.kind} ${p.id}: ${typeof j.detail === "string" ? j.detail : r.status}`, msgC: r.ok ? "#157a43" : "#d1173a" });
+      this.refresh();
+    } catch (e) { this.setState({ msg: "✗ " + String(e.message || e), msgC: "#d1173a" }); }
+  }
+  static SAMPLE = {  // shown only signed out, labelled SAMPLE: the shape of the view, not live numbers
+    overview: { nodes: { online: 2, suspect: 0, offline: 1 }, jobs: { queued: 1, running: 1, done: 3, failed: 0 }, leases_active: 1, heat_used_kwh_today: null, dumped_kwh_today: null, missed_deadline_pct: null, degraded_sites: [], audit: { ok: true, head: null, length: null } },
+    nodes: { items: [{ node_id: "node-mac", site_id: "site-mac", state: "online", running_unit: "job-…-u000", progress: 0.4, watts: null }, { node_id: "node-omen2", site_id: "site-omen", state: "online", running_unit: null, watts: null }, { node_id: "node-demo-tamper", site_id: "site-mac", state: "tampered", tampered: true }] },
+    jobs: { items: [{ job_id: "job-…", type: "image_tagging", access_class: "public", status: "running", progress: 0.4 }] },
+    sites: { items: [{ site_id: "site-mac", degraded: false, paused: false }, { site_id: "site-omen", degraded: false, paused: false }] },
+    audit: { items: [], verify: { ok: true, head: null, length: null } } };
+  renderVals() {
+    const { tok, role, data, events, stream, pending, msg, msgC, urlDraft, tokDraft, url } = this.state;
+    const live = !!(tok && data), D = live ? data : Component.SAMPLE, ov = D.overview || {}, admin = live && role === "admin";
+    const v = (x, f) => (x == null ? "–" : f ? f(x) : String(x));
+    const tiles = [
+      { l: "nodes online / suspect / off", v: `${v(ov.nodes && ov.nodes.online)} / ${v(ov.nodes && ov.nodes.suspect)} / ${v(ov.nodes && ov.nodes.offline)}`, c: "#141414" },
+      { l: "jobs queued / running / done", v: `${v(ov.jobs && ov.jobs.queued)} / ${v(ov.jobs && ov.jobs.running)} / ${v(ov.jobs && ov.jobs.done)}`, c: "#141414" },
+      { l: "leases active", v: v(ov.leases_active), c: "#c93c05" },
+      { l: "heat used today kWh", v: v(ov.heat_used_kwh_today, (x) => x.toFixed(1)), c: "#c93c05" },
+      { l: "dumped today kWh", v: v(ov.dumped_kwh_today, (x) => x.toFixed(1)), c: ov.dumped_kwh_today > 0 ? "#d1173a" : "#55524c" },
+      { l: "paid deadlines missed", v: v(ov.missed_deadline_pct, (x) => x.toFixed(1) + " %"), c: ov.missed_deadline_pct > 0 ? "#d1173a" : "#157a43" },
+      { l: "degraded sites", v: ov.degraded_sites ? (ov.degraded_sites.length ? ov.degraded_sites.join(", ") : "none") : "–", c: ov.degraded_sites && ov.degraded_sites.length ? "#a86400" : "#157a43" },
+      { l: "audit chain", v: ov.audit ? (ov.audit.ok ? "verifies" : "BROKEN") : "–", c: ov.audit && ov.audit.ok ? "#157a43" : "#d1173a" },
+    ];
+    const stC = { online: "#157a43", suspect: "#a86400", offline: "#6e6a63", paused: "#1d6bb3", tampered: "#d1173a" };
+    const btn = (label, on, ok, tip, danger) => ({ label, on: ok ? on : () => {}, off: !ok, tip: ok ? tip : (live ? "admin token required" : "sign in as admin"), op: ok ? 1 : 0.4, c: danger ? "#d1173a" : "#141414", bd: danger ? "#d1173a" : "#c4bcae" });
+    const nodes = ((D.nodes && D.nodes.items) || []).map((n) => ({
+      id: n.node_id, site: n.site_id || "–", state: (n.tampered ? "tampered" : n.state || "–") + (n.drained ? " · drained" : ""), sc: stC[n.tampered ? "tampered" : n.state] || "#55524c",
+      unit: n.running_unit ? `${n.running_unit} · ${Math.round((n.progress || 0) * 100)} %` : "idle", watts: n.watts == null ? "– W" : Math.round(n.watts) + " W",
+      actions: [n.drained ? btn("Undrain", () => this.ask("undrain", n.node_id), admin, "accept new leases again") : btn("Drain", () => this.ask("drain", n.node_id), admin, "no new leases; the running unit checkpoints and moves"),
+                btn("Kill", () => this.ask("kill", n.node_id), admin, "revoke its lease now (pull the plug)", true),
+                btn("Tamper", () => this.ask("tamper", n.node_id), admin && !n.tampered, "mark tampered: its key is never released again", true)] }));
+    const jsC = { running: "#c93c05", queued: "#a86400", paused: "#1d6bb3", done: "#157a43", failed: "#d1173a", cancelled: "#6e6a63" };
+    const jobs = ((D.jobs && D.jobs.items) || []).slice(0, 12).map((j) => ({ id: j.job_id, type: j.type, cls: j.access_class, status: j.status + (j.missed_deadline ? " · late" : ""),
+      sc: jsC[j.status] || "#55524c", pct: Math.round((j.progress || 0) * 100), pctLabel: Math.round((j.progress || 0) * 100) + "%", bar: jsC[j.status] || "#c4bcae" }));
+    const sites = ((D.sites && D.sites.items) || []).map((s) => ({ id: s.site_id, state: s.degraded ? "degraded" : s.paused ? "owner pause" : "signal ok", sc: s.degraded ? "#a86400" : s.paused ? "#1d6bb3" : "#157a43",
+      heat: s.demand_kw == null ? "–" : `demand ${Number(s.demand_kw).toFixed(1)} kW · tank ${Number(s.tank_level_kwh).toFixed(1)} kWh`,
+      scen: ["coldest", "july"].map((r) => ({ label: r === "coldest" ? "❄ coldest" : "☀ july", on: admin ? () => this.ask("scenario", s.site_id, r) : () => {}, off: !admin, op: admin ? 1 : 0.4, bg: "#ffffff", c: "#141414" })) }));
+    const evC = (t) => /tamper|lapsed|killed|deny|conflict/.test(t) ? "#d1173a" : /paused|gap/.test(t) ? "#1d6bb3" : /granted|complete|done/.test(t) ? "#157a43" : "#141414";
+    const evs = live ? events.slice(0, 14).map((e) => ({ ts: e.ts ? String(e.ts).slice(11, 19) : "", t: `${e.type}  ${[e.node_id, e.job_id, e.site_id].filter(Boolean).join(" · ")}`, c: evC(e.type || "") })) : [];
+    const au = D.audit || {}, ver = au.verify || {};
+    const audit = (au.items || []).slice(0, 12).map((a) => ({ idx: a.idx, t: `${a.type || "event"}  ${[a.node, a.unit, a.job, a.lease].filter(Boolean).join(" · ")}`, h: a.hash ? a.hash.slice(0, 10) + "…" : "", c: evC(a.type || "") }));
+    const short = (u) => (u || "").replace(/^https?:\/\//, "");
+    const pos = __NAV_INDEX__;
+    return {
+      navActive: pos, navPos: String(pos).padStart(2, "0"),
+      signedIn: !!tok, showSignIn: !tok, roleLabel: live ? (admin ? "ADMIN · actions enabled" : "OBSERVER · read-only") : "SIGN IN FOR LIVE DATA",
+      srcLabel: live ? (stream === "sse" ? "LIVE · SSE" : stream === "poll" ? "LIVE · POLL" : "LIVE") : "SAMPLE · NOT LIVE", srcC: live ? "#157a43" : "#a86400",
+      coordShort: short(url),
+      urlDraft, tokDraft,
+      setUrl: (e) => this.setState({ urlDraft: e.target.value }), setTok: (e) => this.setState({ tokDraft: e.target.value }),
+      signIn: (e) => { e.preventDefault(); const u = (this.state.urlDraft || "").trim(), t = (this.state.tokDraft || "").trim(); if (u && t) this.start(u, t); },
+      signOut: () => this.signOut(),
+      signInNote: "Paste an admin token (actions) or an observer token (read-only). It stays in this browser tab only (sessionStorage) and is sent only to the coordinator above; sign out removes it. Until then the tables below show a labelled SAMPLE, not live numbers.",
+      tiles, nodes, jobs, sites, events: evs, audit,
+      nodesNote: live ? `${nodes.length} nodes · ${admin ? "admin" : "read-only"}` : "sample",
+      jobsNote: live ? `${(D.jobs && D.jobs.items || []).length} newest` : "sample", sitesNote: live ? (admin ? "scenario switch: admin" : "read-only") : "sample",
+      streamLabel: live ? (stream === "sse" ? "SSE stream" : stream === "poll" ? "polling every 2 s" : "connecting") : "sign in", streamC: live ? (stream === "sse" ? "#157a43" : "#a86400") : "#6e6a63",
+      verifyLabel: ver.ok == null ? "–" : ver.ok ? "✓ chain verifies" : "✗ chain broken", verifyC: ver.ok ? "#157a43" : "#d1173a",
+      headLabel: live ? `head ${ver.head ? ver.head.slice(0, 16) + "…" : "–"} · ${v(ver.length)} entries` : "sample: sign in to read the audit log",
+      hasPending: !!pending, pendingText: pending ? pending.text : "", confirmYes: () => this.act(), confirmNo: () => this.setState({ pending: null }),
+      hasMsg: !!msg, msg, msgC,
+      footNote: live ? `Coordinator ${short(url)} · refreshed ${data.at.toLocaleTimeString("en-CH")} · every action is audited by the coordinator.` : "Operator view of the coordinator's ops API (contract portal v1). Sign in to see live nodes, leases and the audit chain.",
+    };
+  }
+}
+</script>
+</body>
+</html>

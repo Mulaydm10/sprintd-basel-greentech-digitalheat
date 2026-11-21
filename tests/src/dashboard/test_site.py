@@ -151,13 +151,16 @@ def test_actions_hit_the_coordinator_ops_api(client, live_on, monkeypatch):
     monkeypatch.setenv("DH_LIVE_KILL_NODE", "node-omen2")
     monkeypatch.setenv("DH_LIVE_SITE", "site-mac")
     monkeypatch.setenv("DH_LIVE_TAMPER_NODE", "node-demo-tamper")
-    assert client.post("/api/live/kill", headers=H).json()["summary"] == "pulled the plug on node-omen2"
+    assert client.post("/api/live/kill", headers=H).json()["summary"].startswith("pulled the plug on node-omen2")
     assert client.post("/api/live/heat", json={"replay": "july"}, headers=H).status_code == 200
     assert client.post("/api/live/tamper", headers=H).status_code == 200
     calls = [(r.method, r.url.path, r.content) for r in live_on]
-    assert calls == [("POST", "/v1/ops/nodes/node-omen2/kill", b""),
+    assert calls == [("GET", "/v1/ops/nodes", b""),  # which unit the node runs (to auto-restore once it moves)
+                     ("POST", "/v1/ops/nodes/node-omen2/drain", b""),  # #97: drain first, so the unit moves
+                     ("POST", "/v1/ops/nodes/node-omen2/kill", b""),
                      ("POST", "/v1/ops/sites/site-mac/scenario", b'{"replay":"july"}'),
                      ("POST", "/v1/ops/nodes/node-demo-tamper/tamper", b"")]
+    live._undrain("node-omen2", "test cleanup")
     st = client.get("/api/live/state").json()
     assert st["heat"] == "july" and st["events"][0]["type"] == "x" and "tok-admin" not in str(st)
 
@@ -231,3 +234,119 @@ def test_live_actions_against_a_real_coordinator(client, monkeypatch, tmp_path):
     assert st["overview"]["audit"]["ok"] is True and st["events"]
     lease = cc.post("/v1/nodes/node-demo-tamper/lease", headers={"Authorization": "Bearer tok-t"}).json()
     assert lease.get("hold") and "tampered" in lease["reason"]
+
+
+# ------------------------------------------------------------------ #97: pull the plug moves the unit to another node
+@pytest.fixture
+def nodes_api(monkeypatch, tmp_path):
+    """A fake coordinator whose /v1/ops/nodes running units the test controls; records drain/undrain/kill."""
+    tok = tmp_path / "admin"
+    tok.write_text("tok-admin")
+    monkeypatch.setenv("DH_LIVE_ACTIONS", "1")
+    monkeypatch.setenv("DH_ADMIN_TOKEN_FILE", str(tok))
+    monkeypatch.setenv("DH_COORDINATOR_URL", "http://coord.test")
+    state = {"running": {"node-omen2": "job-1-u000", "node-mac": None}, "calls": []}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        state["calls"].append((req.method, req.url.path))
+        if req.url.path == "/v1/ops/nodes":
+            return httpx.Response(200, json={"items": [{"node_id": k, "running_unit": v} for k, v in state["running"].items()]})
+        if req.url.path in ("/v1/ops/overview", "/v1/events/poll"):
+            return httpx.Response(200, json={"events": []})
+        return httpx.Response(200, json={"ok": True})
+    monkeypatch.setattr(live, "transport", httpx.MockTransport(handler))
+    yield state
+    for n in list(live._drained):
+        live._undrain(n, "cleanup")
+
+
+def test_kill_drains_and_auto_restores_once_the_unit_runs_elsewhere(client, nodes_api):
+    r = client.post("/api/live/kill", headers=H).json()
+    assert r["drained"] is True and r["unit"] == "job-1-u000"
+    assert ("POST", "/v1/ops/nodes/node-omen2/drain") in nodes_api["calls"]
+    st = client.get("/api/live/state").json()
+    assert st["drained"] == ["node-omen2"] and st["restored"] == []  # the unit has not moved yet
+    nodes_api["running"] = {"node-omen2": None, "node-mac": "job-1-u000"}  # node-mac picked it up
+    st = client.get("/api/live/state").json()
+    assert st["drained"] == [] and st["restored"][0]["undrained"] and "node-mac" in st["restored"][0]["why"]
+    assert nodes_api["calls"].count(("POST", "/v1/ops/nodes/node-omen2/undrain")) == 1
+
+
+def test_restore_button_undrains_now(client, nodes_api):
+    client.post("/api/live/kill", headers=H)
+    assert client.post("/api/live/restore", headers=H).status_code == 200
+    assert ("POST", "/v1/ops/nodes/node-omen2/undrain") in nodes_api["calls"] and not live._drained
+    assert client.post("/api/live/restore", headers=H).status_code == 200  # idempotent (undrain at the coordinator)
+    assert TestClient(dash.app, client=("10.0.0.9", 1)).post("/api/live/restore", headers=H).status_code == 403
+
+
+def test_auto_restore_after_the_timeout(client, nodes_api, monkeypatch):
+    monkeypatch.setattr(live, "DRAIN_RESTORE_S", 0.05)
+    client.post("/api/live/kill", headers=H)
+    import time as _t
+    _t.sleep(0.3)  # the timer fires even if nobody polls (page closed)
+    assert not live._drained
+    assert ("POST", "/v1/ops/nodes/node-omen2/undrain") in nodes_api["calls"]
+
+
+def test_page_shows_restore_while_drained():
+    html = (SITE / site_build.LIVE_PAGE).read_text(encoding="utf-8")
+    assert 'this.liveAct("restore")' in html and "ctl.drained" in html
+
+
+def test_pull_the_plug_moves_the_unit_to_the_other_node_on_a_real_coordinator(client, monkeypatch, tmp_path):
+    """#97 regression: kill alone let the scheduler re-lease the unit to the SAME node."""
+    coordinator_app = pytest.importorskip("coordinator.app")
+    import time as _t
+    from live_agent import wire
+    from trust import attest
+    toks = {"tok-admin": "admin", "tok-o": "node:node-omen2", "tok-m": "node:node-mac", "tok-so": "site:site-omen",
+            "tok-sm": "site:site-mac"}
+    reg = {n: {"certified": False, "max_classes": ["public"], "region": "CH-BS", "site_id": s}
+           for n, s in (("node-omen2", "site-omen"), ("node-mac", "site-mac"))}
+    cc = TestClient(coordinator_app.create_app(tmp_path / "coord", tokens=toks, registry=reg))
+    hdr = lambda t: {"Authorization": f"Bearer {t}"}  # noqa: E731
+    for n, t in (("node-omen2", "tok-o"), ("node-mac", "tok-m")):
+        ev = {"node_id": n, "region": "CH-BS", "measurement": "digitalheat-node-image-v1", "certified": False}
+        assert cc.post("/v1/nodes/register", headers=hdr(t), json={
+            "node_id": n, "site_id": reg[n]["site_id"], "eligible_classes": ["public"], "server_kw_el": 1.0,
+            "attestation": wire.attestation_to_json(attest(n, ev))}).status_code == 200
+        cc.post(f"/v1/nodes/{n}/heartbeat", headers=hdr(t), json={})
+    for s, t in (("site-omen", "tok-so"), ("site-mac", "tok-sm")):  # both houses want heat
+        cc.post(f"/v1/sites/{s}/signal", headers=hdr(t), json={"demand_kw": 6.0, "tank_level_kwh": 5.0, "ts": _t.time()})
+    assert cc.post("/v1/jobs", headers=hdr("tok-admin"), json={"job_type": "image_tagging", "customer_id": "c",
+                                                             "force": True}).status_code == 200
+    toks_of = {"node-omen2": "tok-o", "node-mac": "tok-m"}
+    victim = other_node = None
+    for n in ("node-omen2", "node-mac"):  # whichever node the scheduler gives the unit to is the one we unplug
+        lz = cc.post(f"/v1/nodes/{n}/lease", headers=hdr(toks_of[n])).json()
+        if "lease_id" in lz:
+            victim, unit = n, lz["unit"]["unit_id"]
+            break
+    assert victim, lz
+    other_node = "node-mac" if victim == "node-omen2" else "node-omen2"
+    monkeypatch.setenv("DH_LIVE_KILL_NODE", victim)
+    cc.post(f"/v1/nodes/{victim}/heartbeat", headers=hdr(toks_of[victim]), json={"running_unit": unit, "progress": 0.3})
+    tok = tmp_path / "admin"
+    tok.write_text("tok-admin")
+    monkeypatch.setenv("DH_LIVE_ACTIONS", "1")
+    monkeypatch.setenv("DH_ADMIN_TOKEN_FILE", str(tok))
+    monkeypatch.setenv("DH_COORDINATOR_URL", "http://coord.test")
+    monkeypatch.setattr(live, "transport", httpx.MockTransport(
+        lambda req: cc.request(req.method, req.url.raw_path.decode(), content=req.content, headers=dict(req.headers))))
+    try:
+        k = client.post("/api/live/kill", headers=H)
+        assert k.status_code == 200, k.text
+        assert k.json()["unit"] == unit, k.json()
+        again = cc.post(f"/v1/nodes/{victim}/lease", headers=hdr(toks_of[victim])).json()
+        assert "lease_id" not in again  # drained: the killed node does NOT get its unit back
+        cc.post(f"/v1/nodes/{other_node}/heartbeat", headers=hdr(toks_of[other_node]), json={})
+        other = cc.post(f"/v1/nodes/{other_node}/lease", headers=hdr(toks_of[other_node])).json()
+        assert other.get("unit", {}).get("unit_id") == unit, other  # it moved to the OTHER node
+        cc.post(f"/v1/nodes/{other_node}/heartbeat", headers=hdr(toks_of[other_node]),
+                json={"running_unit": unit, "progress": 0.0})
+        st = client.get("/api/live/state").json()
+        assert st["drained"] == [] and other_node in st["restored"][0]["why"]  # auto-undrained
+    finally:
+        for n in list(live._drained):
+            live._undrain(n, "cleanup")

@@ -41,13 +41,20 @@ def H(who):
 @pytest.fixture
 def env(tmp_path):
     clock = Clock()
-    box = {"app": create_app(tmp_path, tokens=ROLES, clock=clock)}
+    def make():
+        app = create_app(tmp_path, tokens=ROLES, clock=clock)
+        # test seam: the limiter runs on real monotonic time (v1.1); these tests compress time with the
+        # injected clock, so they hand the limiter the same simulated time
+        app.state.limiter.clock = clock
+        return app
+
+    box = {"app": make()}
 
     def client():
         return TestClient(box["app"])
 
     def restart():
-        box["app"] = create_app(tmp_path, tokens=ROLES, clock=clock)
+        box["app"] = make()
 
     return type("Env", (), {"clock": clock, "client": staticmethod(client), "restart": staticmethod(restart),
                             "dir": tmp_path})
@@ -258,9 +265,11 @@ def test_bad_attestation_is_403_and_audited(env):
 
 def test_rate_limit_429(env):
     c = env.client()
+    mono = Clock(0.0)
+    c.app.state.limiter.clock = mono  # the limiter's own monotonic clock (v1.1), frozen for the test
     codes = [c.get("/v1/status", headers=H("observer")).status_code for _ in range(45)]
     assert codes[:40] == [200] * 40 and 429 in codes[40:]
-    env.clock.t += 1.0  # refill
+    mono.t += 1.0  # refill (real time; the coordinator clock is irrelevant)
     assert c.get("/v1/status", headers=H("observer")).status_code == 200
     assert c.get("/v1/status", headers=H("admin")).status_code == 200  # per token
 

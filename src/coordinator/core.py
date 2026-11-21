@@ -7,6 +7,13 @@ never forked); admission via `scheduler.admit`; units via `jobs.arrivals.to_unit
 Time: every method takes `now` from the injected clock. Lease timers freeze while the coordinator is down:
 on start, leases are first lapsed as of the last moment the coordinator was alive (`meta.alive_at`), then
 every still-active lease and node timer is shifted by the downtime.
+
+Heat signals (v1.1): `POST /v1/sites/{site_id}/signal` stores the latest {demand_kw, tank_level_kwh, ts} per site
+(table `sites`). Every decide() tick uses it for each node of that site; it wins over the legacy heartbeat
+fields (kept for backward compatibility). Its age is measured on the coordinator's clock from receipt.
+`status()["sites"]` reports per site the heat produced by the nodes holding active leases there
+(server_kw_el x heat_recovery_fraction) as `heat_produced_kw`; `heat_used_kw` is the same number (all
+recovered heat goes to the house/tank; the simulator clamps the tank at its capacity = dump).
 """
 from __future__ import annotations
 
@@ -42,6 +49,7 @@ HEARTBEAT_S = 2.0
 SUSPECT_S = 6.0
 LEASE_S = 15.0
 SIGNAL_MAX_AGE_S = 2 * HEARTBEAT_S  # "older than 2 ticks" -> degraded
+MAX_CHUNKS, MAX_ROUNDS = 2000, 10_000_000  # bounds for JobIn.chunks / JobIn.rounds (v2.1 demo sizing)
 CHUNKS_PER_UNIT = 20  # a unit (~15 min) is N runner chunks; completion must report exactly 0..N-1
 HOLD_RETRY_S = 5.0
 REGION_KEY = "region"
@@ -125,6 +133,7 @@ class Coordinator:
                 if down > 0:
                     db.execute("UPDATE leases SET expires_at = expires_at + ? WHERE state='active'", (down,))
                     db.execute("UPDATE nodes SET last_hb = last_hb + ?, signal_at = signal_at + ?", (down, down))
+                    db.execute("UPDATE sites SET received_at = received_at + ?", (down,))
                     self._audit(db, {"type": "coordinator_restart", "downtime_s": round(down, 3)})
             self._touch(db, now)
 
@@ -175,8 +184,19 @@ class Coordinator:
         return Unit(r["unit_id"], r["job_id"], r["job_class"], r["access_class"], r["kwh_el"], r["bid"],
                     r["deadline_hour"], r["slack_h"], bool(r["checkpointable"]))
 
+    @staticmethod
+    def _with_signal(db, n) -> dict | None:
+        """The node row with its site's latest signal (if any) overriding the legacy heartbeat fields."""
+        if n is None:
+            return None
+        d = dict(n)
+        s = db.execute("SELECT * FROM sites WHERE site_id=?", (d["site_id"],)).fetchone()
+        if s is not None:
+            d.update(demand_kw=s["demand_kw"], tank_level_kwh=s["tank_level_kwh"], signal_at=s["received_at"])
+        return d
+
     def _node(self, db, node_id: str):
-        n = db.execute("SELECT * FROM nodes WHERE node_id=?", (node_id,)).fetchone()
+        n = self._with_signal(db, db.execute("SELECT * FROM nodes WHERE node_id=?", (node_id,)).fetchone())
         if n is None:
             raise CoordError(404, "node not registered")
         return n
@@ -186,8 +206,33 @@ class Coordinator:
         return trust.Attestation(d["node_id"], d["evidence"], base64.b64decode(d["signature_b64"]))
 
     def _live(self, db, now: float, requester: str):
-        return [n for n in db.execute("SELECT * FROM nodes WHERE tampered=0 ORDER BY node_id").fetchall()
+        return [self._with_signal(db, n)
+                for n in db.execute("SELECT * FROM nodes WHERE tampered=0 ORDER BY node_id").fetchall()
                 if n["node_id"] == requester or now - n["last_hb"] <= SUSPECT_S]
+
+    # ------------------------------------------------------------------ site signals (v1.1)
+    def site_signal(self, site_id: str, demand_kw: float, tank_level_kwh: float, ts: float) -> dict:
+        now = self.clock()
+        cap = float(self.a["house"]["tank_kwh"])
+        if tank_level_kwh > cap + 1e-9:
+            raise CoordError(422, f"tank_level_kwh must be <= the tank capacity {cap}")
+        with self._tx() as db:
+            self._touch(db, now)
+            self._expire(db, now)
+            db.execute("""INSERT INTO sites(site_id, demand_kw, tank_level_kwh, ts, received_at) VALUES(?,?,?,?,?)
+                          ON CONFLICT(site_id) DO UPDATE SET demand_kw=excluded.demand_kw,
+                          tank_level_kwh=excluded.tank_level_kwh, ts=excluded.ts, received_at=excluded.received_at""",
+                       (site_id, float(demand_kw), float(tank_level_kwh), float(ts), now))
+            heat = self._site_heat(db).get(site_id, 0.0)
+        return {"ok": True, "site_id": site_id, "heat_produced_kw": heat, "heat_used_kw": heat}
+
+    def _site_heat(self, db) -> dict[str, float]:
+        frac = float(self.a["server"]["heat_recovery_fraction"])
+        out: dict[str, float] = {}
+        for r in db.execute("""SELECT n.site_id, n.server_kw_el FROM leases l JOIN nodes n ON n.node_id = l.node_id
+                               WHERE l.state='active'""").fetchall():
+            out[r["site_id"]] = round(out.get(r["site_id"], 0.0) + float(r["server_kw_el"]) * frac, 6)
+        return out
 
     # ------------------------------------------------------------------ nodes
     def register(self, node_id: str, site_id: str, eligible: list[str], kw: float, att: dict) -> dict:
@@ -284,9 +329,12 @@ class Coordinator:
             self._persist_audit(db)
             if isinstance(key, trust.Denied):
                 return {"hold": True, "reason": f"key denied: {key.reason}", "retry_after_s": HOLD_RETRY_S}
-        return {"unit": {"unit_id": u["unit_id"], "job_id": u["job_id"], "job_type": u["job_class"],
-                         "access_class": u["access_class"], "chunks": u["chunks"], "kwh_el": u["kwh_el"],
-                         "deadline_hour": u["deadline_hour"]},
+        unit = {"unit_id": u["unit_id"], "job_id": u["job_id"], "job_type": u["job_class"],
+                "access_class": u["access_class"], "chunks": u["chunks"], "kwh_el": u["kwh_el"],
+                "deadline_hour": u["deadline_hour"]}
+        if u["rounds"] is not None:
+            unit["rounds"] = u["rounds"]
+        return {"unit": unit,
                 "lease_id": lease["lease_id"], "expires_in_s": round(lease["expires_at"] - now, 3),
                 "renew_every_s": LEASE_S / 3,
                 "checkpoint_url": f"/v1/checkpoints/{u['unit_id']}/latest" if has_ckpt else None,
@@ -417,8 +465,12 @@ class Coordinator:
 
     # ------------------------------------------------------------------ admin / observer
     def submit_job(self, job_type: str, customer_id: str, access_class: str | None, deadline_h: float | None,
-                   force: bool) -> dict:
+                   force: bool, rounds: int | None = None, chunks: int | None = None) -> dict:
         now = self.clock()
+        if chunks is not None and not 1 <= chunks <= MAX_CHUNKS:
+            raise CoordError(422, f"chunks must be in [1, {MAX_CHUNKS}]")
+        if rounds is not None and not 1 <= rounds <= MAX_ROUNDS:
+            raise CoordError(422, f"rounds must be in [1, {MAX_ROUNDS}]")
         if job_type not in self.catalogue:
             raise CoordError(422, f"unknown job_type; one of {sorted(self.catalogue)}")
         jt = self.catalogue[job_type]
@@ -459,10 +511,12 @@ class Coordinator:
                         reason))
             if ok:
                 for i, u in enumerate(units):
-                    db.execute("INSERT INTO units VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    db.execute("""INSERT INTO units(unit_id, job_id, seq, job_class, access_class, kwh_el, bid,
+                                  deadline_hour, slack_h, checkpointable, chunks, state, rounds)
+                                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                                (u.unit_id, job_id, i, u.job_class, u.access_class, u.kwh_el, u.bid_chf_per_server_h,
-                                u.deadline_hour, u.slack_h, int(u.checkpointable), CHUNKS_PER_UNIT, "pending",
-                                None, None, None, None))
+                                u.deadline_hour, u.slack_h, int(u.checkpointable), chunks or CHUNKS_PER_UNIT,
+                                "pending", rounds))
             self._audit(db, {"type": "submit", "job": job_id, "admitted": ok, "reason": reason, "units": len(units)})
             self._persist_audit(db)
         out = {"job_id": job_id, "admitted": ok, "reason": reason, "units": len(units) if ok else 0}
@@ -498,7 +552,13 @@ class Coordinator:
                       "tampered": bool(n["tampered"]), "watts": n["watts"], "running_unit": n["running_unit"],
                       "progress": n["progress"], "mode_running": bool(n["mode_running"]),
                       "last_error": n["last_error"]}
-                     for n in db.execute("SELECT * FROM nodes ORDER BY node_id")]
+                     for n in (self._with_signal(db, r) for r in db.execute("SELECT * FROM nodes ORDER BY node_id"))]
+            heat = self._site_heat(db)
+            sites = [{"site_id": r["site_id"], "demand_kw": r["demand_kw"], "tank_level_kwh": r["tank_level_kwh"],
+                      "ts": r["ts"], "age_s": round(now - r["received_at"], 3),
+                      "degraded": now - r["received_at"] > SIGNAL_MAX_AGE_S,
+                      "heat_produced_kw": heat.get(r["site_id"], 0.0), "heat_used_kw": heat.get(r["site_id"], 0.0)}
+                     for r in db.execute("SELECT * FROM sites ORDER BY site_id")]
             leases = [dict(r) | {"expires_in_s": round(r["expires_at"] - now, 3)}
                       for r in db.execute("SELECT lease_id, unit_id, node_id, expires_at FROM leases "
                                           "WHERE state='active' ORDER BY issued_at")]
@@ -507,5 +567,5 @@ class Coordinator:
             queue = {r["state"]: r["c"] for r in db.execute("SELECT state, COUNT(*) c FROM units GROUP BY state")}
             audit = [json.loads(r["event"]) | {"idx": r["idx"]}
                      for r in db.execute("SELECT idx, event FROM audit ORDER BY idx DESC LIMIT 20")]
-        return {"version": VERSION, "nodes": nodes, "leases": leases, "queue": queue, "recent_audit": audit,
+        return {"version": VERSION, "nodes": nodes, "sites": sites, "leases": leases, "queue": queue, "recent_audit": audit,
                 "audit_verifies": self.broker.verify_audit(), "degraded": [n["node_id"] for n in nodes if n["degraded"]]}

@@ -74,7 +74,8 @@ class Config:
     upload_s: float = 10.0
     stop_grace_s: float = 5.0
     poll_s: float = 0.05
-    default_rounds: int = 50
+    default_rounds: int = 50  # v2.1: used only when the unit carries no `rounds` (CLI --rounds)
+    default_chunks: int = 20  # v2.1: used only when the unit carries no `chunks` (CLI --chunks)
 
     def __post_init__(self) -> None:
         if not ID_RE.match(self.node_id) or not ID_RE.match(self.site_id):
@@ -227,7 +228,7 @@ class Agent:
         if lease.get("checkpoint_url"):
             if not self._restore(lease["checkpoint_url"], key, ckpt, out):
                 return "lapsed"
-        chunks = int(u["chunks"])
+        chunks = int(u.get("chunks") or self.cfg.default_chunks)  # the unit's value wins (v2.1)
         rounds = int(u.get("rounds") or (1 if self.cfg.backend == "fake" else self.cfg.default_rounds))
         renew_s = min(self.cfg.renew_s, float(lease.get("renew_every_s", self.cfg.renew_s)))
         cmd = [self.cfg.python, "-m", "jobs.runner", job_type, "--checkpoint", str(ckpt), "--out", str(out),

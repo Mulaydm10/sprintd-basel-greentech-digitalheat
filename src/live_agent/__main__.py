@@ -39,12 +39,17 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--eligible", default="public", help="comma-separated access classes this node may run")
     p.add_argument("--certified", action="store_true", help="evidence flag for the (mock) attestation")
     p.add_argument("--server-kw-el", type=float, default=1.0)
+    p.add_argument("--rounds", type=int, default=None,
+                   help="runner rounds per chunk when the unit does not set them (default 50; fake: 1)")
+    p.add_argument("--chunks", type=int, default=None, help="chunks per unit when the unit does not set them")
     p.add_argument("-v", "--verbose", action="store_true")
     a = p.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if a.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     cfg = Config(node_id=a.node_id, site_id=a.site_id or a.node_id, eligible_classes=a.eligible.split(","),
-                 server_kw_el=a.server_kw_el, certified=a.certified, backend=a.backend)
+                 server_kw_el=a.server_kw_el, certified=a.certified, backend=a.backend,
+                 **({"default_rounds": a.rounds} if a.rounds else {}),
+                 **({"default_chunks": a.chunks} if a.chunks else {}))
     tok = read_token(a.token_file)
     stop = threading.Event()
     for s in (signal.SIGINT, signal.SIGTERM):

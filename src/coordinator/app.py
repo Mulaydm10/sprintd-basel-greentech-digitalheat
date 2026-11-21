@@ -22,7 +22,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from .auth import BodyLimit, Principal, RateLimiter, authenticate, load_tokens
-from .core import VERSION, CoordError, Coordinator
+from .core import MAX_CHUNKS, MAX_ROUNDS, VERSION, CoordError, Coordinator
 
 log = logging.getLogger("coordinator")
 
@@ -76,6 +76,15 @@ class JobIn(Strict):
     access_class: CLASSES | None = None
     deadline_h: Annotated[float, Field(gt=0, le=24 * 365, allow_inf_nan=False)] | None = None
     force: bool = False
+    rounds: Annotated[int, Field(ge=1, le=MAX_ROUNDS)] | None = None  # v2.1: runner rounds per chunk
+    chunks: Annotated[int, Field(ge=1, le=MAX_CHUNKS)] | None = None  # v2.1: runner chunks per unit
+
+
+class SignalIn(Strict):
+    """v1.1 site heat signal; tank_level_kwh <= the tank capacity is checked in core (422)."""
+    demand_kw: Annotated[float, Field(ge=0, le=1e4, allow_inf_nan=False)]
+    tank_level_kwh: Annotated[float, Field(ge=0, le=1e4, allow_inf_nan=False)]
+    ts: Annotated[float, Field(ge=0, le=1e11, allow_inf_nan=False)]
 
 
 def create_app(state_dir: Path, tokens: dict[str, str] | None = None, clock=time.time,
@@ -83,10 +92,11 @@ def create_app(state_dir: Path, tokens: dict[str, str] | None = None, clock=time
     state_dir = Path(state_dir)
     tokens = tokens if tokens is not None else load_tokens(state_dir / "tokens.json")
     coord = Coordinator(state_dir, clock, assumptions)
-    limiter = RateLimiter(RATE, BURST, clock)
+    limiter = RateLimiter(RATE, BURST)  # real monotonic clock, never the injected one (v1.1)
     app = FastAPI(title="DigitalHeat coordinator", version=VERSION, docs_url=None, redoc_url=None,
                   openapi_url=None)
     app.state.coord = coord
+    app.state.limiter = limiter
     app.add_middleware(BodyLimit, default=BODY_MAX, large=CKPT_MAX,
                        large_path=re.compile(r"^/v1/leases/[a-z0-9-]{1,64}/checkpoint$"))
 
@@ -175,7 +185,14 @@ def create_app(state_dir: Path, tokens: dict[str, str] | None = None, clock=time
     @app.post("/v1/jobs")
     def submit(body: JobIn, p: Principal = Depends(principal)):
         admin_only(p)
-        return coord.submit_job(body.job_type, body.customer_id, body.access_class, body.deadline_h, body.force)
+        return coord.submit_job(body.job_type, body.customer_id, body.access_class, body.deadline_h, body.force,
+                                body.rounds, body.chunks)
+
+    @app.post("/v1/sites/{site_id}/signal")
+    def site_signal(site_id: PathId, body: SignalIn, p: Principal = Depends(principal)):
+        if not (p.role == "admin" or (p.role == "site" and p.site_id == site_id)):
+            raise HTTPException(403, "admin or this site's token required")
+        return coord.site_signal(site_id, body.demand_kw, body.tank_level_kwh, body.ts)
 
     @app.post("/v1/nodes/{node_id}/tamper")
     def tamper(node_id: PathId, p: Principal = Depends(principal)):

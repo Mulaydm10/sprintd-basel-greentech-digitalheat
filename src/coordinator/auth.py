@@ -1,6 +1,6 @@
 """Bearer-token auth, roles, per-token rate limit and request-size limits (coordinator v1: the URL is public).
 
-tokens.json (never committed, lives under runs/coordinator/): {"<token>": "admin" | "observer" | "node:<id>"}.
+tokens.json (never committed, lives under runs/coordinator/): {"<token>": "admin" | "observer" | "node:<id>" | "site:<id>"}.
 Every token is compared with hmac.compare_digest and the loop never exits early, so timing does not reveal
 which prefix matched.
 """
@@ -10,19 +10,21 @@ import hmac
 import json
 import re
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
 ID_RE = re.compile(r"^[a-z0-9-]{1,64}$")
-ROLE_RE = re.compile(r"^(admin|observer|node:[a-z0-9-]{1,64})$")
+ROLE_RE = re.compile(r"^(admin|observer|node:[a-z0-9-]{1,64}|site:[a-z0-9-]{1,64})$")
 
 
 @dataclass(frozen=True)
 class Principal:
-    role: str  # admin | observer | node
+    role: str  # admin | observer | node | site
     node_id: str | None = None
     token_id: str = ""  # stable, non-secret key for rate limiting (index in the token file)
+    site_id: str | None = None
 
 
 def load_tokens(path: Path) -> dict[str, str]:
@@ -50,13 +52,18 @@ def authenticate(header: str | None, tokens: dict[str, str]) -> Principal | None
     i, role = found
     if role.startswith("node:"):
         return Principal("node", role.split(":", 1)[1], f"t{i}")
+    if role.startswith("site:"):
+        return Principal("site", None, f"t{i}", role.split(":", 1)[1])
     return Principal(role, None, f"t{i}")
 
 
 class RateLimiter:
-    """Token bucket per principal: `rate` requests/s, bursts up to `burst`."""
+    """Token bucket per principal: `rate` requests/s, bursts up to `burst`.
 
-    def __init__(self, rate: float, burst: float, clock: Callable[[], float]):
+    Always a real monotonic clock (coordinator v1.1): never the coordinator's injected (possibly frozen or
+    simulated) clock, which would 429 a token forever once its bucket is empty."""
+
+    def __init__(self, rate: float, burst: float, clock: Callable[[], float] = time.monotonic):
         self.rate, self.burst, self.clock = rate, burst, clock
         self.state: dict[str, tuple[float, float]] = {}
         self.lock = threading.Lock()

@@ -95,7 +95,6 @@ def test_negative_seed_is_a_typed_error(profile):
         _year(profile, seed=-1)
 
 
-@pytest.mark.xfail(strict=True, reason="#17 r2 F12: run ids collide for distinct inputs")
 def test_finding_run_id_collides_for_distinct_inputs():
     """cli.py _run_id formats load with :g (6 significant digits): load 0.4 and 0.4000001 map to the same
     runs/<id>/ directory, so the second run silently overwrites the first one's balance.json."""
@@ -103,13 +102,11 @@ def test_finding_run_id_collides_for_distinct_inputs():
 
 
 # ============================================================ corrupt or missing assumptions
-@pytest.mark.xfail(strict=True, reason="#17 r2 F13: heat_value_divisor = 0 -> raw ZeroDivisionError")
 def test_finding_zero_heat_value_divisor_raw_zero_division(profile):
     with pytest.raises(TYPED):
         _year(profile, _with(("price", "heat_value_divisor"), 0))
 
 
-@pytest.mark.xfail(strict=True, reason="#17 r2 F14: negative heat_value_divisor accepted silently")
 def test_finding_negative_heat_value_divisor_gives_negative_heat_value(profile):
     try:
         b = _year(profile, _with(("price", "heat_value_divisor"), -2.5))
@@ -118,13 +115,11 @@ def test_finding_negative_heat_value_divisor_gives_negative_heat_value(profile):
     assert b["heat_value_chf"] >= 0, b["heat_value_chf"]
 
 
-@pytest.mark.xfail(strict=True, reason="#17 r2 F15: unit_minutes = 0 -> raw ZeroDivisionError")
 def test_finding_zero_unit_minutes_raw_zero_division(profile):
     with pytest.raises(TYPED):
         _year(profile, _with(("scheduler", "unit_minutes"), 0))
 
 
-@pytest.mark.xfail(strict=True, reason="#17 r2 F16: missing assumptions section -> raw KeyError")
 def test_finding_missing_assumptions_section_raw_keyerror(profile):
     a = copy.deepcopy(A)
     del a["scheduler"]
@@ -141,7 +136,6 @@ def test_corrupt_values_are_typed_errors(profile, path, value):
 
 
 # ============================================================ sweep resilience
-@pytest.mark.xfail(strict=True, reason="#17 r2 F17: one crashing cell kills the whole sweep")
 def test_finding_one_crashing_cell_kills_the_sweep(tmp_path, monkeypatch):
     """cli.sweep uses list(ex.map(...)): the first exception propagates and every other cell's result is lost.
     Expected: the sweep finishes and records the failed cell (error column or separate log)."""
@@ -194,7 +188,6 @@ def test_non_conserving_route_is_caught(profile, monkeypatch):
         _year(profile)
 
 
-@pytest.mark.xfail(strict=True, reason="#17 r2 F18: missing SetPower -> raw StopIteration")
 def test_finding_decision_without_setpower_raw_stopiteration(profile, monkeypatch):
     orig = sim.decide
 
@@ -207,7 +200,6 @@ def test_finding_decision_without_setpower_raw_stopiteration(profile, monkeypatc
         _year(profile)
 
 
-@pytest.mark.xfail(strict=True, reason="#17 r2 F19: conservation checks are asserts, removed by python -O")
 def test_finding_conservation_checks_vanish_under_python_O():
     """sim.py step 4 guards energy conservation with `assert`. Under `python -O` (or PYTHONOPTIMIZE) a decide()
     that dumps 5 kWh/h it never produced runs to completion and reports 43,800 kWh of phantom dumped heat."""

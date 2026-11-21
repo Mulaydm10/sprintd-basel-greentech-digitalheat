@@ -136,3 +136,25 @@ def test_cli_writes_markdown(tmp_path, monkeypatch):
     assert pm.main(["--out", str(out), "--runs", str(tmp_path / "runs"), "--servers", "1", "--no-card"]) == 0
     text = out.read_text()
     assert "annual heat demand" in text and "code sha" in text and "thermostat-n1" in text
+
+
+# ------------------------------------------------------------------ #56 (red team F31, F32)
+@pytest.mark.parametrize("text,expected", [
+    ("server:\n  # ASSUMED: placeholder until measured\n  electric_kw: 1.0\n", {"server.electric_kw"}),  # F31
+    ("# ASSUMED, unsourced\nhardware:\n  capex: 1\n", {"hardware"}),                                  # above section
+    ("server:\n  # note\n  # ASSUMED too\n  electric_kw: 1.0\n  other: 2\n", {"server.electric_kw"}),  # block, 1 key
+    ("server:\n  # ASSUMED\n\n  electric_kw: 1.0\n", set()),                                        # blank line breaks it
+    ("price:\n  chf_per_kwh: 0.33  # verified (ElCom), NOT ASSUMED\n", set()),                       # F32
+    ("price:\n  chf_per_kwh: 0.33  # not ASSUMED\n", set()),
+    ("price:\n  chf_per_kwh: 0.33  # assumed? no: lowercase is not the marker\n", set()),
+    ("price:\n  chf_per_kwh: 0.33  # NOT ASSUMED here, but ASSUMED there\n", {"price.chf_per_kwh"}),
+    ("x:\n  y: 1  # UNASSUMED\n", set()),                                                            # whole word only
+])
+def test_assumed_paths_comment_above_and_negation(text, expected):
+    assert assumed_paths(text) == expected
+
+
+def test_real_yaml_unchanged_by_the_fix():
+    a = assumed_paths(YAML)
+    assert {"hardware", "ballast.bid_chf_per_server_h"} <= a
+    assert not section_assumed(a, "price") and not section_assumed(a, "house")

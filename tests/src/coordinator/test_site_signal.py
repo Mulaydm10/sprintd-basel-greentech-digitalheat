@@ -106,6 +106,26 @@ def test_make_site_tokens(tmp_path):
         make_tokens(tmp_path / "x.json", [], ["Bad/Id"])
 
 
+def test_make_tokens_adds_missing_roles(tmp_path, capsys):
+    import os
+    import stat
+    from coordinator.__main__ import main
+    p = tmp_path / "tokens.json"
+    assert make_tokens(p, ["node-a"])
+    before = load_tokens(p)
+    assert main(["--state", str(tmp_path), "--make-site-tokens", "site-a"]) == 0
+    after = load_tokens(p)
+    assert all(after[t] == r for t, r in before.items())  # existing tokens unchanged
+    assert sorted(after.values()) == ["admin", "node:node-a", "observer", "site:site-a"]
+    out = capsys.readouterr().out
+    assert not any(t in out for t in after)  # never printed
+    if os.name == "posix":
+        assert stat.S_IMODE(p.stat().st_mode) == 0o600
+    assert not make_tokens(p, ["node-a"], ["site-a"])  # nothing missing: no rewrite
+    assert load_tokens(p) == after
+    assert [x.name for x in tmp_path.iterdir()] == ["tokens.json"]  # no temp left behind
+
+
 # ------------------------------------------------------------------ sitesim
 def profile():
     from house_model import load_reference_profile

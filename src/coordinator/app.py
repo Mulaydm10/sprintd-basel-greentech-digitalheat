@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Path as PathParam, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -61,6 +62,7 @@ class HeartbeatIn(Strict):
     progress: Annotated[float, Field(ge=0, le=1, allow_inf_nan=False)] | None = None
     tank_level_kwh: Annotated[float, Field(ge=0, le=1e4, allow_inf_nan=False)] | None = None
     demand_kw: Annotated[float, Field(ge=0, le=1e4, allow_inf_nan=False)] | None = None
+    last_error: Annotated[str, Field(max_length=500)] | None = None
 
 
 class CompleteIn(Strict):
@@ -91,6 +93,13 @@ def create_app(state_dir: Path, tokens: dict[str, str] | None = None, clock=time
     @app.exception_handler(CoordError)
     async def _coord_err(_req, e: CoordError):
         return JSONResponse({"detail": e.detail}, status_code=e.status)
+
+    @app.exception_handler(RequestValidationError)
+    async def _invalid(_req, e: RequestValidationError):
+        # never echo the offending input back (NaN/inf would even break JSON encoding -> 500)
+        errs = [{"loc": [str(x) for x in err.get("loc", ())], "msg": str(err.get("msg", "")), "type": err.get("type")}
+                for err in e.errors()]
+        return JSONResponse({"detail": errs}, status_code=422)
 
     @app.exception_handler(Exception)
     async def _any(_req, e: Exception):  # never leak internals on a public URL

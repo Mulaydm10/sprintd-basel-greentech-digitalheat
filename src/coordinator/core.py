@@ -137,6 +137,8 @@ class Coordinator:
 
     # ------------------------------------------------------------------ helpers
     def _expire(self, db, now: float) -> None:
+        # a paused lease no longer holds its unit (already pending); it only lapses its final-upload window
+        db.execute("UPDATE leases SET state='lapsed' WHERE state='paused' AND expires_at <= ?", (now,))
         for r in db.execute("SELECT lease_id, unit_id, node_id FROM leases WHERE state='active' AND expires_at <= ?",
                             (now,)).fetchall():
             db.execute("UPDATE leases SET state='lapsed' WHERE lease_id=?", (r["lease_id"],))
@@ -217,7 +219,7 @@ class Coordinator:
             self._expire(db, now)
             self._node(db, node_id)
             sets = {"last_hb": now, "watts": hb.get("watts"), "running_unit": hb.get("running_unit"),
-                    "progress": hb.get("progress")}
+                    "progress": hb.get("progress"), "last_error": hb.get("last_error")}
             if hb.get("tank_level_kwh") is not None or hb.get("demand_kw") is not None:
                 sets.update(tank_level_kwh=hb.get("tank_level_kwh"), demand_kw=hb.get("demand_kw"), signal_at=now)
             db.execute(f"UPDATE nodes SET {', '.join(k + '=?' for k in sets)} WHERE node_id=?",
@@ -300,6 +302,13 @@ class Coordinator:
         return lz
 
     def renew(self, node_id: str, lease_id: str) -> dict:
+        """Extend the lease, unless the heat signal says this unit should stop on this node now.
+
+        Each renewal re-runs the policy for this unit on this node's own site (same decide(), imported). If it
+        is held (no heat wanted / site idle / bid below MC) and not deadline-forced, the lease is PAUSED: the
+        reply is {hold}, the unit returns to pending at once (another node with heat demand can lease it:
+        migration = lease end + reassign), and the paused lease accepts ONE final checkpoint upload within
+        LEASE_S before it is released. Renew/complete on a paused or released lease -> 410."""
         now = self.clock()
         with self._tx() as db:
             self._touch(db, now)
@@ -307,6 +316,25 @@ class Coordinator:
             lz = self._owned_lease(db, lease_id, node_id)
             if lz["state"] != "active":
                 raise CoordError(410, f"lease {lz['state']}: stop and discard local work")
+            me = self._node(db, node_id)
+            u = db.execute("SELECT * FROM units WHERE unit_id=?", (lz["unit_id"],)).fetchone()
+            hour = self._hour(now)
+            degraded = self._degraded(me, now)
+            params = Params.from_assumptions(self.a, policy="merit", slack_enabled=not degraded)
+            dec = decide([self._site(me, hour)], [self._unit(u)], hour, params)
+            db.execute("UPDATE nodes SET mode_running=? WHERE node_id=?", (int(dec.next_mode[node_id]), node_id))
+            held = next((x for x in dec.actions if isinstance(x, Hold) and x.unit_id == u["unit_id"]), None)
+            if held is None and degraded:
+                r = next(x for x in dec.actions if isinstance(x, Route) and x.site_id == node_id)
+                if r.dump_kwh > 0 and r.space_kwh + r.dhw_kwh + r.tank_kwh <= 1e-9:
+                    held = Hold(u["unit_id"], "degraded: no dump-only work on stale heat data")
+            if held is not None:
+                db.execute("UPDATE leases SET state='paused', expires_at=? WHERE lease_id=?", (now + LEASE_S, lease_id))
+                db.execute("UPDATE units SET state='pending' WHERE unit_id=? AND state='leased'", (u["unit_id"],))
+                self._audit(db, {"type": "lease_paused", "lease": lease_id, "unit": u["unit_id"], "node": node_id,
+                                 "reason": held.reason, "degraded": degraded})
+                return {"hold": True, "reason": held.reason, "retry_after_s": HOLD_RETRY_S,
+                        "final_checkpoint_within_s": LEASE_S, "degraded": degraded}
             db.execute("UPDATE leases SET expires_at=? WHERE lease_id=?", (now + LEASE_S, lease_id))
         return {"ok": True, "expires_in_s": LEASE_S}
 
@@ -319,9 +347,11 @@ class Coordinator:
             self._touch(db, now)
             self._expire(db, now)
             lz = self._owned_lease(db, lease_id, node_id)
-            if lz["state"] != "active":
+            if lz["state"] not in ("active", "paused"):
                 raise CoordError(410, f"lease {lz['state']}")
-            u = db.execute("SELECT chunks FROM units WHERE unit_id=?", (lz["unit_id"],)).fetchone()
+            u = db.execute("SELECT chunks, state FROM units WHERE unit_id=?", (lz["unit_id"],)).fetchone()
+            if lz["state"] == "paused" and u["state"] != "pending":
+                raise CoordError(410, "unit already re-leased; final checkpoint no longer accepted")
             if not 0 <= next_chunk <= u["chunks"]:
                 raise CoordError(422, f"next_chunk must be in [0, {u['chunks']}]")
             seq = (db.execute("SELECT MAX(seq) FROM checkpoints WHERE unit_id=?", (lz["unit_id"],)).fetchone()[0]
@@ -337,6 +367,10 @@ class Coordinator:
             db.execute("INSERT INTO checkpoints VALUES(?,?,?,?,?,?,?,?)",
                        (lz["unit_id"], seq, next_chunk, out_bytes, sha256, str(final.relative_to(self.dir)),
                         node_id, now))
+            if lz["state"] == "paused":  # the one final checkpoint after a pause
+                db.execute("UPDATE leases SET state='released' WHERE lease_id=?", (lease_id,))
+                self._audit(db, {"type": "lease_released", "lease": lease_id, "unit": lz["unit_id"], "node": node_id,
+                                 "next_chunk": next_chunk})
         return {"ok": True, "seq": seq}
 
     def latest_checkpoint(self, node_id: str, unit_id: str) -> tuple[bytes, dict]:
@@ -462,7 +496,8 @@ class Coordinator:
             nodes = [{"node_id": n["node_id"], "site_id": n["site_id"], "region": n["region"],
                       "suspect": now - n["last_hb"] > SUSPECT_S, "degraded": self._degraded(n, now),
                       "tampered": bool(n["tampered"]), "watts": n["watts"], "running_unit": n["running_unit"],
-                      "progress": n["progress"], "mode_running": bool(n["mode_running"])}
+                      "progress": n["progress"], "mode_running": bool(n["mode_running"]),
+                      "last_error": n["last_error"]}
                      for n in db.execute("SELECT * FROM nodes ORDER BY node_id")]
             leases = [dict(r) | {"expires_in_s": round(r["expires_at"] - now, 3)}
                       for r in db.execute("SELECT lease_id, unit_id, node_id, expires_at FROM leases "

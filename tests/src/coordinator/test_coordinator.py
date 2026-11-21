@@ -419,7 +419,7 @@ def test_property_random_kills_exactly_once(env, seed):
     units = 0
     for jt in ("image_tagging", "whisper_transcription", "image_tagging"):
         units += submit(c, job_type=jt)["units"]
-    completions = 0
+    completions = pauses = 0
     for _step in range(6000):
         env.clock.t += 0.25  # real time passes: keeps every token under its rate limit, lets idle leases lapse
         st = c.get("/v1/status", headers=H("admin")).json()
@@ -436,7 +436,8 @@ def test_property_random_kills_exactly_once(env, seed):
         if rng.random() < 0.05:
             n.crash()  # node dies: loses everything local
             continue
-        hb(c, n.name)
+        warm = rng.random() < 0.3
+        hb(c, n.name, demand=0.0 if warm else 5.0, tank=35.0 if warm else 5.0)
         if n.lease is None:
             L = lease(c, n.name)
             if "unit" not in L:
@@ -449,8 +450,15 @@ def test_property_random_kills_exactly_once(env, seed):
                     n.results = open_bundle(n.key, got.content)["results"]
             continue
         lid, unit = n.lease["lease_id"], n.lease["unit"]["unit_id"]
-        if c.post(f"/v1/leases/{lid}/renew", headers=H(n.name)).status_code == 410:
+        rr = c.post(f"/v1/leases/{lid}/renew", headers=H(n.name))
+        if rr.status_code == 410:
             n.lease = None  # lapsed: discard local work
+            continue
+        if rr.json().get("hold"):  # paused on the heat signal: one final checkpoint, then stop
+            if n.results and rng.random() < 0.8:
+                upload(c, n.name, lid, seal_bundle(n.key, {"results": n.results}), len(n.results))
+            n.lease = None
+            pauses += 1
             continue
         for _ in range(rng.randint(1, 6)):
             i = len(n.results)
@@ -474,3 +482,57 @@ def test_property_random_kills_exactly_once(env, seed):
         assert sha == expected_sha(unit_id)  # output equals the uninterrupted run
         assert json.loads(chunks) == list(range(CHUNKS_PER_UNIT))  # every chunk id exactly once
     assert completions >= units
+
+
+
+# ------------------------------------------------------------------ pause on the heat signal (#57 review)
+def test_running_unit_pauses_when_heat_is_no_longer_wanted_and_migrates(env):
+    c = env.client()
+    register(c, "node-a")
+    submit(c)  # image_tagging: a week of slack, so not deadline-forced
+    L = lease(c, "node-a")
+    unit, lid = L["unit"]["unit_id"], L["lease_id"]
+    assert c.post(f"/v1/leases/{lid}/renew", headers=H("node-a")).json()["ok"] is True  # cold: keeps running
+    hb(c, "node-a", demand=0.0, tank=35.0)  # house warm, tank full: heat no longer wanted
+    r = c.post(f"/v1/leases/{lid}/renew", headers=H("node-a")).json()
+    assert r["hold"] is True and r["final_checkpoint_within_s"] == LEASE_S
+    st = c.get("/v1/status", headers=H("admin")).json()
+    assert st["queue"] == {"pending": 1} and st["leases"] == []
+    data = seal_bundle(L["key_release"]["key_b64"], {"next_chunk": 9})
+    assert upload(c, "node-a", lid, data, 9).status_code == 200  # the one final checkpoint
+    assert upload(c, "node-a", lid, data, 9).status_code == 410  # released
+    assert c.post(f"/v1/leases/{lid}/renew", headers=H("node-a")).status_code == 410
+    assert complete(c, "node-a", lid, unit).status_code == 410
+    register(c, "node-b")  # a cold house elsewhere picks it up from the final checkpoint
+    Lb = lease(c, "node-b")
+    assert Lb["unit"]["unit_id"] == unit and Lb["checkpoint_url"]
+    assert open_bundle(Lb["key_release"]["key_b64"], c.get(Lb["checkpoint_url"], headers=H("node-b")).content) == {"next_chunk": 9}
+    st = c.get("/v1/status", headers=H("admin")).json()
+    assert {"lease_paused", "lease_released"} <= {e["type"] for e in st["recent_audit"]}
+
+
+def test_deadline_forced_unit_keeps_running_when_warm(env):
+    c = env.client()
+    register(c, "node-a")
+    submit(c, deadline_h=0.25)  # due within the hour: forced
+    L = lease(c, "node-a")
+    hb(c, "node-a", demand=0.0, tank=35.0)
+    assert c.post(f"/v1/leases/{L['lease_id']}/renew", headers=H("node-a")).json().get("ok") is True
+
+
+def test_nan_body_is_422_not_500(env):
+    c = env.client()
+    register(c, "node-a")
+    r = c.post("/v1/nodes/node-a/heartbeat", headers={**H("node-a"), "Content-Type": "application/json"},
+               content=b'{"watts": NaN}')
+    assert r.status_code == 422 and "NaN" not in r.text and "nan" not in r.text.lower().replace("finite", "")
+
+
+def test_last_error_reported_in_status(env):
+    c = env.client()
+    register(c, "node-a")
+    assert c.post("/v1/nodes/node-a/heartbeat", headers=H("node-a"),
+                  json={"last_error": "key denied: node_tampered"}).status_code == 200
+    st = c.get("/v1/status", headers=H("observer")).json()
+    assert st["nodes"][0]["last_error"] == "key denied: node_tampered"
+    assert c.post("/v1/nodes/node-a/heartbeat", headers=H("node-a"), json={"last_error": "x" * 501}).status_code == 422

@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS nodes (
   attestation TEXT NOT NULL, region TEXT NOT NULL, registered_at REAL NOT NULL,
   last_hb REAL NOT NULL, watts REAL, running_unit TEXT, progress REAL,
   tank_level_kwh REAL, demand_kw REAL, signal_at REAL, mode_running INTEGER NOT NULL DEFAULT 1,
-  tampered INTEGER NOT NULL DEFAULT 0);
+  tampered INTEGER NOT NULL DEFAULT 0, last_error TEXT);
 CREATE TABLE IF NOT EXISTS jobs (
   job_id TEXT PRIMARY KEY, job_type TEXT NOT NULL, access_class TEXT NOT NULL, customer_id TEXT NOT NULL,
   deadline_hour INTEGER NOT NULL, priv_key BLOB, created_at REAL NOT NULL, admitted INTEGER NOT NULL,
@@ -53,6 +53,9 @@ class Store:
         self.db.execute("PRAGMA synchronous=FULL")
         self.db.execute("PRAGMA foreign_keys=ON")
         self.db.executescript(SCHEMA)
+        cols = {r[1] for r in self.db.execute("PRAGMA table_info(nodes)")}
+        if "last_error" not in cols:  # forward migration for state.db files created before #57 review
+            self.db.execute("ALTER TABLE nodes ADD COLUMN last_error TEXT")
 
     @contextmanager
     def tx(self, commit_on: tuple[type[BaseException], ...] = ()) -> Iterator[sqlite3.Connection]:

@@ -122,9 +122,10 @@ def test_year_page_is_served_offline_and_in_nav(client):
     html = r.text
     assert "./vendor/resources.js" in html and "./vendor/fonts/fonts.css" in html
     assert not re.findall(r"""(?:src|href)=["']https?://""", html)
-    assert "/api/year/sizing" in html and "/api/year?n=" in html and "navActive: 7" in html
+    assert "/api/year/sizing" in html and "/api/year?n=" in html and "navActive: 7," in html and "__NAV" not in html
     nav = client.get("/Nav.dc.html").text
-    assert '["07", "Year", "DigitalHeat%2007%20Year.dc.html"]' in nav and "&quot;max&quot;:7," in nav
+    assert '["07", "Year", "DigitalHeat%2007%20Year.dc.html"]' in nav
+    assert f"&quot;max&quot;:{6 + len(site_build.NAV_EXTRA)}," in nav
 
 
 def test_page_uses_only_api_numbers():
@@ -134,3 +135,14 @@ def test_page_uses_only_api_numbers():
     js = html.split("data-dc-script", 1)[1]
     for banned in ("57.9", "0.552", "0.533", "31,231", "26851", "0.3325", "2.5;"):
         assert banned not in js, banned
+
+
+# ------------------------------------------------------------------ #104 polish (seen live after deploy)
+def test_page_opens_at_recommended_n_and_controls_clear_the_nav():
+    html = (site_build.EXTRA / PAGE).read_text(encoding="utf-8")
+    js = html.split("data-dc-script", 1)[1]
+    assert "this.load(null)" in js and "idx.sizing.recommended_n" in js and "n: null" in js  # default N = recommended
+    body = html.split("<dc-import", 1)[0]
+    assert body.index("data-dh-verdict") < body.index("data-dh-controls") < body.index("data-dh-year")  # above the fold
+    assert "margin:14px 0 170px" in body  # the floating Nav never covers the last row
+    assert "heroVerdict" in js and "{{ heroVerdict }}" in body

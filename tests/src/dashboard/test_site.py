@@ -126,6 +126,17 @@ def live_on(monkeypatch, tmp_path):
 H = {"X-DH-Live": "1"}
 
 
+def relay_to(cc):
+    """An httpx MockTransport handler that forwards to an in-process TestClient. Converts explicitly to httpx.Response:
+    where Starlette's TestClient is built on httpx2 (macmini's venv, #91), its response is not an httpx.Response and
+    MockTransport rejects it ("Cannot use an async handler in a sync Client")."""
+    def handler(req: httpx.Request) -> httpx.Response:
+        r = cc.request(req.method, req.url.raw_path.decode(), content=req.content, headers=dict(req.headers))
+        hdrs = {k: v for k, v in r.headers.items() if k.lower() not in ("content-encoding", "content-length", "transfer-encoding")}
+        return httpx.Response(r.status_code, headers=hdrs, content=r.content)
+    return handler
+
+
 def test_live_off_by_default(client, monkeypatch):
     monkeypatch.delenv("DH_LIVE_ACTIONS", raising=False)
     assert client.get("/api/live/state").json()["enabled"] is False
@@ -223,9 +234,7 @@ def test_live_actions_against_a_real_coordinator(client, monkeypatch, tmp_path):
     monkeypatch.setenv("DH_ADMIN_TOKEN_FILE", str(tok))
     monkeypatch.setenv("DH_COORDINATOR_URL", "http://coord.test")
 
-    def relay(req: httpx.Request) -> httpx.Response:
-        return cc.request(req.method, req.url.path, content=req.content, headers=dict(req.headers))
-    monkeypatch.setattr(live, "transport", httpx.MockTransport(relay))
+    monkeypatch.setattr(live, "transport", httpx.MockTransport(relay_to(cc)))
     assert client.post("/api/live/kill", headers=H).status_code == 200
     assert client.post("/api/live/heat", json={"replay": "july"}, headers=H).status_code == 200
     assert (tmp_path / "coord" / "scenario" / "site-mac").read_text().strip() == "july"
@@ -332,8 +341,7 @@ def test_pull_the_plug_moves_the_unit_to_the_other_node_on_a_real_coordinator(cl
     monkeypatch.setenv("DH_LIVE_ACTIONS", "1")
     monkeypatch.setenv("DH_ADMIN_TOKEN_FILE", str(tok))
     monkeypatch.setenv("DH_COORDINATOR_URL", "http://coord.test")
-    monkeypatch.setattr(live, "transport", httpx.MockTransport(
-        lambda req: cc.request(req.method, req.url.raw_path.decode(), content=req.content, headers=dict(req.headers))))
+    monkeypatch.setattr(live, "transport", httpx.MockTransport(relay_to(cc)))
     try:
         k = client.post("/api/live/kill", headers=H)
         assert k.status_code == 200, k.text
@@ -350,3 +358,17 @@ def test_pull_the_plug_moves_the_unit_to_the_other_node_on_a_real_coordinator(cl
     finally:
         for n in list(live._drained):
             live._undrain(n, "cleanup")
+
+
+def test_relay_returns_a_real_httpx_response():
+    """Regression for #91 (macmini): the relay must hand MockTransport an httpx.Response on every httpx flavour."""
+    class Fake:
+        status_code = 200
+        headers = {"content-type": "application/json", "content-encoding": "gzip", "content-length": "2"}
+        content = b"{}"
+
+    class CC:
+        def request(self, *a, **k):
+            return Fake()
+    r = relay_to(CC())(httpx.Request("GET", "http://coord.test/x?y=1"))
+    assert isinstance(r, httpx.Response) and r.status_code == 200 and r.json() == {}

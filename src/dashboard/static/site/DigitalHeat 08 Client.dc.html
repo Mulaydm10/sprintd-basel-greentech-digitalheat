@@ -465,7 +465,7 @@ class Component extends DCLogic {
     const shaLabel = !res ? (R ? "receipt ready" : "") : res.state === "loading" ? "downloading…" : res.state === "error" ? "✗ " + res.text
       : res.matchReceipt === false || res.matchHeader === false ? "✗ sha256 MISMATCH" : res.matchReceipt ? "✓ sha256 matches the receipt" : "✓ downloaded · sha " + res.sha.slice(0, 12);
     const shaC = !res || res.state === "loading" ? "#55524c" : res.state === "error" || res.matchReceipt === false || res.matchHeader === false ? "#d1173a" : "#157a43";
-    const evs = live ? events.slice(0, 14).map((e) => { const x = Component.evText(e) || { t: e.type, c: "#55524c" }; return { ts: e.ts ? this.when(e.ts).split(", ").pop() : "", t: `${x.t}  ${e.job_id ? "· " + e.job_id : ""}`, c: x.c }; }) : [];
+    const evs = live ? events.map((e) => { const x = Component.evText(e); return x && { ts: e.ts ? this.when(e.ts).split(", ").pop() : "", t: `${x.t}  ${e.job_id ? "· " + e.job_id : ""}`, c: x.c }; }).filter(Boolean).slice(0, 14) : [];
     const short = (u) => (u || "").replace(/^https?:\/\//, "");
     const pos = 8;
     return {

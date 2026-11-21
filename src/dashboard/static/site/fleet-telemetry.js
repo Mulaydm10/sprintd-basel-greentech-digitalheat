@@ -190,7 +190,7 @@
         tile("heat used kWh", g("heat_used_kwh", 1), C.heat) + tile("dumped kWh", g("dumped_kwh", 1), C.dump) +
         tile("backup kWh", g("unmet_kwh", 1), C.cold) + tile("net CHF so far", g("net_chf_cum", 0), C.ok);
       const a = d.index.assumed || {};
-      ui.note.innerHTML = `ASSUMED fleet: ${esc(a.houses ?? d.K)} houses (${esc(a.placement || "on residential buildings")}); ${esc(a.servers || "")} ${esc(a.job_stream || "")}. REAL: Basel 2025 weather and our scheduler: one <code>decide()</code> over all houses every hour.`;
+      ui.note.innerHTML = [a.houses, a.placement, a.servers, a.access_classes, a.job_stream].filter(Boolean).map(esc).join(" · ") + ` · REAL: Basel 2025 weather and our scheduler: one <code>decide()</code> over all ${d.K} houses every hour.`;
       drawMerit(ui, d, h);
       if (h !== lastLogHour) {
         lines.unshift({ h, t: decisionLine(d, h) });

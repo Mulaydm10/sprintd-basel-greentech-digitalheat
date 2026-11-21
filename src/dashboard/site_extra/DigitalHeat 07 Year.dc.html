@@ -214,6 +214,16 @@ class Component extends DCLogic {
     if (this.vmRun !== this.state.run) { this.vmRun = this.state.run; this.vm.setRun(this.state.run); }
     this.vm.setPolicy(this.state.pol);
     this.vm.setHour(hf);
+    if (!this.fleetLoad) {  // #118: fleetview (#119) drives the algorithm-on-the-map layer
+      this.fleetLoad = Promise.all(["index", "houses.u16", "fleet", "jobs"].map((n) => fetch(this.base() + "/api/fleet/" + n)
+        .then((r) => { if (!r.ok) throw new Error(n + " " + r.status); return n === "houses.u16" ? r.arrayBuffer() : r.json(); })))
+        .then(([index, raw, fleet, jobs]) => { this.fleetIdx = index; this.vm.setFleet({ index, raw: new Uint16Array(raw), fleet, jobs }); })
+        .catch((e) => console.warn("fleetview", e));
+    }
+    const hr = Math.floor(hf), key = hr + "|" + (this.state.run && this.state.run.n) + "|" + this.state.pol;
+    if (key !== this.tickKey) { this.tickKey = key;
+      window.dispatchEvent(new CustomEvent("dh:tick", { detail: { hour: hr, n: this.state.run ? this.state.run.n : null, policy: this.state.pol,
+        playing: !!this.state.playing, fleetKey: this.fleetIdx ? this.fleetIdx.provenance.key : null } })); }
   }
   decision(s, i, n) {  // the scheduler's outcome this hour, in words (derived from the yearview run, not invented)
     if (!s) return ["–", "", "#c4bcae"];

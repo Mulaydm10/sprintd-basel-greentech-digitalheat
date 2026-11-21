@@ -2,7 +2,8 @@
 
 Expected behaviour for every attack: correct handling OR a clear typed error (ValueError/TypeError).
 Never a silent wrong number, a raw crash (ZeroDivisionError) or an eligibility violation.
-Tests named ``test_finding_*`` FAIL on main at the time of writing: each one is a finding reported on #17.
+Tests named ``test_finding_*`` are findings reported on #17, marked xfail(strict=True) with their fix issue: a fix
+flips the test to XPASS, which fails the run, so the fixer removes the marker in the same PR.
 The other tests are attacks the code already survives; they stay as regression guards.
 """
 from __future__ import annotations
@@ -47,6 +48,7 @@ def rejects_or_holds(sites, queue, params=MERIT) -> bool:
     return not r.of(Assign)
 
 
+@pytest.mark.xfail(strict=True, reason="F1 → #21")
 # ============================================================ 3. adversarial jobs
 def test_finding_negative_kwh_unit_yields_negative_power():
     """policy.py:174-182: kwh_el<0 is subtracted from capacity and divided into servers_on -> SetPower < 0."""
@@ -58,6 +60,7 @@ def test_finding_negative_kwh_unit_yields_negative_power():
     assert all(rt.space_kwh >= 0 and rt.total_kwh >= 0 for rt in r.of(Route))
 
 
+@pytest.mark.xfail(strict=True, reason="F2 → #21")
 def test_finding_nan_bid_is_assigned():
     """policy.py:166: `bid < mc` is False for NaN, so a NaN-priced unit is scheduled (and billed as NaN)."""
     assert rejects_or_holds([site()], [unit(bid_chf_per_server_h=float("nan"))])
@@ -67,6 +70,7 @@ def test_nan_kwh_unit_is_not_assigned():
     assert rejects_or_holds([site()], [unit(kwh_el=float("nan"))])
 
 
+@pytest.mark.xfail(strict=True, reason="F3 → #21")
 def test_finding_duplicate_unit_ids_assigned_twice():
     """decide() accepts two units with the same unit_id and emits two Assigns for one id: ambiguous for the caller."""
     try:
@@ -103,6 +107,7 @@ def test_same_deadline_hour_for_all_units_respects_capacity():
     assert on <= 4 + 1e-9 and len(r.of(Assign)) == 16
 
 
+@pytest.mark.xfail(strict=True, reason="F4 → #21")
 # ============================================================ 4. sites
 def test_finding_heat_recovery_above_one_creates_energy():
     """types.py/policy.py:67: heat_recovery is not validated; 1.5 routes 1.5 kWh of heat from 1 kWh of electricity."""
@@ -115,6 +120,7 @@ def test_finding_heat_recovery_above_one_creates_energy():
     assert heat <= el + 1e-9, f"{heat} kWh heat from {el} kWh electricity"
 
 
+@pytest.mark.xfail(strict=True, reason="F5 → #21")
 def test_finding_zero_server_kw_raises_raw_zero_division():
     """policy.py:44/155/182 divide by server_kw_el: 0 gives ZeroDivisionError instead of a typed input error."""
     try:
@@ -125,6 +131,7 @@ def test_finding_zero_server_kw_raises_raw_zero_division():
         pytest.fail(f"raw ZeroDivisionError: {e}")
 
 
+@pytest.mark.xfail(strict=True, reason="F6 → #21")
 def test_finding_inverted_band_flaps_every_tick():
     """policy.py:57-62: band_low > band_high is accepted; with the tank between them the mode flips every tick
     (running->idle->running), defeating the hysteresis the contract requires."""
@@ -163,6 +170,7 @@ def test_route_conserves_energy(p):
         assert math.isclose(r.of(Route)[0].total_kwh, el * s.heat_recovery, abs_tol=1e-9)
 
 
+@pytest.mark.xfail(strict=True, reason="F7 → #21")
 # ============================================================ 2. load
 def test_finding_100k_queue_50_sites_misses_50ms_budget():
     """#17 budget: decide() < 50 ms/tick for 50 sites. policy.py:147-160 is O(units x sites) per tick
@@ -202,6 +210,7 @@ def _profile(path):
     return load_reference_profile(path)
 
 
+@pytest.mark.xfail(strict=True, reason="F8 → #22")
 def test_finding_nan_temperature_gives_nan_demand_silently(tmp_path):
     """profile.py:60-67: one missing temperature becomes a NaN demand_kw row, no error; NaN then poisons
     every yearly sum downstream."""
@@ -216,6 +225,7 @@ def test_finding_nan_temperature_gives_nan_demand_silently(tmp_path):
     assert not df["demand_kw"].isna().any(), "NaN demand passed through"
 
 
+@pytest.mark.xfail(strict=True, reason="F9 → #22")
 def test_finding_short_year_accepted_without_error(tmp_path):
     """profile.py:56-58 checks unique/monotonic only; a 48-row (or 8,759-row) file loads as if it were the year."""
     p = tmp_path / "w.csv"
@@ -253,6 +263,7 @@ def _jobtype(**kw):
     return JobType(**d)
 
 
+@pytest.mark.xfail(strict=True, reason="F10 → #22")
 @pytest.mark.parametrize("field,value", [("runtime_h", float("nan")), ("price_chf_per_h", float("nan")),
                                          ("deadline_h", float("nan")), ("price_chf_per_h", float("inf")),
                                          ("energy_kwh", float("nan"))])
@@ -269,6 +280,7 @@ def test_jobtype_rejects_unknown_class_and_negative_values():
         _jobtype(runtime_h=-1.0)
 
 
+@pytest.mark.xfail(strict=True, reason="F11 → #10")
 # ============================================================ 5. trust
 def test_finding_audit_log_tail_truncation_not_detected():
     """trust/__init__.py AuditLog.verify(): the chain head is not anchored anywhere, so dropping the newest

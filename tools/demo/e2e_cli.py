@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .e2e import STEPS, E2E, Config
+from .e2e import STEPS, UI_STEPS, E2E, Config
 
 
 def _token(path: str | None) -> str | None:
@@ -29,14 +29,21 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--only", default=",".join(STEPS), help=f"comma list of steps (default all: {','.join(STEPS)})")
     p.add_argument("--certified-nodes", default="node-mac")
     p.add_argument("--timeout", type=float, default=180.0)
+    p.add_argument("--ui", action="store_true", help=f"also drive the website in headless Chromium: {','.join(UI_STEPS)} (#117)")
+    p.add_argument("--ui-out", default="runs/e2e/ui", help="screenshot folder for the ui steps")
+    p.add_argument("--ui-allow-pause", action="store_true", help="ui09 may click Pause/Resume on the real site")
+    p.add_argument("--ui-channel", default=None, help="Playwright channel, e.g. chrome (system Chrome)")
     a = p.parse_args(argv)
     steps = [s for s in a.only.split(",") if s]
-    unknown = set(steps) - set(STEPS)
+    if a.ui:
+        steps += [s for s in UI_STEPS if s not in steps]
+    unknown = set(steps) - set(STEPS) - set(UI_STEPS)
     if unknown:
-        raise SystemExit(f"unknown steps {sorted(unknown)}; choose from {list(STEPS)}")
+        raise SystemExit(f"unknown steps {sorted(unknown)}; choose from {list(STEPS + UI_STEPS)}")
     cfg = Config(a.coordinator, a.site, _token(a.client_token_file), _token(a.observer_token_file),
                  host_token=_token(a.host_token_file[0]) if a.host_token_file else None,
                  host_tokens=tuple(_token(f) for f in a.host_token_file), client2_token=_token(a.client2_token_file),
                  admin_token=_token(a.admin_token_file), timeout_s=a.timeout,
-                 certified_nodes=tuple(x for x in a.certified_nodes.split(",") if x))
+                 certified_nodes=tuple(x for x in a.certified_nodes.split(",") if x),
+                 ui_out=a.ui_out, ui_allow_pause=a.ui_allow_pause, ui_channel=a.ui_channel)
     return 0 if E2E(cfg).run(steps) else 1

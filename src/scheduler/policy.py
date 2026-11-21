@@ -175,16 +175,34 @@ def _decide_merit(sites: list[SiteState], queue: list[Unit], hour: int, p: Param
         blocks.append(_Block(mc_used(s), USED, s.site_id, rng.random(), used))
         blocks.append(_Block(mc_dump(s), DUMP, s.site_id, rng.random(), max(0.0, max_el - used)))
     blocks.sort(key=_Block.key)
+    dump_of = {b.site_id: b for b in blocks if b.kind == DUMP}
 
     job_kwh: dict[str, float] | None = None  # built lazily: only deadline forcing needs it
+    queue_forced: set[str] | None = None
 
     def is_forced(u: Unit, ci: _ClassIndex) -> bool:
-        nonlocal job_kwh
+        """Rule 4 'deadline forces run'. Remaining run time counts (a) the unit's own job and (b) all work queued
+        AHEAD of it in deadline order on the capacity eligible for its class (#54, red team F20): without (b),
+        a backlog deferred while heat was unwanted turns urgent all at once and cannot fit."""
+        nonlocal job_kwh, queue_forced
         if job_kwh is None:
             job_kwh = {}
             for q in queue:
                 job_kwh[q.job_id] = job_kwh.get(q.job_id, 0.0) + q.kwh_el
-        return hour + job_kwh[u.job_id] / ci.slowest_kw >= u.deadline_hour - p.deadline_safety_h
+        if hour + job_kwh[u.job_id] / ci.slowest_kw >= u.deadline_hour - p.deadline_safety_h:
+            return True
+        if queue_forced is None:
+            queue_forced = set()
+            cap: dict[str, float] = {}
+            cum: dict[str, float] = {}
+            for q in _order_units(queue):  # EDF order: deadlines non-decreasing
+                c = q.access_class
+                if c not in cap:
+                    cap[c] = sum(max_servers(s) * s.server_kw_el * STEP_H for s in sites if c in s.eligible_classes)
+                cum[c] = cum.get(c, 0.0) + q.kwh_el
+                if cap[c] > EPS and hour + cum[c] / cap[c] >= q.deadline_hour - p.deadline_safety_h:
+                    queue_forced.add(q.unit_id)
+        return u.unit_id in queue_forced
 
     index: dict[str, _ClassIndex] = {}
     site_el = {s.site_id: 0.0 for s in sites}
@@ -217,19 +235,28 @@ def _decide_merit(sites: list[SiteState], queue: list[Unit], hour: int, p: Param
         need = u.kwh_el - EPS
         forced: bool | None = None
         best = None
+        spill = None  # a USED block remainder the unit tops up from the same site's DUMP block (#54)
         fits_any = False
         for i in range(ci.start, len(bl)):
             b = bl[i]
+            cand, cand_spill = b, None
             if b.rem_kwh_el < need:
-                continue
+                # fragmentation: a unit that does not fit the heat-used remainder may straddle into the same
+                # site's dump block (priced as dump); otherwise a server-hour is stranded every hour
+                d = dump_of.get(b.site_id)
+                if not (b.kind == USED and b.rem_kwh_el > EPS and d is not None
+                        and d.rem_kwh_el >= u.kwh_el - b.rem_kwh_el - EPS):
+                    continue
+                cand, cand_spill = d, b
             fits_any = True
+            b = cand
             if next_mode[b.site_id]:
-                best = b
+                best, spill = b, cand_spill
                 break
             if forced is None:
                 forced = is_forced(u, ci)
             if forced:
-                best = b
+                best, spill = b, cand_spill
                 break
         if best is None:
             reason = R_IDLE if fits_any else R_NO_CAP
@@ -247,7 +274,12 @@ def _decide_merit(sites: list[SiteState], queue: list[Unit], hour: int, p: Param
                 append(Hold(u.unit_id, R_WAIT_HEAT))
                 trace.append(f"hold {u.unit_id}: {R_WAIT_HEAT} (slack {u.slack_h} h, deadline h{u.deadline_hour})")
                 continue
-        best.rem_kwh_el -= u.kwh_el
+        if spill is not None:
+            take = spill.rem_kwh_el
+            spill.rem_kwh_el = 0.0
+            best.rem_kwh_el -= u.kwh_el - take
+        else:
+            best.rem_kwh_el -= u.kwh_el
         site_el[best.site_id] += u.kwh_el
         append(Assign(u.unit_id, best.site_id))
         why = "heat used" if best.kind == USED else "heat dumped"

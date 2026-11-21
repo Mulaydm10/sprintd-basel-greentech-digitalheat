@@ -323,32 +323,46 @@ def test_admission_on_with_all_admissible_changes_nothing_physical(monkeypatch):
     """Golden numbers must not move when every job is admissible: with an ample forecast every unit is
     admitted and the run is identical to admission off (only the `admission` flag differs)."""
     import simulate_year.sim as sim
-    monkeypatch.setattr(sim, "persistence_forecast", lambda hist, horizon: [1e9] * horizon)
+    monkeypatch.setattr(sim, "pessimistic_forecast", lambda hist, horizon: [1e9] * horizon)
     off, _ = simulate(SYN, A, 2, "merit", 24, 0.6, 0, hourly=False)
     on, _ = simulate(SYN, A, 2, "merit", 24, 0.6, 0, hourly=False, admission=True)
     assert on["rejected_units"] == 0
     assert {k: v for k, v in on.items() if k != "admission"} == {k: v for k, v in off.items() if k != "admission"}
 
 
-def test_admission_cold_start_rejects_only_first_hour():
-    """No history yet -> persistence forecast is 0 (never optimistic) -> hour-0 arrivals are rejected;
-    from hour 1 on, ample cold-weather capacity admits everything."""
+def test_admission_cold_start_rejects_only_during_the_first_day():
+    """No history yet -> the pessimistic forecast is 0 for hours never observed (never optimistic) -> early
+    arrivals are rejected; once a day of realized capacity exists, cold weather admits everything (#54)."""
     cold = synthetic(days=20, flat_temp=0.0)
     n, load = 2, 0.3
     on, _ = simulate(cold, A, n, "merit", 168, load, 0, hourly=False, admission=True)
     per_h = n * 60 / A["scheduler"]["unit_minutes"] * load
-    assert 0 < on["rejected_units"] <= math.ceil(per_h) + 1
+    assert 0 < on["rejected_units"] <= math.ceil(per_h * 24) + 1
+    assert on["missed_deadline_pct"] == 0
 
 
 def test_admission_rejects_instead_of_missing():
-    """Overload with zero slack: without admission units miss deadlines; with admission they are rejected
-    at submit and are not counted as missed."""
-    off, _ = run(SYN, 1, "merit", 0, 1.5)
-    on, _ = simulate(SYN, A, 1, "merit", 0, 1.5, 0, hourly=False, admission=True)
+    """Overload: without admission units miss deadlines; with admission they are rejected at submit and NO
+    admitted unit misses (#54, red team F20: admitted => never missed)."""
+    off, _ = run(SYN, 1, "merit", 24, 1.5)
+    on, _ = simulate(SYN, A, 1, "merit", 24, 1.5, 0, hourly=False, admission=True)
     assert off["missed_deadline_pct"] > 0
     assert on["rejected_units"] > 0
     assert on["admitted_units"] + on["rejected_units"] == on["jobs_total"]
-    assert on["missed_deadline_pct"] <= off["missed_deadline_pct"]
+    assert on["missed_deadline_pct"] == 0
+
+
+def test_admission_needs_slack_at_least_the_safety_margin():
+    with pytest.raises(ValueError, match="deadline_safety_h"):
+        simulate(SYN, A, 1, "merit", 0, 0.5, 0, hourly=False, admission=True)
+
+
+@pytest.mark.parametrize("n,load,slack,ballast", [(4, 1.0, 24, False), (2, 1.5, 24, True), (1, 2.0, 6, False),
+                                                  (3, 1.2, 168, True), (2, 0.8, 24, False)])
+def test_admitted_units_never_miss(n, load, slack, ballast):
+    """F20 property: admitted => never missed, across overload, slack and ballast."""
+    b, _ = simulate(SYN, A, n, "merit", slack, load, 0, hourly=False, admission=True, ballast=ballast)
+    assert b["admitted_units"] > 0 and b["missed_deadline_pct"] == 0, b["missed_deadline_pct"]
 
 
 def test_cli_admission_flag(tmp_path):

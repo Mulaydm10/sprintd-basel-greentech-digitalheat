@@ -78,6 +78,16 @@ input[type=range]{accent-color:#c93c05}
       <div data-dh-hud style="position:absolute;top:44px;left:18px;max-width:min(520px,80%);pointer-events:none;padding:10px 14px;border-radius:12px;background:rgba(14,13,12,0.62);border:1px solid rgba(242,239,233,0.14);font-family:'Geist Mono',monospace;font-size:12px;line-height:1.5;color:#f2efe9">
         <div style="color:{{ decC }};font-weight:700;letter-spacing:0.06em">{{ decision }}</div><div style="color:#c4bcae">{{ decWhy }}</div>
       </div>
+      <div data-dh-est style="position:absolute;top:128px;left:18px;width:min(330px,46%);pointer-events:none;padding:12px 14px;border-radius:14px;background:rgba(14,13,12,0.58);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(242,239,233,0.16);font-family:'Geist Mono',monospace;font-size:11.5px;line-height:1.55;color:#f2efe9">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><span style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#a8a298">{{ estTitle }}</span><span style="font:700 20px/1 'Geist',system-ui,sans-serif;color:#ff8c1f">N = {{ recN }}</span></div>
+        <div style="color:#c4bcae;margin:4px 0 8px">{{ estWhy }}</div>
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:2px 12px;border-top:1px solid rgba(242,239,233,0.14);padding-top:6px">
+          <span style="color:#a8a298">{{ estHead }}</span><span style="color:#ff8c1f;text-align:right">ours</span><span style="color:#a8a298;text-align:right">thermostat</span>
+          <sc-for list="{{ ytd }}" as="y" hint-placeholder-count="6">
+            <span style="color:#a8a298">{{ y.l }}</span><span style="text-align:right">{{ y.a }}</span><span style="color:#c4bcae;text-align:right">{{ y.b }}</span>
+          </sc-for>
+        </div>
+      </div>
       <div style="position:absolute;right:18px;top:44px;display:flex;flex-direction:column;gap:6px;font-family:'Geist Mono',monospace;font-size:11px">
         <sc-for list="{{ presets }}" as="pr" hint-placeholder-count="3">
           <button onClick="{{ pr.on }}" style="cursor:pointer;padding:7px 12px;border-radius:999px;border:1px solid rgba(242,239,233,0.25);background:rgba(14,13,12,0.55);color:#f2efe9;font:inherit">{{ pr.label }}</button>
@@ -253,7 +263,8 @@ class Component extends DCLogic {
   }
   prep(d) {
     const cum = (a) => { const o = new Float64Array(a.length); let s = 0; for (let i = 0; i < a.length; i++) { s += a[i]; o[i] = s; } return o; };
-    for (const k of ["ours", "baseline"]) { d[k].dumped_cum = cum(d[k].dumped_kwh); d[k].backup_cum = cum(d[k].backup_kwh); }
+    for (const k of ["ours", "baseline"]) { d[k].dumped_cum = cum(d[k].dumped_kwh); d[k].backup_cum = cum(d[k].backup_kwh);
+      d[k].missed_cum = cum(d[k].missed); d[k].done_cum = cum(d[k].units_done || d[k].missed.map(() => 0)); }
     d.weather.demand_cum = cum(d.weather.demand_kwh);
     return d;
   }
@@ -343,6 +354,19 @@ class Component extends DCLogic {
     const pays = A ? !!A.pays_off : null;
     const sz = idx && idx.sizing;
     const dec = this.decision(s, i, run ? run.n : n);
+    // #115: the algorithm's estimates on the map: year-to-date totals at the playhead, ours vs thermostat (yearview only)
+    const yt = (S2) => { if (!run) return null; const dem = w.demand_cum[i], cov = dem > 0 ? 1 - S2.backup_cum[i] / dem : null;
+      return { cov, used: S2.heat_used_kwh_cum[i], dump: S2.dumped_cum[i], missed: S2.missed_cum[i], done: S2.done_cum[i], chf: S2.net_chf_cum[i] }; };
+    const yo = run && yt(run.ours), yb = run && yt(run.baseline), endYear = run && i >= hours - 1;
+    const kf = (x) => (x == null ? "–" : Math.round(x).toLocaleString("en-CH"));
+    const ytd = [
+      { l: "heat covered", a: yo && yo.cov != null ? (100 * yo.cov).toFixed(1) + " %" : "–", b: yb && yb.cov != null ? (100 * yb.cov).toFixed(1) + " %" : "–" },
+      { l: "server heat used kWh", a: kf(yo && yo.used), b: kf(yb && yb.used) },
+      { l: "heat dumped kWh", a: kf(yo && yo.dump), b: kf(yb && yb.dump) },
+      { l: "deadlines missed", a: yo ? `${kf(yo.missed)} of ${kf(yo.missed + yo.done)}` : "–", b: yb ? `${kf(yb.missed)} of ${kf(yb.missed + yb.done)}` : "–" },
+      { l: "net CHF (excl. hw)", a: kf(yo && yo.chf), b: kf(yb && yb.chf) },
+    ];
+    const rowN = idx && idx.by_n ? idx.by_n.find((r) => r.n === (run ? run.n : n)) : null;
     const recRow = sz && idx.by_n ? idx.by_n.find((r) => r.n === sz.recommended_n) : null, R = recRow && recRow.ours;
     const heroVerdict = R ? `${pct(R.coverage_pct)} of the heat · ${pct(R.missed_pct)} paid deadlines missed · ${pct(dumpShare(R))} dumped · ${R.pays_off ? "pays off" : "does not pay off"} at ${price} CHF/server-h (needs ${chf(R.pays_off_above_chf_per_server_h)})`
       : err ? "no year simulation loaded" : "loading the sizing…";
@@ -381,7 +405,11 @@ class Component extends DCLogic {
       mapDisp: this.state.view === "map" ? "block" : "none", helixDisp: this.state.view === "helix" ? "block" : "none",
       chartDisp: this.state.view === "chart" ? "block" : "none",
       presets: [["city", "City"], ["district", "District"], ["house", "Reference house"]].map(([id, label]) => ({ label, on: () => this.vm && this.vm.focus(id) })),
-      decision: dec[0], decWhy: dec[1], decC: dec[2], tempNow: w ? w.temp_c[i].toFixed(1) + " °C" : "–",
+      decision: dec[0], decWhy: dec[1], decC: dec[2], ytd,
+      estTitle: endYear ? "2025 · year totals" : "our algorithm's estimate",
+      estHead: endYear ? `at N = ${run.n}, whole year` : `so far, at N = ${run ? run.n : n}`,
+      estWhy: endYear && rowN ? (rowN.ours.pays_off ? "pays off" : `does not pay off at ${idx.settings.paid_price_chf_per_server_h} CHF/server-h: needs ${Number(rowN.ours.pays_off_above_chf_per_server_h).toFixed(3)} incl. hardware`) + " · " + (sz ? sz.reason : "")
+        : (sz ? sz.reason : "…"), tempNow: w ? w.temp_c[i].toFixed(1) + " °C" : "–",
       fleetN: 48, mapNote: this.state.mapOff ? "3D map needs WebGL2: switch to Chart" : "drag to orbit · scroll to zoom · hover a glowing house",
       tankPct: s ? Math.max(0, Math.min(100, (100 * s.tank_kwh[i]) / tankCap)) : 0, tankLabel: s ? s.tank_kwh[i].toFixed(1) + " kWh" : "–",
       racks, nowNote,

@@ -276,6 +276,7 @@ def test_ballast_raises_coverage_keeps_paid_deadlines_and_never_runs_on_dump():
     assert on["ballast_run_h"] > 0
     assert on["run_h"] == pytest.approx(on["paid_run_h"] + on["ballast_run_h"], abs=1e-3)
     assert on["ballast_income_chf"] == pytest.approx(on["ballast_run_h"] * ballast_bid(A)[0], abs=1e-3)
+    assert on["ballast_hours_with_dump"] == 0 and off["ballast_income_chf"] is None
     # filler bid < MC_dump: where heat has nowhere to go (warm half, full tank) filler adds no dump
     warm = synthetic(days=20, flat_temp=25.0)
     w_off, _ = simulate(warm, A, 3, "merit", 0, 0.0, 0, hourly=False)
@@ -292,15 +293,22 @@ def test_baselines_report_implicit_ballast():
 
 
 def test_like_for_like_fairness_on_the_real_year(year):
-    """#37 acceptance: same paid stream (load = thermostat utilisation, N=4). Merit + ballast meets every
-    paid deadline (the thermostat misses many) and matches the thermostat's coverage to within 1 point
-    (measured gap 0.7 pt at band 10/33, 0.07 pt at 33/35: hysteresis headroom, see PR #37)."""
+    """#37 acceptance AS AMENDED BY DESIGN on PR #42 ("accepted"): same paid stream (load = thermostat
+    utilisation, N=4). Merit + ballast meets every paid deadline while the thermostat misses ~31%; coverage is
+    57.35% vs the thermostat's 58.03% (-0.7 pt, tank-band hysteresis headroom; closing it is contract v2.3,
+    #44). Do NOT pitch "matches the thermostat": pitch "same heat within 0.7 pt, 0 missed vs 31% missed".
+    Filler never runs into dump (ballast_hours_with_dump == 0). Total dump still rises by ~124 kWh vs no
+    ballast, indirectly: filler fills the tank earlier, leaving deadline-forced paid work less room."""
     lf = thermostat_load(year, A, 4)
     th, _ = run(year, 4, "thermostat", 24, lf)
     me, _ = simulate(year, A, 4, "merit", 24, lf, 0, hourly=False, ballast=True)
     assert me["missed_deadline_pct"] == 0 < th["missed_deadline_pct"]
     assert me["share_covered"] >= th["share_covered"] - 0.01
     assert me["paid_run_h"] >= th["paid_run_h"]
+    assert me["ballast_hours_with_dump"] == 0
+    off, _ = simulate(year, A, 4, "merit", 24, lf, 0, hourly=False)
+    assert 0 <= me["heat_dumped_kwh"] - off["heat_dumped_kwh"] <= 0.05 * off["heat_dumped_kwh"]
+    assert th["ballast_income_chf"] is None and me["ballast_income_chf"] > 0
 
 
 # ------------------------------------------------------------------ #33 admission (contract v2.2)

@@ -75,3 +75,42 @@ def test_parquet_without_engine_falls_back_or_explains(tmp_path, monkeypatch):
     (tmp_path / "hourly.parquet").write_bytes(b"not really parquet")
     df = appmod.load_hourly(tmp_path)
     assert len(df) == 48
+
+
+# ---------------------------------------------------------------- v3 (claim/9-v3)
+@pytest.mark.parametrize("path", ["/api/provenance", "/api/ab_like_for_like", "/api/sensitivity", "/api/decision_card"])
+def test_v3_endpoints_200_on_fixture(client, path):
+    assert client.get(path).status_code == 200
+
+
+def test_like_for_like_rows_are_same_n_and_thermostat_basis(client):
+    lf = client.get("/api/ab_like_for_like").json()
+    assert [r["policy"] for r in lf["rows"]] == ["thermostat", "always_on", "merit"]
+    assert all(r["servers_per_house"] == lf["servers_per_house"] for r in lf["rows"])
+    assert all(r["load_basis"] == "thermostat" for r in lf["rows"] if r["policy"] != "thermostat")
+    assert lf["note"] is None
+
+
+def test_sensitivity_sorted_by_swing_and_flagged_fixture(client):
+    se = client.get("/api/sensitivity").json()
+    swings = [r["swing"] for r in se["rows"]]
+    assert se["fixture"] is True and swings == sorted(swings, reverse=True) and se["rows"][0]["parameter"] == "capex"
+
+
+def test_decision_card_and_provenance(client):
+    dc = client.get("/api/decision_card").json()
+    assert dc["fixture"] is True and "recommended_n" in dc["card"]
+    pv = client.get("/api/provenance").json()
+    assert pv["fixture"] is True and pv["assumptions_hash"] and "balance.json" in pv["files"]
+
+
+def test_real_run_dir_is_used_and_not_fixture(tmp_path, monkeypatch):
+    import json as _j
+    run = tmp_path / "runs" / "merit-n4-x"
+    run.mkdir(parents=True)
+    b = _j.loads((FIX / "balance.json").read_text())
+    (run / "balance.json").write_text(_j.dumps(b | {"load_basis": "thermostat"}))
+    monkeypatch.setenv("DH_RUN_DIR", str(run))
+    c = TestClient(appmod.app)
+    assert c.get("/api/provenance").json()["fixture"] is False
+    assert c.get("/api/decision_card").json()["fixture"] is True  # falls back until #31

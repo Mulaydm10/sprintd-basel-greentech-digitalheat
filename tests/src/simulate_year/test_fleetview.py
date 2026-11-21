@@ -80,3 +80,10 @@ def test_build_writes_fleetview_v1_with_assumed_labels(tmp_path):
     assert sum(map(sum, s["heat_used_kwh"])) == pytest.approx(ix["totals"]["ours"]["heat_used_kwh"], rel=1e-3, abs=0.05)
     assert (tmp_path / "LATEST").read_text().strip() == d.name
     assert fv.build(tmp_path, k=6, seed=0, hours=24, log=lambda *_: None) == d  # cache reuse
+
+
+def test_traced_jobs_are_capped():  # 11 M units/year at 100 houses: jobs.json must stay small
+    r = fv.run_fleet(fv.place_houses(40, 0), "merit", True, 48, 0)
+    rate_units = sum(r["fleet"]["arrivals"])
+    assert len(r["tracked"]) <= fv.MAX_TRACKED and r["track_every"] >= fv.TRACK_EVERY
+    assert r["track_every"] * fv.MAX_TRACKED >= rate_units * 0.99  # sized for the simulated horizon

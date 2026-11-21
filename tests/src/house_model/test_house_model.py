@@ -45,7 +45,7 @@ def test_server_heat():
 # ------------------------------------------------------------------ profile on fixture
 @pytest.fixture(scope="module")
 def fx() -> pd.DataFrame:
-    return load_reference_profile(FIXTURE)
+    return load_reference_profile(FIXTURE, allow_partial=True)
 
 
 def test_fixture_shape_and_columns(fx):
@@ -82,7 +82,7 @@ def test_plain_header_csv_parses_identically(fx, tmp_path):
     lines = FIXTURE.read_text().splitlines()
     plain = tmp_path / "plain.csv"
     plain.write_text("\n".join(["time,temperature_2m,shortwave_radiation"] + lines[4:]) + "\n")
-    pd.testing.assert_frame_equal(load_reference_profile(plain), fx)
+    pd.testing.assert_frame_equal(load_reference_profile(plain, allow_partial=True), fx)
 
 
 def test_missing_csv_message(tmp_path):
@@ -152,3 +152,34 @@ def test_tank_rejects_negative_flows():
         t.charge(-1)
     with pytest.raises(ValueError):
         t.draw(-1)
+
+
+# ------------------------------------------------------------------ #22 hardening (red team F8, F9)
+def _cut(tmp_path, n_rows, patch=None):
+    lines = FIXTURE.read_text().splitlines()
+    body = lines[4:4 + n_rows]
+    if patch:
+        i, val = patch
+        t, _, g = body[i].split(",")
+        body[i] = f"{t},{val},{g}"
+    p = tmp_path / "w.csv"
+    p.write_text("\n".join(["time,temperature_2m,shortwave_radiation"] + body) + "\n")
+    return p
+
+
+def test_partial_year_rejected_by_default(tmp_path):
+    with pytest.raises(ValueError, match="full year"):
+        load_reference_profile(_cut(tmp_path, 72))
+
+
+@pytest.mark.parametrize("val", ["", "nan", "inf"])
+def test_missing_temperature_rejected_naming_the_row(tmp_path, val):
+    with pytest.raises(ValueError, match=r"temp_c missing/non-finite at data row\(s\) \[10\]"):
+        load_reference_profile(_cut(tmp_path, 48, (10, val)), allow_partial=True)
+
+
+def test_interpolate_flag_fills_gap(tmp_path):
+    df = load_reference_profile(_cut(tmp_path, 48, (10, "")), allow_partial=True, interpolate=True)
+    assert not df.isna().any().any()
+    ref = load_reference_profile(_cut(tmp_path, 48), allow_partial=True)
+    assert df.temp_c.iloc[10] == pytest.approx((ref.temp_c.iloc[9] + ref.temp_c.iloc[11]) / 2)

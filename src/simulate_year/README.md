@@ -8,7 +8,7 @@ Conventions: type hints, no hard-coded assumptions (read `data/assumptions.yaml`
 
 ## Year view (#95, schema `yearview-v1`)
 ```
-python -m simulate_year.yearview [--out runs/yearview] [--workers W] [--force] [--max-dump-share 0.01]
+python -m simulate_year.yearview [--out runs/yearview] [--workers W] [--force] [--max-dump-share 0.10]
 ```
 - **What it runs:** N = 1..8 servers on Basel 2025 and the reference house. *Ours* = merit + heat-backed ballast, slack 24 h, paid load 0.6 (the decision card's reference). *Baseline* = thermostat with the **same** slack and paid load (like-for-like).
 - **What it writes:**

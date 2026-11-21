@@ -45,7 +45,7 @@ SERVERS = tuple(range(1, 9))
 OURS = {"policy": "merit", "ballast": True, "slack_h": REF_SLACK, "load": REF_LOAD}
 BASELINE = {"policy": "thermostat", "ballast": False, "slack_h": REF_SLACK, "load": REF_LOAD,
             "load_basis": "same paid load as ours"}
-MAX_DUMP_SHARE = 0.01  # sizing rule: dumped heat at most 1 % of the year's heat demand (stated rule, #95)
+MAX_DUMP_SHARE = 0.10  # sizing rule: dumped heat at most 10 % of the year's heat demand (design decision on #95)
 SERIES = ("heat_used_kwh", "dumped_kwh", "backup_kwh", "tank_kwh", "servers_on", "paused", "units_done",
           "ballast_units", "missed", "net_chf_cum", "heat_used_kwh_cum")
 ND = 3  # decimals in the JSON series

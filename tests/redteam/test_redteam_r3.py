@@ -215,7 +215,6 @@ def test_dashboard_unreadable_parquet_falls_back_to_csv(run, client):
     assert client.get("/api/day/january").status_code == 200
 
 
-@pytest.mark.xfail(strict=True, reason="#17 r3 F26: corrupt balance.json -> unhandled 500 on 5 endpoints")
 @pytest.mark.parametrize("content", ["{not json", "[1, 2]", ""], ids=["garbage", "json-list", "empty"])
 def test_finding_dashboard_corrupt_balance_is_unhandled(run, client, content):
     (run / "balance.json").write_text(content)
@@ -224,7 +223,6 @@ def test_finding_dashboard_corrupt_balance_is_unhandled(run, client, content):
     assert not bad, bad
 
 
-@pytest.mark.xfail(strict=True, reason="#17 r3 F27: one corrupt sibling run breaks the like-for-like view")
 def test_finding_dashboard_one_bad_sibling_breaks_ab_like_for_like(run, client):
     """runs/<other>/balance.json is read for the A/B. One half-written run (e.g. a sweep killed mid-write) turns the
     whole view into a 500. Expected: skip it and say so (like the sweep's failed cells, F17)."""
@@ -235,14 +233,12 @@ def test_finding_dashboard_one_bad_sibling_breaks_ab_like_for_like(run, client):
     assert r.status_code == 200, r.status_code
 
 
-@pytest.mark.xfail(strict=True, reason="#17 r3 F28: malformed hourly.csv -> unhandled 500")
 @pytest.mark.parametrize("csv", ["hour,x\n0,1\n1,2\n", "hour,demand,dump\na,1,2\n"], ids=["no-columns", "text-hour"])
 def test_finding_dashboard_malformed_hourly_is_unhandled(run, client, csv):
     (run / "hourly.csv").write_text(csv)
     assert _typed(client.get("/api/day/january"))
 
 
-@pytest.mark.xfail(strict=True, reason="#17 r3 F29: corrupt sweep/sensitivity/decision_card -> unhandled 500")
 @pytest.mark.parametrize("name,content,path", [
     ("sweep.csv", '\x00\xff,\n"unterminated', "/api/sweep"),
     ("sensitivity.csv", "parameter,metric_low,metric_high\nx,abc,1\n", "/api/sensitivity"),
@@ -253,7 +249,6 @@ def test_finding_dashboard_corrupt_outputs_are_unhandled(run, client, name, cont
     assert _typed(client.get(path))
 
 
-@pytest.mark.xfail(strict=True, reason="#17 r3 F30: /api/decision ranks N by the run-hour break-even, not #50's")
 def test_finding_dashboard_decision_uses_pre_50_break_even(run, client):
     """#50 made pays_off_above the pay-off test (filler and heat-led hours do not earn the paid price). /api/decision
     still picks 'the' N by the lowest break_even_incl_hardware, which said merit+ballast and always_on pay at N=4

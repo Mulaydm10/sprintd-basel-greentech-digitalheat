@@ -135,3 +135,14 @@ def test_page_uses_only_api_numbers():
     js = html.split("data-dc-script", 1)[1]
     for banned in ("57.9", "0.552", "0.533", "31,231", "26851", "0.3325", "2.5;"):
         assert banned not in js, banned
+
+
+# ------------------------------------------------------------------ #104 polish (seen live after deploy)
+def test_page_opens_at_recommended_n_and_controls_clear_the_nav():
+    html = (site_build.EXTRA / PAGE).read_text(encoding="utf-8")
+    js = html.split("data-dc-script", 1)[1]
+    assert "this.load(null)" in js and "idx.sizing.recommended_n" in js and "n: null" in js  # default N = recommended
+    body = html.split("<dc-import", 1)[0]
+    assert body.index("data-dh-verdict") < body.index("data-dh-controls") < body.index("data-dh-year")  # above the fold
+    assert "margin:14px 0 170px" in body  # the floating Nav never covers the last row
+    assert "heroVerdict" in js and "{{ heroVerdict }}" in body

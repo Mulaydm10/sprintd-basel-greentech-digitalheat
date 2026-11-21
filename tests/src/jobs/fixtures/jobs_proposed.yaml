@@ -1,0 +1,22 @@
+# PROPOSED `jobs:` block for data/assumptions.yaml (design adds it; workers may not). ASSUMED placeholders
+# until the Mac measurement (EXP row) replaces runtime/energy. Runtime is on the 1 kW reference server;
+# energy_kwh is derived = runtime_h x server.electric_kw unless given.
+jobs:
+  - name: whisper_transcription
+    runtime_h: 1.0
+    interruptible: true          # checkpoint per audio segment
+    deadline_h: 24
+    access_class: swiss-only
+    price_chf_per_h: 1.70        # teammate sovereign price CHF 1.70/GPU-h (design/PLAN §0 [T])
+    jobs_per_day: 4
+    measured: false
+    source: "ASSUMED: runtime/jobs_per_day placeholders pending Mac measurement; price from design/PLAN-scheduler-deploy.md §0 [T]"
+  - name: image_tagging
+    runtime_h: 0.25
+    interruptible: true
+    deadline_h: 168              # ballast: a week of patience (Run B 7 d slack)
+    access_class: public
+    price_chf_per_h: 0.50        # = bid used in research/scheduler/year_replay.py (validated golden run)
+    jobs_per_day: 40
+    measured: false
+    source: "ASSUMED: public ballast; price = year_replay bid; runtime/jobs_per_day placeholders"

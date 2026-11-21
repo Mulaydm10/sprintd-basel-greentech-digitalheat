@@ -21,13 +21,22 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from common.config import ROOT
+from common.config import ROOT, validate_assumptions
 from jobs.catalogue import JobType, load_catalogue
 from scheduler import Assign, Params, Route, SetPower, SiteState, Unit, decide, heat_value_chf_kwh
 from scheduler.admit import admit, net_of_backlog, persistence_forecast
 from scheduler.policy import used_capacity_kwh_el
 
 POLICIES = ("merit", "thermostat", "always_on")
+
+
+class ConservationError(AssertionError):
+    """An hour violated energy conservation or tank bounds. Raised explicitly (not `assert`), so the check
+    survives `python -O` (#39, red team F19). Subclasses AssertionError for existing callers."""
+
+
+class DecisionError(ValueError):
+    """decide() returned a Decision without the actions the loop needs (#39, red team F18)."""
 TOL = 1e-6
 
 
@@ -99,6 +108,7 @@ def simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h:
 def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h: float, load: float,
               seed: int, a_hash: str, hourly: bool, ballast: bool = False,
               admission: bool = False) -> tuple[dict, pd.DataFrame | None]:
+    validate_assumptions(a)  # typed ConfigError for missing/invalid keys (#38/#39, red team F13-F16)
     if policy not in POLICIES:
         raise ValueError(f"policy {policy!r} not in {POLICIES}")
     if servers < 0 or load < 0 or slack_h < 0:
@@ -174,8 +184,10 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
                              site.has_dump, site.band_low_kwh, site.band_high_kwh, site.mode_running,
                              site.dhw_demand_kw)
         dec = decide([site], offer, h, params, seed=seed)
-        on = next(x.servers_on for x in dec.actions if isinstance(x, SetPower))
-        r = next(x for x in dec.actions if isinstance(x, Route))
+        on = next((x.servers_on for x in dec.actions if isinstance(x, SetPower) and x.site_id == "house"), None)
+        r = next((x for x in dec.actions if isinstance(x, Route) and x.site_id == "house"), None)
+        if on is None or r is None:
+            raise DecisionError(f"hour {h}: decide() returned no {'SetPower' if on is None else 'Route'} for the site")
         done = {x.unit_id for x in dec.actions if isinstance(x, Assign)}
         n_ballast = len(done & filler_ids) if filler_ids else 0
         if n_ballast:
@@ -186,14 +198,17 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
         mode = dec.next_mode["house"]
         # 4. tank + backup, with conservation asserts (robustness req. 2)
         produced = on * kw * rec
-        assert abs(r.space_kwh + r.dhw_kwh + r.tank_kwh + r.dump_kwh - produced) < TOL, h
+        if not abs(r.space_kwh + r.dhw_kwh + r.tank_kwh + r.dump_kwh - produced) < TOL:
+            raise ConservationError(f"hour {h}: routed heat != produced heat ({produced:.6f} kWh)")
         lvl += r.tank_kwh
         unmet = dem - r.space_kwh - r.dhw_kwh
         draw = min(lvl, max(0.0, unmet))
         lvl -= draw
         backup = max(0.0, unmet - draw)
-        assert abs(r.space_kwh + r.dhw_kwh + draw + backup - dem) < TOL, h
-        assert -TOL <= lvl <= cap + TOL, (h, lvl)
+        if not abs(r.space_kwh + r.dhw_kwh + draw + backup - dem) < TOL:
+            raise ConservationError(f"hour {h}: demand not balanced by space+dhw+tank draw+backup")
+        if not -TOL <= lvl <= cap + TOL:
+            raise ConservationError(f"hour {h}: tank level {lvl} outside [0, {cap}]")
         # 5. queue bookkeeping
         queue = [u for u in queue if u.unit_id not in done]
         late = sum(1 for u in queue if u.deadline_hour <= h)
@@ -216,7 +231,9 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
             modes[h] = mode
     t.units_in = k
 
-    bal = _balance(a, servers, policy, slack_h, load, seed, a_hash, H, space, dhw, t, bid, unit_h, ballast_t is not None)
+    ballast_income = t.ballast_kwh / kw * b_bid if use_ballast else None
+    bal = _balance(a, servers, policy, slack_h, load, seed, a_hash, H, space, dhw, t, bid, unit_h, ballast_t is not None,
+                   ballast_income or 0.0)
     paid_run_h = t.units_done * unit_h
     bal["ballast"] = use_ballast
     bal["paid_run_h"] = _r(paid_run_h, 3)
@@ -224,10 +241,11 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
     # merit+ballast: measured filler hours. thermostat/always_on: implicit ballast = run - paid (they run servers
     # for heat without paid work); they never SELL it, so ballast_income_chf is None for them.
     bal["ballast_run_h"] = _r(t.ballast_kwh / kw if use_ballast else max(0.0, t.run_h - paid_run_h), 3)
-    bal["ballast_income_chf"] = _r(t.ballast_kwh / kw * b_bid, 3) if use_ballast else None
+    bal["ballast_income_chf"] = _r(ballast_income, 3)
     bal["ballast_hours_with_dump"] = t.ballast_dump_hours
-    # Note: compute_income_chf / pays_off cover PAID work only; electricity_cost and break_even include every
-    # server-hour run (paid + ballast). Total income with filler = compute_income_chf + ballast_income_chf.
+    # Note: compute_income_chf covers PAID work only; electricity_cost and break_even_* include every server-hour
+    # run (paid + ballast). Total income with filler = compute_income_chf + ballast_income_chf. pays_off uses
+    # pays_off_above_chf_per_server_h, which counts the filler income (#50).
     bal["admission"] = admission
     df = None
     if hourly:
@@ -253,7 +271,17 @@ def _r(x, nd=6):
     return None if x is None else round(float(x), nd)
 
 
-def _balance(a, servers, policy, slack_h, load, seed, a_hash, H, space, dhw, t: _Acc, bid, unit_h, has_price) -> dict:
+def _balance(a, servers, policy, slack_h, load, seed, a_hash, H, space, dhw, t: _Acc, bid, unit_h, has_price,
+             ballast_income: float = 0.0) -> dict:
+    """Yearly balance. Two different break-even notions (#50):
+
+    - break_even_*_chf_per_server_h: (electricity - heat value [+ hardware]) / ALL server-hours run. A cost per
+      server-hour. It is NOT a pay-off test when some hours earn less than the paid price (merit --ballast filler
+      earns only its bid) or nothing (thermostat/always_on run heat-led hours nobody buys).
+    - pays_off_above_chf_per_server_h: (electricity - heat value + hardware - ballast income) / PAID server-hours.
+      The paid-work price at which the year breaks even incl. hardware. Same formula for every policy, so the A/B
+      compares like with like; pays_off = paid bid >= it.
+    """
     p_el, div = float(a["price"]["chf_per_kwh"]), float(a["price"]["heat_value_divisor"])
     kw = float(a["server"]["electric_kw"])
     hw = a["hardware"]
@@ -273,15 +301,28 @@ def _balance(a, servers, policy, slack_h, load, seed, a_hash, H, space, dhw, t: 
     lives = [float(x) for x in hw.get("life_years_range", [life])]
     table = {f"capex_{int(c)}_life_{int(l)}y": _r(be_hw(c, l)) for c in hw["capex_range_chf"] for l in lives}
     be_inc = be_hw(capex, life)
-    pays = bool(has_price and be_inc is not None and bid >= be_inc)
+
+    def paid_above(c, l):
+        cost = elec - heat_value + servers * c / l * years
+        return (cost - ballast_income) / sold_h if sold_h > 0 else None
+
+    above = paid_above(capex, life)
+    above_table = {f"capex_{int(c)}_life_{int(l)}y": _r(paid_above(c, l)) for c in hw["capex_range_chf"] for l in lives}
+    pays = bool(has_price and above is not None and bid >= above - 1e-12)
     if be_inc is None:
         cond = "no servers run, so there is no break-even"
+    elif above is None:
+        cond = (f"no paid work was done, so nothing pays for the hardware (cost {be_inc:.4f} CHF per server-hour "
+                f"run incl. hardware, {be:.4f} without)")
     else:
-        cond = (f"pays off if compute sells for >= {be_inc:.4f} CHF/server-h incl. hardware "
-                f"(capex {capex:.0f} CHF over {life:.0f} y; {be:.4f} without hardware)")
+        unpaid_h = max(0.0, t.run_h - sold_h)
+        cond = (f"pays off if paid work sells for >= {above:.4f} CHF/server-h incl. hardware "
+                f"(capex {capex:.0f} CHF over {life:.0f} y; counts {ballast_income:.0f} CHF filler income; "
+                f"{unpaid_h:.0f} of {t.run_h:.0f} server-h run are not paid work)")
         if has_price:
             cond += f"; paid work bids {bid:.4f} CHF/server-h, so it {'does' if pays else 'does not'}"
-        cond += f"; heat covers {(demand - t.backup) / demand:.1%} of demand, {t.dump:.0f} kWh dumped"
+        cond += (f"; cost per server-hour run: {be_inc:.4f} incl. hardware, {be:.4f} without"
+                 f"; heat covers {(demand - t.backup) / demand:.1%} of demand, {t.dump:.0f} kWh dumped")
 
     return {
         "servers_per_house": servers,
@@ -309,6 +350,8 @@ def _balance(a, servers, policy, slack_h, load, seed, a_hash, H, space, dhw, t: 
         "break_even_incl_hardware_chf_per_server_h": _r(be_inc),
         "break_even_incl_hardware_table": table,
         "assumptions_hash": a_hash,
+        "pays_off_above_chf_per_server_h": _r(above),
+        "pays_off_above_table": above_table,
         "pays_off": pays,
         "pays_off_conditions": cond,
     }

@@ -123,7 +123,9 @@ def test_req4_seed_changes_only_arrival_driven_keys():
     b2, _ = run(SYN, 3, "thermostat", 0, 0.6, seed=2)
     diff = {k for k in b1 if b1[k] != b2[k]}
     assert diff <= {"seed", "jobs_total", "units_done", "missed_deadline_pct", "compute_income_chf",
-                    "paid_run_h", "ballast_run_h", "ballast_income_chf"}  # implicit ballast = run - paid
+                    "paid_run_h", "ballast_run_h", "ballast_income_chf",  # implicit ballast = run - paid
+                    # #50: the paid-price break-even divides by paid hours, which depend on arrivals
+                    "pays_off_above_chf_per_server_h", "pays_off_above_table", "pays_off", "pays_off_conditions"}
     m1, _ = run(SYN, 3, "merit", 24, 0.6, seed=1)
     m2, _ = run(SYN, 3, "merit", 24, 0.6, seed=2)
     assert all(m1[k] == m2[k] for k in fixed)
@@ -354,3 +356,87 @@ def test_cli_admission_flag(tmp_path):
                  "--out", str(tmp_path)]) == 0
     b = json.loads((tmp_path / "balance.json").read_text())
     assert b["admission"] is True and b["admitted_units"] + b["rejected_units"] == b["jobs_total"]
+
+
+# ------------------------------------------------------------------ #39 hardening (red team F12-F19)
+def test_run_id_full_precision_and_flags():
+    from simulate_year.cli import _run_id
+    assert _run_id(1, "merit", 0, 0.4, 0) != _run_id(1, "merit", 0, 0.4000001, 0)
+    assert _run_id(1, "merit", 24, 0.4, 0) != _run_id(1, "merit", 24, 0.4, 0, ballast=True)
+    assert _run_id(1, "merit", 24, 0.4, 0, admission=True).endswith("-admission")
+    assert "thermostat" in _run_id(4, "merit", 24, "thermostat", 0)
+
+
+def test_existing_run_dir_needs_force(tmp_path):
+    args = ["--servers", "1", "--policy", "thermostat", "--out", str(tmp_path)]
+    assert main(args) == 0
+    with pytest.raises(SystemExit, match="--force"):
+        main(args)
+    assert main(args + ["--force"]) == 0
+
+
+def test_sweep_isolates_failing_cells_and_exits_nonzero(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "SWEEP_SERVERS", (1,))
+    monkeypatch.setattr(cli, "SWEEP_SLACK_H", (0,))
+    monkeypatch.setattr(cli, "SWEEP_LOAD", (0.4, -1.0))
+    assert main(["--sweep", "--workers", "2", "--out", str(tmp_path)]) == 1
+    rows = pd.read_csv(tmp_path / "sweep.csv", keep_default_na=False)
+    assert len(rows) == 6 and (rows.error != "").sum() == 3
+    assert set(rows[rows.error != ""].load) == {-1.0} and rows[rows.error == ""].share_covered.notna().all()
+
+
+def test_invalid_assumptions_are_typed_config_errors():
+    from common.config import ConfigError
+    bad = copy.deepcopy(A)
+    bad["price"]["heat_value_divisor"] = 0
+    with pytest.raises(ConfigError, match="heat_value_divisor"):
+        run(SYN, 1, "thermostat", a=bad)
+
+
+def test_conservation_error_is_explicit_assertion_subclass():
+    from simulate_year.sim import ConservationError, DecisionError
+    assert issubclass(ConservationError, AssertionError) and issubclass(DecisionError, ValueError)
+    import inspect
+    import simulate_year.sim as sim_mod
+    assert "\n        assert " not in inspect.getsource(sim_mod._simulate)  # survives python -O
+
+
+# ------------------------------------------------------------------ #50 pay-off = paid price incl. filler income
+def test_pays_off_above_closes_the_books_for_every_policy():
+    """At pays_off_above, paid income + filler income + heat value == electricity + hardware, for every policy."""
+    hw = A["hardware"]
+    for pol, bl in (("thermostat", False), ("always_on", False), ("merit", False), ("merit", True)):
+        b, _ = simulate(SYN, A, 3, pol, 24, 0.5, 0, hourly=False, ballast=bl)
+        years = len(SYN) / 8760
+        cost = b["electricity_cost_chf"] + 3 * hw["capex_chf_per_server"] / hw["life_years"] * years
+        income = (b["pays_off_above_chf_per_server_h"] * b["paid_run_h"] + (b["ballast_income_chf"] or 0)
+                  + b["heat_value_chf"])
+        assert income == pytest.approx(cost, rel=1e-5), pol
+        assert b["pays_off"] == (PAID_PRICE >= b["pays_off_above_chf_per_server_h"])
+        assert f"{b['pays_off_above_chf_per_server_h']:.4f}" in b["pays_off_conditions"]
+
+
+def test_pays_off_without_paid_work_is_false_and_explained():
+    b, _ = simulate(SYN, A, 3, "thermostat", 0, 0.0, 0, hourly=False)
+    assert b["pays_off_above_chf_per_server_h"] is None and b["pays_off"] is False
+    assert "no paid work" in b["pays_off_conditions"]
+
+
+PAID_PRICE = next(j["price_chf_per_h"] for j in A["jobs"] if j["name"] == "image_tagging")
+# Real year, N=4, slack 24, like-for-like paid stream (load = thermostat utilisation), capex 8k/5y, main + #46.
+GOLD_PAYS_OFF_ABOVE = {("thermostat", False): 0.7368, ("always_on", False): 0.6905, ("merit", False): 0.5388,
+                       ("merit", True): 0.5327}
+
+
+def test_golden_pays_off_above_like_for_like(year):
+    """#50 golden: per-run-hour break-even said merit+ballast (0.469) and always_on (0.446) 'pay' at 0.50; counted
+    honestly (filler earns 0.25, heat-led hours earn nothing) nothing pays at N=4, and merit+ballast needs the
+    lowest paid price of all four policies."""
+    lf = thermostat_load(year, A, 4)
+    got = {}
+    for (pol, bl), want in GOLD_PAYS_OFF_ABOVE.items():
+        b, _ = simulate(year, A, 4, pol, 24, lf, 0, hourly=False, ballast=bl)
+        got[(pol, bl)] = b["pays_off_above_chf_per_server_h"]
+        assert got[(pol, bl)] == pytest.approx(want, abs=5e-4), (pol, bl)
+        assert b["pays_off"] is False
+    assert min(got, key=got.get) == ("merit", True)

@@ -63,9 +63,13 @@ def used_capacity_kwh_el(s: SiteState) -> float:
 
 # ---------------------------------------------------------------- hysteresis (rule 5)
 def next_mode_hysteresis(s: SiteState) -> bool:
+    """Rule 5 (contract v2.3): running -> idle at tank >= band_high; idle -> running at tank <= band_low,
+    OR when space heat is wanted (demand_kw > 0) and the tank is below band_high (wake on space demand, #44).
+    One evaluation per tick, so at most one transition per site per hour."""
     if s.mode_running and s.tank_level_kwh >= s.band_high_kwh:
         return False
-    if not s.mode_running and s.tank_level_kwh <= s.band_low_kwh:
+    if not s.mode_running and (s.tank_level_kwh <= s.band_low_kwh
+                               or (s.demand_kw > 0 and s.tank_level_kwh < s.band_high_kwh)):
         return True
     return s.mode_running
 

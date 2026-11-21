@@ -14,7 +14,8 @@ import pytest
 
 from common.config import load_assumptions
 from house_model.profile import load_reference_profile
-from simulate_year.__main__ import main
+import simulate_year.cli as cli
+from simulate_year.cli import main
 from simulate_year.sim import simulate
 
 A = load_assumptions()
@@ -187,3 +188,14 @@ def test_req6_one_year_under_15s(year):
     t0 = time.perf_counter()
     run(year, 4, "merit", 24, 0.6)
     assert time.perf_counter() - t0 < 15
+
+
+# ------------------------------------------------------------------ sweep (real process pool; regression for spawn pickling)
+def test_sweep_runs_in_worker_processes(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "SWEEP_SERVERS", (1,))
+    monkeypatch.setattr(cli, "SWEEP_SLACK_H", (0,))
+    monkeypatch.setattr(cli, "SWEEP_LOAD", (0.4,))
+    assert main(["--sweep", "--workers", "2", "--out", str(tmp_path)]) == 0
+    rows = pd.read_csv(tmp_path / "sweep.csv")
+    assert len(rows) == 3 and set(rows.policy) == {"merit", "thermostat", "always_on"}
+    assert set(rows.columns) >= CONTRACT_KEYS

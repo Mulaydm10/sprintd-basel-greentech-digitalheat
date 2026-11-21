@@ -34,6 +34,7 @@ from .auth import ID_RE, Principal
 RING = 10_000  # events kept
 OFFLINE_S = 60.0  # no heartbeat for this long -> offline (SUSPECT_S .. OFFLINE_S -> suspect)
 SIGNAL_EVENT_EVERY_S = 10.0  # site.signal events are throttled per site (signals arrive every ~2 s)
+PROGRESS_EVENT_EVERY_S = 5.0  # F39: unit.progress from heartbeats, at most one per unit per 5 s
 ACCOUNT_MAX_DT_S = 10.0  # hourly accounting never credits a gap between two signals longer than this
 SCENARIOS = ("coldest", "july")
 ACCESS = ("public", "swiss-only", "certified")
@@ -172,13 +173,33 @@ def job_state_event(db, coord, job_id: str) -> None:
         emit(db, coord, "job.state", {"job": job_id, "status": st}, client_id=j["client_id"], job_id=job_id)
 
 
+def bound_running_unit(db, coord, node_id: str, unit: str | None, progress):
+    """F38: a heartbeat may only report a unit this node holds a lease on (active, or paused while it uploads the
+    final checkpoint). Anything else is dropped (stored as no unit) and audited once per (node, unit)."""
+    if unit is None:
+        return None, progress
+    if db.execute("SELECT 1 FROM leases WHERE unit_id=? AND node_id=? AND state IN ('active','paused')",
+                  (unit, node_id)).fetchone():
+        return unit, progress
+    seen = coord.__dict__.setdefault("_portal_hb_rejected", set())
+    if (node_id, unit) not in seen and len(seen) < 10_000:
+        seen.add((node_id, unit))
+        coord._audit(db, {"type": "heartbeat_unit_rejected", "node": node_id, "reason": "no lease on this unit"})
+    return None, None
+
+
 def heartbeat_events(db, coord, before, after, now: float) -> None:
     core = _core()
     if now - float(before["last_hb"]) > core.SUSPECT_S:
         emit(db, coord, "node.state", {"node": after["node_id"], "state": "online", "recovered": True},
              **scope(db, None, after["node_id"]))
     unit = after["running_unit"]
-    if unit and (unit != before["running_unit"] or after["progress"] != before["progress"]):
+    last = coord.__dict__.setdefault("_portal_progress_ev", {})
+    if unit and (unit != before["running_unit"]
+                 or (after["progress"] != before["progress"] and now - last.get(unit, -1e18) >= PROGRESS_EVENT_EVERY_S)):
+        last[unit] = now
+        if len(last) > 10_000:
+            last.clear()
         emit(db, coord, "unit.progress", {"unit": unit, "node": after["node_id"], "progress": after["progress"]},
              **scope(db, unit, after["node_id"]))
 
@@ -246,8 +267,16 @@ def events_after(coord, principal: Principal, after_id: int = 0, limit: int = 20
         return []
     rows = coord.store.q(f"SELECT * FROM events WHERE id > ? {where} ORDER BY id LIMIT ?",
                          int(after_id), *args, max(1, min(int(limit), 1000)))
-    return [{"id": r["id"], "ts": _iso(r["ts"]), "type": r["type"], "data": json.loads(r["data"]),
-             "job_id": r["job_id"], "node_id": r["node_id"], "site_id": r["site_id"]} for r in rows]
+    out = [{"id": r["id"], "ts": _iso(r["ts"]), "type": r["type"], "data": json.loads(r["data"]),
+            "job_id": r["job_id"], "node_id": r["node_id"], "site_id": r["site_id"]} for r in rows]
+    oldest = coord.store.one("SELECT MIN(id) m FROM events")["m"]
+    if int(after_id) > 0 and oldest is not None and int(after_id) < int(oldest) - 1:
+        # F39: the resume point was trimmed from the ring; events in between may be lost -> refetch state. The
+        # marker carries the id of the last skipped slot so a client that stores it does not loop on the gap.
+        out.insert(0, {"id": int(oldest) - 1, "ts": _iso(coord.clock()), "type": "stream.gap",
+                       "data": {"after": int(after_id), "oldest_id": int(oldest)}, "gap": True,
+                       "job_id": None, "node_id": None, "site_id": None})
+    return out
 
 
 def last_event_id(coord) -> int:
@@ -411,9 +440,17 @@ def submit_client_job(coord, client_id: str, *, type: str, access_class: str, de
             or not all(c.isalnum() or c in "-_.:" for c in idempotency_key) or not idempotency_key.isascii():
         raise rejected(f"idempotency_key must be 1..{IDEM_MAX} characters of [A-Za-z0-9-_.:]")
     find = "SELECT * FROM jobs WHERE client_id=? AND idempotency_key=?"
+    params = json.dumps({"type": type, "access_class": access_class, "deadline_h": float(deadline_h),
+                         "rounds": rounds, "chunks": chunks}, sort_keys=True)
+
+    def replay(row):
+        if row["idem_params"] is not None and row["idem_params"] != params:  # F37
+            raise _err(409, {"status": "conflict", "reason": "idempotency_key was already used with different "
+                                                            "parameters", "job_id": row["job_id"]})
+        return _submit_reply(coord, row, created=False)
     old = coord.store.one(find, client_id, idempotency_key)
     if old is not None:
-        return _submit_reply(coord, old, created=False)
+        return replay(old)
     if type not in coord.catalogue:
         raise rejected(f"unknown job type; one of {sorted(coord.catalogue)}")
     if access_class not in ACCESS:
@@ -423,13 +460,13 @@ def submit_client_job(coord, client_id: str, *, type: str, access_class: str, de
     core = _core()
     try:
         out = coord.submit_job(type, client_id, access_class, float(deadline_h), False, rounds, chunks,
-                               client_id=client_id, idempotency_key=idempotency_key)
+                               client_id=client_id, idempotency_key=idempotency_key, idem_params=params)
     except core.CoordError as e:
         if e.status == 422 and isinstance(e.detail, str):
             raise rejected(e.detail) from None
         raise
     except sqlite3.IntegrityError:  # a concurrent request with the same key won the race
-        return _submit_reply(coord, coord.store.one(find, client_id, idempotency_key), created=False)
+        return replay(coord.store.one(find, client_id, idempotency_key))
     return _submit_reply(coord, coord.store.one("SELECT * FROM jobs WHERE job_id=?", out["job_id"]), created=True)
 
 

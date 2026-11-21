@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DigitalHeat Dashboard</title>
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--ink:#11161c;--ink2:#4a5562;--muted:#7b8591;--rule:#dde2e7;--accent:#1d5ea8;
+--space:#2a78d6;--dhw:#1baf7a;--tank:#eda100;--dump:#e34948;--backup:#8a8f98;--warn:#fbe4e3;--ok:#dcf3e6}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1216;--card:#161b21;--ink:#edf1f5;--ink2:#b4bec8;--muted:#8893a0;--rule:#2a323b;
+--accent:#6ea6ea;--space:#3987e5;--dhw:#199e70;--tank:#c98500;--dump:#e66767;--backup:#6b7079;--warn:#3b1f21;--ok:#163626}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+header,main{max-width:1100px;margin:0 auto;padding:20px 16px}
+h1{font-size:26px;margin:0 0 4px}h2{font-size:18px;margin:0 0 10px}
+.sub{color:var(--ink2);margin:0}.banner{background:var(--warn);border-radius:8px;padding:8px 12px;margin-top:12px;font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+.card{background:var(--card);border:1px solid var(--rule);border-radius:10px;padding:14px 16px;margin-bottom:16px}
+.fig .v{font-size:28px;font-weight:700}.fig .l{color:var(--ink2);font-size:13px}
+[data-key]{cursor:help;text-decoration:underline dotted var(--muted);text-underline-offset:3px}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:14px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--rule)}th{color:var(--ink2);font-weight:600}
+td.n,th.n{text-align:right}.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;font-weight:600}
+.yes{background:var(--ok)}.no{background:var(--warn)}.mock{background:var(--warn);color:var(--ink)}
+.days{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px}
+svg{width:100%;height:auto;display:block}svg text{fill:var(--muted);font-size:10px}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--ink2);margin-top:6px}.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}.err{color:var(--dump)}
+</style>
+</head>
+<body>
+<header>
+  <h1>DigitalHeat: basement servers that heat the house</h1>
+  <p class="sub">Every figure is read from the simulation run and shows its source key when you hover over it.</p>
+  <p class="sub mono" id="source"></p>
+  <div id="fixture" class="banner" hidden>FIXTURE DATA: illustrative values, not simulation results.</div>
+</header>
+<main>
+  <section class="card"><h2>Key figures</h2><div class="grid" id="figs"></div></section>
+  <section class="card"><h2>Does it pay off?</h2><div id="decision"></div></section>
+  <section class="card"><h2>Three scheduling policies, same year</h2><div id="ab"></div></section>
+  <section class="card"><h2>Day replay</h2>
+    <div class="days"><div id="day-january"></div><div id="day-july"></div></div>
+    <div class="legend"><span><i style="background:var(--space)"></i>space heating</span><span><i style="background:var(--dhw)"></i>hot water</span><span><i style="background:var(--tank)"></i>into tank</span><span><i style="background:var(--dump)"></i>dumped</span><span><i style="background:var(--backup)"></i>backup heater</span><span>line: demand</span></div>
+  </section>
+  <section class="card"><h2>Trust layer <span class="pill mock">MOCK attestation</span></h2><div id="trust"></div></section>
+  <section class="card"><h2>Live nodes</h2><div id="nodes"></div></section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt = (v, kind) => {
+  if (v === null || v === undefined || Number.isNaN(v)) return "n/a";
+  if (typeof v === "object" && "value" in v) v = v.value;
+  if (typeof v !== "number") return String(v);
+  if (kind === "pct") return (v * 100).toFixed(1) + "%";
+  if (kind === "pct100") return v.toFixed(1) + "%";
+  if (kind === "chf") return "CHF " + v.toFixed(4);
+  if (kind === "kwh") return Math.round(v).toLocaleString("en-CH") + " kWh";
+  return v.toLocaleString("en-CH");
+};
+const val = (obj, key, kind) => `<span data-key="balance.json: ${esc(key)}" title="balance.json: ${esc(key)}">${esc(fmt(obj[key], kind))}</span>`;
+async function get(u){ const r = await fetch(u); if(!r.ok) throw new Error(u + " " + r.status); return r.json(); }
+
+async function main(){
+  const src = await get("api/source");
+  $("source").textContent = "run: " + src.run_dir; $("fixture").hidden = !src.fixture;
+  const b = await get("api/balance");
+  const figs = [["share_covered","pct","of the house's heat comes from the servers"],["backup_heat_kwh","kwh","still needed from the backup heater"],
+    ["heat_dumped_kwh","kwh","server heat thrown away"],["break_even_chf_per_server_h","chf","break-even per server-hour (case formula)"],
+    ["break_even_incl_hardware_chf_per_server_h","chf","break-even incl. hardware (ASSUMED capex)"],["utilisation","pct","server utilisation"],
+    ["missed_deadline_pct","pct100","jobs past deadline"]];
+  $("figs").innerHTML = figs.map(([k,kind,l]) => `<div class="fig"><div class="v">${val(b,k,kind)}</div><div class="l">${l}</div></div>`).join("")
+    + `<div class="fig"><div class="v">${val(b,"servers_per_house")}</div><div class="l">servers in the house, policy ${val(b,"policy")}</div></div>`;
+
+  const d = await get("api/decision");
+  const c = d.chosen;
+  $("decision").innerHTML = `<p><span class="pill ${d.pays_off ? "yes" : "no"}" data-key="balance.json: pays_off" title="balance.json: pays_off">${d.pays_off ? "pays off" : "does NOT pay off"}</span>
+    <span data-key="balance.json: pays_off_conditions" title="balance.json: pays_off_conditions">${esc(d.pays_off_conditions)}</span></p>`
+    + (c ? `<p>Best server count for the merit policy: <b title="sweep.csv: servers_per_house" data-key="sweep.csv: servers_per_house">${esc(c.servers_per_house)}</b> servers,
+      covering <span title="sweep.csv: share_covered" data-key="sweep.csv: share_covered">${fmt(c.share_covered,"pct")}</span> of the heat at
+      <span title="sweep.csv: break_even_incl_hardware_chf_per_server_h" data-key="sweep.csv: break_even_incl_hardware_chf_per_server_h">${fmt(c.break_even_incl_hardware_chf_per_server_h,"chf")}</span> per server-hour incl. hardware.</p>
+      <p class="sub">Rule: ${esc(d.rule)}.</p>` : `<p class="sub">No sweep.csv yet.</p>`);
+
+  const ab = await get("api/ab");
+  const cols = [["share_covered","pct","heat covered"],["heat_dumped_kwh","kwh","heat dumped"],["break_even_chf_per_server_h","chf","break-even"],
+    ["break_even_incl_hardware_chf_per_server_h","chf","break-even incl. hw"],["missed_deadline_pct","pct100","missed deadlines"]];
+  $("ab").innerHTML = ab.rows.length ? `<table><thead><tr><th>policy (N = ${esc(ab.servers_per_house)})</th>${cols.map(c=>`<th class="n">${c[2]}</th>`).join("")}</tr></thead><tbody>`
+    + ab.rows.map(r => `<tr><td>${esc(r.policy)}</td>${cols.map(([k,kind]) => `<td class="n" title="sweep.csv: ${k}" data-key="sweep.csv: ${k}">${fmt(r[k],kind)}</td>`).join("")}</tr>`).join("")
+    + `</tbody></table>` : `<p class="sub">No sweep.csv yet.</p>`;
+
+  for (const which of ["january","july"]) {
+    try { drawDay(which, await get("api/day/" + which)); }
+    catch(e){ $("day-"+which).innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+  }
+
+  const t = await get("api/trust");
+  $("trust").innerHTML = `<p class="sub">Source: ${esc(t.source)}. Chain verified: ${t.verified === null ? "n/a (fixture)" : (t.verified ? "yes" : "NO")}.</p><table><thead><tr><th>#</th><th>event</th><th>details</th></tr></thead><tbody>`
+    + t.entries.map(e => { const ev = e.event; const det = Object.entries(ev).filter(([k]) => k !== "type").map(([k,v]) => `${k}=${v}`).join(", ");
+      return `<tr><td>${e.index}</td><td>${ev.type === "deny" ? `<span class="pill no">denied</span>` : esc(ev.type)}</td><td class="mono">${esc(det)}</td></tr>`; }).join("") + `</tbody></table>`;
+
+  const n = await get("api/nodes");
+  $("nodes").innerHTML = `<p class="sub">${n.enabled ? "" : "Disabled. "}${esc(n.note)}</p>`;
+}
+
+function drawDay(which, d){
+  const rows = d.rows, W = 360, H = 170, L = 30, B = 150, T = 12;
+  const stack = ["space","dhw","tank_in","dump","backup"], color = {space:"--space",dhw:"--dhw",tank_in:"--tank",dump:"--dump",backup:"--backup"};
+  const tot = r => stack.reduce((s,k) => s + (r[k] || 0), 0);
+  const max = Math.max(1e-9, ...rows.map(tot), ...rows.map(r => r.demand || 0));
+  const bw = (W - L - 6) / rows.length, sy = v => (B - T) * v / max;
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${which} day: hourly heat by destination">`;
+  s += `<line x1="${L}" x2="${W-4}" y1="${B}" y2="${B}" stroke="var(--rule)"/><text x="${L-4}" y="${T+4}" text-anchor="end">${max.toFixed(1)}</text><text x="${L-4}" y="${B}" text-anchor="end">0</text>`;
+  rows.forEach((r,i) => { let y = B; const x = L + i*bw + 1;
+    for (const k of stack) { const h = sy(r[k] || 0); if (h <= 0) continue; y -= h;
+      s += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(1,bw-2).toFixed(1)}" height="${h.toFixed(1)}" fill="var(${color[k]})"><title>hour ${r.hour}: ${k} ${(r[k]).toFixed(2)} kWh (hourly: ${k})</title></rect>`; }
+    if (i % 6 === 0) s += `<text x="${(x+bw/2).toFixed(1)}" y="${B+12}" text-anchor="middle">${i}h</text>`; });
+  s += `<polyline fill="none" stroke="var(--ink)" stroke-width="1.5" points="${rows.map((r,i)=>`${(L+i*bw+bw/2).toFixed(1)},${(B-sy(r.demand||0)).toFixed(1)}`).join(" ")}"><title>demand (hourly: demand)</title></polyline></svg>`;
+  const on = rows.map(r => r.servers_on), tank = rows.map(r => r.tank_level);
+  $("day-"+which).innerHTML = `<h3 style="margin:0 0 6px;font-size:15px">${which === "january" ? "Coldest January day" : "July day with the most heat dumped"} (day ${d.day_of_year})</h3>${s}
+    <p class="sub" style="font-size:12px">servers on: ${Math.min(...on)}–${Math.max(...on)} · tank: ${Math.min(...tank).toFixed(1)}–${Math.max(...tank).toFixed(1)} kWh (hourly: servers_on, tank_level)</p>`;
+}
+main().catch(e => document.querySelector("main").insertAdjacentHTML("afterbegin", `<p class="err card">Could not load data: ${esc(e.message)}</p>`));
+</script>
+</body>
+</html>

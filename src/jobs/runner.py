@@ -19,6 +19,8 @@ Graceful stop (finish and commit the current chunk, then exit 0), three ways:
   when honoured. Portable, so it is the pause path the live agent uses on every OS (#49);
 - SIGTERM (POSIX; on Windows SIGTERM is TerminateProcess, a hard kill with no handler);
 - SIGBREAK (Windows: CTRL_BREAK_EVENT to a process started with CREATE_NEW_PROCESS_GROUP).
+Parent watchdog (#64): with `--parent-pid P` the runner exits 3 (without writing another chunk) as soon as P
+is gone, checked before every chunk; on Linux it also asks for PR_SET_PDEATHSIG=SIGKILL (best effort).
 A hard kill anywhere (SIGKILL, TerminateProcess, power loss) is covered by the commit order above.
 SIGSTOP/SIGCONT (POSIX only) need no handling: nothing depends on wall-clock time.
 
@@ -88,8 +90,48 @@ def _install_stop_handlers(stop: dict) -> None:
         signal.signal(signal.SIGBREAK, handler)
 
 
+PARENT_GONE_RC = 3
+
+
+def _pid_alive(pid: int) -> bool:
+    if sys.platform == "win32":
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        h = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            return bool(k32.GetExitCodeProcess(h, ctypes.byref(code))) and code.value == 259  # STILL_ACTIVE
+        finally:
+            k32.CloseHandle(h)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def parent_watch(parent_pid: int | None) -> Callable[[], bool]:
+    """Return f() -> True while the parent that launched us is still alive."""
+    if not parent_pid:
+        return lambda: True
+    if sys.platform.startswith("linux"):
+        try:
+            import ctypes
+            ctypes.CDLL(None, use_errno=True).prctl(1, signal.SIGKILL)  # PR_SET_PDEATHSIG
+        except Exception:
+            pass
+    if os.name == "posix":  # reparenting changes getppid(); also catches a recycled pid
+        return lambda: os.getppid() == parent_pid
+    return lambda: _pid_alive(parent_pid)
+
+
 def run(job_type: str, ckpt: Path, out: Path, chunks: int, workload: Workload,
-        stop_file: Path | None = None) -> dict:
+        stop_file: Path | None = None, parent_alive: Callable[[], bool] | None = None) -> dict:
+    parent_alive = parent_alive or (lambda: True)
     stop = {"flag": False}
     _install_stop_handlers(stop)
     stop_file = stop_file or default_stop_file(ckpt)
@@ -119,6 +161,8 @@ def run(job_type: str, ckpt: Path, out: Path, chunks: int, workload: Workload,
         f.truncate(state["out_bytes"])  # drop anything written after the last commit
         f.seek(0, os.SEEK_END)
         while state["next_chunk"] < chunks and not stop_requested():
+            if not parent_alive():
+                os._exit(PARENT_GONE_RC)  # orphaned: the lease is the parent's, stop burning power
             cid = state["next_chunk"]
             digest = workload.run_chunk(cid)
             f.write(f"{cid} {digest}\n".encode())
@@ -142,11 +186,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--chunks", type=int, default=DEFAULT_CHUNKS)
     p.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS)
     p.add_argument("--stop-file", type=Path, help="graceful-stop request file (default: <checkpoint>.stop)")
+    p.add_argument("--parent-pid", type=int, help="exit 3 once this process (the live agent) is gone")
     a = p.parse_args(argv)
     if a.chunks <= 0 or a.rounds <= 0:
         p.error("--chunks and --rounds must be positive")
+    alive = parent_watch(a.parent_pid)
+    if not alive():
+        return PARENT_GONE_RC
     out = a.out or a.checkpoint.with_name(a.checkpoint.name + ".out")
-    state = run(a.type, a.checkpoint, out, a.chunks, HashWorkload(a.type, a.rounds), stop_file=a.stop_file)
+    state = run(a.type, a.checkpoint, out, a.chunks, HashWorkload(a.type, a.rounds), stop_file=a.stop_file,
+                parent_alive=alive)
     print(json.dumps({"job_type": a.type, "next_chunk": state["next_chunk"], "chunks": a.chunks,
                       "done": state["done"], "out": str(out), "workload": "stand-in sha256"}))
     return 0

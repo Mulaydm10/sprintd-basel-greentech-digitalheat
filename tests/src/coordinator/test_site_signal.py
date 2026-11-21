@@ -88,12 +88,15 @@ def test_warm_site_signal_makes_renew_hold(senv):
 
 
 # ------------------------------------------------------------------ rate limiter (red team: app.py:86)
-def test_rate_limiter_ignores_frozen_injected_clock(senv):
-    import time
-    c = senv.c  # senv.clock is frozen: it never advances
+def test_rate_limiter_ignores_frozen_injected_clock(tmp_path):
+    from coordinator.app import create_app
+    app_clock, mono = Clock(), [0.0]  # both frozen: the bucket can only refill when `mono` advances
+    c = TestClient(create_app(tmp_path, tokens=ROLES_S, clock=app_clock, monotonic=lambda: mono[0]))
     codes = [c.get("/v1/status", headers=H("observer")).status_code for _ in range(45)]
-    assert 429 in codes
-    time.sleep(0.2)  # real time refills ~4 tokens at 20/s
+    assert codes[:40] == [200] * 40 and set(codes[40:]) == {429}
+    app_clock.t += 3600  # app clock jumping does not refill the limiter
+    assert c.get("/v1/status", headers=H("observer")).status_code == 429
+    mono[0] += 0.2  # monotonic source refills ~4 tokens at 20/s
     assert c.get("/v1/status", headers=H("observer")).status_code == 200
 
 
@@ -104,6 +107,26 @@ def test_make_site_tokens(tmp_path):
     assert roles == ["admin", "node:node-a", "observer", "site:site-a", "site:site-b"]
     with pytest.raises(SystemExit):
         make_tokens(tmp_path / "x.json", [], ["Bad/Id"])
+
+
+def test_make_tokens_adds_missing_roles(tmp_path, capsys):
+    import os
+    import stat
+    from coordinator.__main__ import main
+    p = tmp_path / "tokens.json"
+    assert make_tokens(p, ["node-a"])
+    before = load_tokens(p)
+    assert main(["--state", str(tmp_path), "--make-site-tokens", "site-a"]) == 0
+    after = load_tokens(p)
+    assert all(after[t] == r for t, r in before.items())  # existing tokens unchanged
+    assert sorted(after.values()) == ["admin", "node:node-a", "observer", "site:site-a"]
+    out = capsys.readouterr().out
+    assert not any(t in out for t in after)  # never printed
+    if os.name == "posix":
+        assert stat.S_IMODE(p.stat().st_mode) == 0o600
+    assert not make_tokens(p, ["node-a"], ["site-a"])  # nothing missing: no rewrite
+    assert load_tokens(p) == after
+    assert [x.name for x in tmp_path.iterdir()] == ["tokens.json"]  # no temp left behind
 
 
 # ------------------------------------------------------------------ sitesim

@@ -84,6 +84,16 @@ class Config:
             raise ValueError(f"backend {self.backend!r} is not available in jobs.runner yet; use one of {BACKENDS}")
 
 
+def launch_runner(python: str, job_type: str, ckpt: Path, out: Path, stop_file: Path, chunks: int, rounds: int,
+                  cwd: Path) -> subprocess.Popen:
+    """Start jobs.runner tied to this process (#64): it exits within one chunk if we die, even by kill -9."""
+    cmd = [python, "-m", "jobs.runner", job_type, "--checkpoint", str(ckpt), "--out", str(out),
+           "--stop-file", str(stop_file), "--chunks", str(chunks), "--rounds", str(rounds),
+           "--parent-pid", str(os.getpid())]
+    env = {**os.environ, "PYTHONPATH": str(ROOT / "src") + os.pathsep + os.environ.get("PYTHONPATH", "")}
+    return subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(cwd))
+
+
 class Agent:
     def __init__(self, cfg: Config, http: httpx.Client, hb_http: httpx.Client | None = None,
                  sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
@@ -93,11 +103,18 @@ class Agent:
         self.workdir = cfg.root / cfg.node_id
         self.workdir.mkdir(parents=True, exist_ok=True)
         self.power = PowerMeter(self.workdir)
+        self._clean_stale_units()
         self.job_types = {j.name for j in load_catalogue()}
         self.state: dict[str, Any] = {"running_unit": None, "progress": 0.0, "last_error": None}
         self._failures = 0
         self._hb_stop = threading.Event()
         self._hb_thread: threading.Thread | None = None
+
+    def _clean_stale_units(self) -> None:
+        """A fresh agent holds no lease, so every unit dir left by a previous (crashed) agent is stale (#64)."""
+        for p in self.workdir.iterdir():
+            if p.is_dir() and not p.is_symlink() and ID_RE.match(p.name):
+                shutil.rmtree(p, ignore_errors=True)
 
     # ------------------------------------------------------------------ HTTP with backoff
     def _post(self, path: str, http: httpx.Client | None = None, **kw) -> httpx.Response:
@@ -231,11 +248,8 @@ class Agent:
         chunks = int(u.get("chunks") or self.cfg.default_chunks)  # the unit's value wins (v2.1)
         rounds = int(u.get("rounds") or (1 if self.cfg.backend == "fake" else self.cfg.default_rounds))
         renew_s = min(self.cfg.renew_s, float(lease.get("renew_every_s", self.cfg.renew_s)))
-        cmd = [self.cfg.python, "-m", "jobs.runner", job_type, "--checkpoint", str(ckpt), "--out", str(out),
-               "--stop-file", str(stop_file), "--chunks", str(chunks), "--rounds", str(rounds)]
-        env = {**os.environ, "PYTHONPATH": str(ROOT / "src") + os.pathsep + os.environ.get("PYTHONPATH", "")}
         self.state.update(running_unit=unit_id, progress=0.0, last_error=None)
-        proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(d))
+        proc = launch_runner(self.cfg.python, job_type, ckpt, out, stop_file, chunks, rounds, d)
         try:
             return self._supervise(proc, lease_id, unit_id, key, ckpt, out, stop_file, chunks,
                                    float(lease.get("expires_in_s", 15)), renew_s)

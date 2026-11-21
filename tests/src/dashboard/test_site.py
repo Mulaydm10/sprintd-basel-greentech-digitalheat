@@ -49,6 +49,8 @@ def test_only_the_listed_wiring_differs():
         if name in site_build.API_PAGES:
             undo = undo.replace(site_build.API_LOCAL, site_build.API_DEFAULT)
         if name == site_build.NAV_PAGE:
+            for old, newer in reversed(site_build.NAV_LAYOUT):
+                undo = undo.replace(newer, old)
             undo = undo.replace(site_build.NAV_NEW, site_build.NAV_OLD).replace(site_build.NAV_MAX_NEW, site_build.NAV_MAX_OLD)
         if name == site_build.LIVE_PAGE:
             for old, newer in ((site_build.LIVE_ANCHOR, site_build.LIVE_ROW), (site_build.POLL_OLD, site_build.POLL_NEW),

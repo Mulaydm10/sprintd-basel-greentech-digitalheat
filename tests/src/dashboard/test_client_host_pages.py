@@ -40,6 +40,19 @@ def test_nav_order_is_07_to_10():
     assert [n for n, _l, _f in site_build.NAV_EXTRA] == ["07", "08", "09", "10"]
 
 
+def test_nav_stays_one_line_and_pages_end_with_a_spacer(client):
+    """10 tabs wrapped the export's Nav to two lines (covering 08's submit button at ~900 px). Measured in Chrome:
+    one 44 px line at 1440 (all labels), 900 (numbers + active label) and 390 px (sideways scroll, active centred)."""
+    nav = client.get("/Nav.dc.html").text
+    assert "flex-wrap:nowrap" in nav and "flex-wrap:wrap" not in nav and "overflow-x:auto" in nav
+    assert 'data-dh-nav-spacer style="height:80px"' in nav  # >= 16 px offset + 44 px Nav + clearance
+    assert "innerWidth < 1240" in nav and "centerTab()" in nav and 'title="{{ t.label }}"' in nav
+    for page in [p for p in site_build.SRC.glob("*.dc.html") if p.name.startswith("DigitalHeat 0")] + \
+                list(site_build.EXTRA.glob("*.dc.html")):  # the spacer works because the Nav is each page's last element
+        html = page.read_text(encoding="utf-8")
+        assert re.search(r'<dc-import name="Nav"[^>]*></dc-import>\s*</div>\s*</x-dc>', html), page.name
+
+
 @pytest.mark.parametrize("page", [CLIENT, HOST])
 def test_token_lives_in_session_storage_only(page):
     js, src = JS[page], SRC[page]
@@ -108,8 +121,8 @@ def test_client_shows_all_admission_outcomes():
 
 
 def test_client_result_is_checked_against_the_receipt():
-    """X-Result-SHA256 is a custom header: cross-origin it is readable only if the coordinator exposes it, which
-    its CORS does not today. So the page hashes the bytes itself and compares with the receipt's result_sha256."""
+    """Belt and braces: the coordinator's CORS exposes X-Result-SHA256 (test below), and the page also hashes the
+    bytes itself and compares them with the receipt's result_sha256, the audited record."""
     fr = re.search(r"async fetchResult\(\) \{(.*?)\n  \}", JS[CLIENT], re.S).group(1)
     assert 'crypto.subtle.digest("SHA-256", buf)' in fr and "rc.result_sha256 === sha" in fr
     assert "URL.createObjectURL" in fr and "URL.revokeObjectURL" in fr

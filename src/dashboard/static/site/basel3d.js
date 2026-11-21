@@ -319,6 +319,75 @@ export async function create(host, opts = {}) {
   composer.addPass(grain); composer.addPass(new OutputPass());
 
   // state
+  // ---- #118 the algorithm on the map, driven by fleetview (#119): cost rings, job packets hub -> house, the waiting
+  // orbit around the hub, held houses dimmed, floating decision tags. Fleet = ASSUMED houses; algorithm = real decide().
+  const FL = { on: false, K: 0, H: 0, raw: null, fields: {}, fleet: null, jobs: [], ringMesh: null, packets: null, tags: [], sel: null };
+  const ringGeo = new THREE.RingGeometry(9, 13, 28); ringGeo.rotateX(-Math.PI / 2);
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+  const PK = 400, pkGeo = new THREE.BufferGeometry(), pkPos = new Float32Array(PK * 3), pkCol = new Float32Array(PK * 3);
+  pkGeo.setAttribute("position", new THREE.BufferAttribute(pkPos, 3)); pkGeo.setAttribute("color", new THREE.BufferAttribute(pkCol, 3));
+  const pkMat = new THREE.PointsMaterial({ size: 16, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true, toneMapped: false });
+  const packets = new THREE.Points(pkGeo, pkMat); packets.frustumCulled = false; scene.add(packets);
+  const orbitN = 120, orGeo = new THREE.BufferGeometry(), orPos = new Float32Array(orbitN * 3);
+  orGeo.setAttribute("position", new THREE.BufferAttribute(orPos, 3));
+  const orbit = new THREE.Points(orGeo, new THREE.PointsMaterial({ size: 10, color: 0xffd27a, transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+  orbit.frustumCulled = false; scene.add(orbit);
+  const queueTag = document.createElement("div");
+  queueTag.style.cssText = "position:absolute;pointer-events:none;transform:translate(-50%,-140%);padding:5px 9px;border-radius:9px;background:rgba(14,13,12,0.7);border:1px solid rgba(255,210,122,0.5);font:11px 'Geist Mono',monospace;color:#ffd27a;white-space:nowrap;z-index:4;display:none";
+  host.appendChild(queueTag);
+  const fv = (f, i, h) => FL.raw[(FL.fields[f].k * FL.K + i) * FL.H + h] * FL.fields[f].scale;
+  function setFleet(d) {
+    FL.K = d.index.houses.length; FL.H = d.index.hours; FL.raw = d.raw; FL.fleet = d.fleet; FL.jobs = d.jobs.tracked || [];
+    FL.fields = Object.fromEntries(d.index.series.fields.map((f, k) => [f.name, { k, scale: f.scale }]));
+    FL.houses = d.index.houses.map((h) => { const b = h.building, c = d.index.fixture ? null : geo.centroids[b];
+      return { ...h, X: c ? c[0] : h.x, Z: c ? -c[1] : -h.y, Y: c ? c[2] : 12 }; });
+    if (FL.ringMesh) scene.remove(FL.ringMesh);
+    FL.ringMesh = new THREE.InstancedMesh(ringGeo, ringMat, FL.K); FL.ringMesh.frustumCulled = false; scene.add(FL.ringMesh);
+    FL.on = true; FL.fixture = !!d.index.fixture;
+  }
+  const mcCol = new THREE.Color(), cheap = new THREE.Color(0xff8c1f), dear = new THREE.Color(0xff2d55), held = new THREE.Color(0x3a4250);
+  function updateFleet(now) {
+    if (!FL.on) return;
+    const hf = Math.min(FL.H - 1 + 0.999, S.hour), h = Math.min(FL.H - 1, Math.floor(hf)), fr = hf - h;
+    for (let i = 0; i < FL.K; i++) { const H0 = FL.houses[i], st = fv("state", i, h), mc = fv("mc_chf_per_server_h", i, h), on = fv("servers_on", i, h);
+      const t = Math.max(0, Math.min(1, (mc - 0.20) / 0.14));  // 0.20 = heat wanted (cheap) .. 0.34 = would dump (dear)
+      if (st === 3) mcCol.copy(held); else mcCol.copy(cheap).lerp(dear, st === 2 ? 1 : t);
+      const sc = 0.6 + 0.25 * on;
+      tmpM.makeScale(sc, 1, sc).setPosition(H0.X, 2 + (st === 3 ? 0 : 0.5 * Math.sin(now / 300 + i)), H0.Z);
+      FL.ringMesh.setMatrixAt(i, tmpM); FL.ringMesh.setColorAt(i, mcCol); }
+    FL.ringMesh.instanceMatrix.needsUpdate = true; if (FL.ringMesh.instanceColor) FL.ringMesh.instanceColor.needsUpdate = true;
+    // packets: tracked units running this hour fly hub -> house during the hour; the selected job is white + larger
+    let n = 0; const top = new THREE.Vector3();
+    for (const j of FL.jobs) { for (const u of j.units) for (const [rh, house] of u.runs) {
+      if (rh !== h || n >= PK) continue; const H0 = FL.houses[house]; if (!H0) continue;
+      const e = Math.min(1, fr * 1.6), a = new THREE.Vector3(hub.x, 170, hub.z), c = new THREE.Vector3(H0.X, H0.Y + 10, H0.Z);
+      top.copy(a).lerp(c, e).setY(a.y + (c.y - a.y) * e + Math.sin(e * Math.PI) * (120 + 0.12 * a.distanceTo(c)));
+      pkPos.set([top.x, top.y, top.z], n * 3);
+      const isSel = FL.sel && u.unit === FL.sel; pkCol.set(isSel ? [1, 1, 1] : j.class === "certified" ? [0.5, 0.9, 1] : [1, 0.6, 0.2], n * 3); n++; } }
+    pkGeo.setDrawRange(0, n); pkGeo.attributes.position.needsUpdate = true; pkGeo.attributes.color.needsUpdate = true;
+    // waiting orbit: deferred work circles the hub; ring density ~ queue size
+    const q = FL.fleet.queue[h] || 0, m = Math.min(orbitN, Math.ceil(Math.sqrt(q) * 2));
+    for (let i = 0; i < m; i++) { const ang = i / m * Math.PI * 2 + now / 2600, r = 70 + 18 * Math.sin(i * 1.7);
+      orPos.set([hub.x + Math.cos(ang) * r, 150 + 20 * Math.sin(ang * 3 + i), hub.z + Math.sin(ang) * r], i * 3); }
+    orGeo.setDrawRange(0, m); orGeo.attributes.position.needsUpdate = true;
+    queueTag.style.display = "block";
+    queueTag.textContent = `waiting ${Math.round(q).toLocaleString("en-CH")} units · deferred inside their slack · ${Math.round(FL.fleet.missed[h] || 0)} missed this hour`;
+    place(queueTag, new THREE.Vector3(hub.x, 240, hub.z));
+    // floating decision tags: the first few tracked units landing this hour
+    for (const t of FL.tags) t.remove(); FL.tags = [];
+    let shown = 0;
+    for (const j of FL.jobs) { if (shown >= 4) break; for (const u of j.units) for (const [rh, house] of u.runs) {
+      if (rh !== h || shown >= 4) continue; const H0 = FL.houses[house]; const st = fv("state", house, h);
+      const el = document.createElement("div"); el.textContent = `${u.unit} → house ${house} · ${st === 2 ? "deadline due: heat dumped" : "heat wanted"}`;
+      el.style.cssText = "position:absolute;pointer-events:none;transform:translate(-50%,-160%);padding:4px 8px;border-radius:8px;background:rgba(14,13,12,0.7);font:10.5px 'Geist Mono',monospace;color:#f2efe9;white-space:nowrap;z-index:4;opacity:" + (1 - fr).toFixed(2);
+      host.appendChild(el); FL.tags.push(el); place(el, new THREE.Vector3(H0.X, H0.Y + 30, H0.Z)); shown++; } }
+  }
+  const onSelJob = (e) => { const d = e.detail || {}; if (d.source === "map") return; FL.sel = d.unit_id || null;
+    const j = FL.sel && FL.jobs.find((x) => x.units.some((u) => u.unit === FL.sel)); if (!j) return;
+    const runs = j.units.find((u) => u.unit === FL.sel).runs; const last = runs[runs.length - 1]; if (!last) return;
+    const H0 = FL.houses[last[1]]; if (H0) flyTo(new THREE.Vector3(H0.X - 260, 240, H0.Z + 260), new THREE.Vector3(H0.X, 0, H0.Z)); };
+  addEventListener("dh:select-job", onSelJob);
+
   const S = { sel: -1, run: null, pol: 0, polT: 0, hour: 0, dead: false, raf: 0, last: performance.now(), hover: -1, n: 0 };
   function sideVal(run, key, h, w) { const a = run.ours[key][h], b = run.baseline[key][h]; return a + (b - a) * w; }
   function update(dt) {
@@ -514,6 +583,7 @@ export async function create(host, opts = {}) {
     if (now - (S.mmAt || 0) > 100) { S.mmAt = now; drawMini(); }
     if (S.sel >= 0 && now - (S.panelAt || 0) > 500) { S.panelAt = now; panel.innerHTML = panelHtml(S.sel); }
     if (now - (S.liveAt || 0) > 500) { S.liveAt = now; updateLive(); }
+    updateFleet(now);
     for (const l of labels) place(l.el, l.p);
     for (const L of live) place(L.el, L.p);
     composer.render();
@@ -530,12 +600,14 @@ export async function create(host, opts = {}) {
       flyTo(new THREE.Vector3(...p[0]), new THREE.Vector3(...p[1])); },
     select(b) { select(b); }, selected() { return S.sel; }, pick(x, y) { return pick(x, y); }, nav(cmd) { nav(cmd); },
     info() { return S.info || null; },
-    setLive(feed) { liveFeed = feed; },  // the dashboard's /api/nodes payload (#78); null/not ok -> REPLAY
+    setLive(feed) { liveFeed = feed; },
+    setFleet(d) { setFleet(d); }, fleetOn() { return FL.on ? { K: FL.K, H: FL.H, fixture: FL.fixture } : null; },  // the dashboard's /api/nodes payload (#78); null/not ok -> REPLAY
     live() { return live.map((L) => ({ id: L.id, ...(L.st || {}) })); },
     stats() { return { buildings: map.buildings.length, houses: houses.length, districts: D.length, hexes: hexes.length, live: live.length, tris: (geo.city.getAttribute("position").count + geo.sim.getAttribute("position").count) / 3 }; },
     attribution: map.attribution, fleetNote: map.fleet_note,
     destroy() { S.dead = true; cancelAnimationFrame(S.raf); removeEventListener("keydown", onKey);
-      for (const el of [cv, panel, navEl, mm, ...labels.map((l) => l.el), ...live.map((L) => L.el)]) el.remove();
+      removeEventListener("dh:select-job", onSelJob); for (const t of FL.tags) t.remove();
+      for (const el of [cv, panel, navEl, mm, queueTag, ...labels.map((l) => l.el), ...live.map((L) => L.el)]) el.remove();
       pickRT.dispose(); renderer.dispose(); },
   };
 }

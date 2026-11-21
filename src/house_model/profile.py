@@ -44,7 +44,13 @@ def _read_open_meteo(path: Path, a: dict) -> tuple[pd.DataFrame, int, str]:
     return df, offset_s, tz
 
 
-def load_reference_profile(path: str | Path | None = None, assumptions: dict | None = None) -> pd.DataFrame:
+YEAR_ROWS = (8760, 8784)  # a full non-leap / leap year of hours
+
+
+def load_reference_profile(path: str | Path | None = None, assumptions: dict | None = None,
+                           allow_partial: bool = False, interpolate: bool = False) -> pd.DataFrame:
+    """Raises ValueError on missing/NaN weather (F8) unless interpolate=True, and on anything but a full
+    year of hours (F9) unless allow_partial=True (fixtures, synthetic tests)."""
     a = assumptions or load_assumptions()
     h = a["house"]
     p = Path(path) if path else DEFAULT_CSV
@@ -57,7 +63,18 @@ def load_reference_profile(path: str | Path | None = None, assumptions: dict | N
     if not idx.is_unique or not idx.is_monotonic_increasing:
         raise ValueError(f"{p}: timestamps not unique/increasing after tz conversion")
 
-    df = pd.DataFrame({"temp_c": raw["temp_c"].to_numpy(float), "ghi_wm2": raw["ghi_wm2"].to_numpy(float)}, index=idx)
+    if not allow_partial and len(idx) not in YEAR_ROWS:
+        raise ValueError(f"{p}: {len(idx)} hourly rows, expected a full year {YEAR_ROWS} (pass allow_partial=True)")
+    df = pd.DataFrame({"temp_c": pd.to_numeric(raw["temp_c"], errors="coerce").to_numpy(float),
+                       "ghi_wm2": pd.to_numeric(raw["ghi_wm2"], errors="coerce").to_numpy(float)}, index=idx)
+    for col in ("temp_c", "ghi_wm2"):
+        bad = df[col].isna() | ~df[col].abs().lt(float("inf"))
+        if bad.any():
+            if not interpolate:
+                rows = [int(i) for i in bad.to_numpy().nonzero()[0][:5]]
+                raise ValueError(f"{p}: {col} missing/non-finite at data row(s) {rows} "
+                                 f"({', '.join(str(t) for t in df.index[bad][:3])}); pass interpolate=True to fill")
+            df[col] = df[col].mask(bad).interpolate(limit_direction="both")
     local_date = idx.date
     day_mean = df["temp_c"].groupby(local_date).transform("mean")
     df["heating_day"] = (day_mean < h["heating_day_mean_t_c"]).to_numpy(bool)

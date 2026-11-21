@@ -506,3 +506,72 @@ def test_mount_portal_skips_missing_modules(env, monkeypatch):
     app = FastAPI()
     assert mount_portal(app, lambda: None, env.coord) == ["client"]
     assert TestClient(app).get("/v1/client/ping").json() == {"coord": True}
+
+
+# ------------------------------------------------------------------ R5 fixes (#90)
+def test_f38_heartbeat_unit_must_be_leased_to_this_node(env):
+    up(env)
+    up(env, "node-b")
+    submit(env)
+    unit = lease(env)["unit"]["unit_id"]
+    head = ps.events_head(env.coord)
+    for _ in range(3):
+        assert env.c.post("/v1/nodes/node-b/heartbeat", headers=H("node-b"),
+                          json={"running_unit": unit, "progress": 0.99}).status_code == 200
+    nb = ps.host_node(env.coord, "site-b", "node-b")
+    assert nb["running_unit"] is None and nb["progress"] is None
+    assert not [e for e in ps.events_after(env.coord, ADMIN, head, 1000) if e["type"] == "unit.progress"]
+    rej = [e for e in ps.events_after(env.coord, ADMIN, head, 1000)
+           if e["type"] == "audit.appended" and e["data"]["type"] == "heartbeat_unit_rejected"]
+    assert len(rej) == 1 and rej[0]["job_id"] is None and unit not in json.dumps(rej)  # audited once, no leak
+    assert env.c.post("/v1/nodes/node-a/heartbeat", headers=H("node-a"),
+                      json={"running_unit": unit, "progress": 0.5}).status_code == 200
+    assert ps.host_node(env.coord, "site-a", "node-a")["running_unit"] == unit
+
+
+def test_f39_progress_events_throttled_and_gap_marker(env, monkeypatch):
+    up(env)
+    submit(env)
+    unit = lease(env)["unit"]["unit_id"]
+    head = ps.events_head(env.coord)
+    for i in range(20):
+        env.clock.t += 0.5
+        env.c.post("/v1/nodes/node-a/heartbeat", headers=H("node-a"), json={"running_unit": unit, "progress": i / 20})
+    prog = [e for e in ps.events_after(env.coord, ADMIN, head, 1000) if e["type"] == "unit.progress"]
+    assert 2 <= len(prog) <= 3  # 10 s of heartbeats -> first + one per 5 s
+    monkeypatch.setattr(ps, "RING", 50)
+    mine = ps.events_after(env.coord, CX, 0, 1000)
+    resume = mine[0]["id"]
+    with env.coord._tx() as db:
+        for i in range(300):
+            ps.emit(db, env.coord, "test", {"i": i})
+    got = ps.events_after(env.coord, CX, resume, 1000)
+    assert got[0]["type"] == "stream.gap" and got[0]["gap"] and got[0]["data"]["after"] == resume
+    assert not any(e["type"] == "stream.gap" for e in ps.events_after(env.coord, CX, got[0]["id"], 1000))  # no loop
+    assert not any(e["type"] == "stream.gap" for e in ps.events_after(env.coord, CX, 0, 1000))  # fresh start
+
+
+def test_f37_idempotency_key_with_different_params_is_409(env):
+    up(env)
+    a = submit(env)
+    assert submit(env)["job_id"] == a["job_id"]  # identical replay: fine
+    with pytest.raises(CoordError) as e:
+        submit(env, deadline_h=47)
+    assert e.value.status == 409 and e.value.detail["job_id"] == a["job_id"]
+
+
+def test_f39_gap_marker_through_the_poll_endpoint(env, monkeypatch):
+    """P3's /v1/events/poll validates every row (id, type, ts required): a gap must not 500 it (parth-cloud on #90)."""
+    if "events" not in env.app.state.portal_routers:
+        pytest.skip("portal.events (P3) not mounted")
+    up(env)
+    submit(env)
+    first = env.c.get("/v1/events/poll", headers=H("client-x"), params={"after": 0}).json()["events"][0]["id"]
+    monkeypatch.setattr(ps, "RING", 50)
+    with env.coord._tx() as db:
+        for i in range(300):
+            ps.emit(db, env.coord, "test", {"i": i})
+    r = env.c.get("/v1/events/poll", headers=H("client-x"), params={"after": first})
+    assert r.status_code == 200, r.text
+    ev = r.json()["events"]
+    assert ev[0]["type"] == "stream.gap" and ev[0]["ts"]

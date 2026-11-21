@@ -65,6 +65,7 @@ MIGRATIONS = (
     ("jobs", "idempotency_key", "ALTER TABLE jobs ADD COLUMN idempotency_key TEXT"),
     ("jobs", "cancelled_at", "ALTER TABLE jobs ADD COLUMN cancelled_at REAL"),
     ("jobs", "status", "ALTER TABLE jobs ADD COLUMN status TEXT"),  # last job.state emitted
+    ("jobs", "idem_params", "ALTER TABLE jobs ADD COLUMN idem_params TEXT"),  # F37: the request a key was used for
 )
 
 

@@ -130,11 +130,12 @@ class EventStream(Response):
                     pass
         finally:
             watcher.cancel()
+            self.on_close()  # release the stream slot FIRST: the closing send below may never complete
             try:
-                await send({"type": "http.response.body", "body": b"", "more_body": False})
-            except Exception:  # client already gone
+                await asyncio.wait_for(send({"type": "http.response.body", "body": b"", "more_body": False}),
+                                       timeout=1.0)
+            except BaseException:  # client already gone / timed out / cancelled
                 pass
-            self.on_close()
 
     async def _send(self, send: Send, chunk: bytes) -> bool:
         try:

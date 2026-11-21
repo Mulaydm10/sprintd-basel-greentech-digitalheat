@@ -55,9 +55,9 @@ def load_hourly(d: Path) -> pd.DataFrame:
     if pq.exists():
         try:
             df = pd.read_parquet(pq)  # needs pyarrow or fastparquet
-        except ImportError:
+        except Exception as e:  # no engine (ImportError) or unreadable file (e.g. ArrowInvalid)
             if not csv.exists():
-                raise HTTPException(500, "hourly.parquet present but no parquet engine installed; add pyarrow or write hourly.csv")
+                raise HTTPException(500, f"cannot read hourly.parquet ({type(e).__name__}) and no hourly.csv fallback") from e
             df = pd.read_csv(csv)
     elif csv.exists():
         df = pd.read_csv(csv)

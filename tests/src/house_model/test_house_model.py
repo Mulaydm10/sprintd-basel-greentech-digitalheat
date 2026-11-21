@@ -77,6 +77,14 @@ def test_hot_water_and_demand(fx):
     assert (fx.demand_kw == fx.space_heat_kw + fx.hot_water_kw).all()
 
 
+def test_plain_header_csv_parses_identically(fx, tmp_path):
+    """main commits a plain `time,temperature_2m,shortwave_radiation` CSV; same frame as the raw export."""
+    lines = FIXTURE.read_text().splitlines()
+    plain = tmp_path / "plain.csv"
+    plain.write_text("\n".join(["time,temperature_2m,shortwave_radiation"] + lines[4:]) + "\n")
+    pd.testing.assert_frame_equal(load_reference_profile(plain), fx)
+
+
 def test_missing_csv_message(tmp_path):
     with pytest.raises(FileNotFoundError, match="house_model.fetch"):
         load_reference_profile(tmp_path / "nope.csv")

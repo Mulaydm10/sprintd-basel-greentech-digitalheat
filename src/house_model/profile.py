@@ -8,8 +8,9 @@ We localize at that offset and convert to Europe/Zurich, so the index is tz-awar
 from __future__ import annotations
 
 import csv
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -19,12 +20,26 @@ DEFAULT_CSV = ROOT / "data" / "raw" / "basel_2025_hourly.csv"
 COLUMNS = ["temp_c", "ghi_wm2", "heating_day", "space_heat_kw", "hot_water_kw", "demand_kw"]
 
 
-def _read_open_meteo(path: Path) -> tuple[pd.DataFrame, int, str]:
+def _standard_offset_s(tz: str, year: int) -> int:
+    """UTC offset (s) of `tz` on Jan 1 = the fixed offset Open-Meteo's timezone=auto export uses."""
+    return int(datetime(year, 1, 1, tzinfo=ZoneInfo(tz)).utcoffset().total_seconds())
+
+
+def _read_open_meteo(path: Path, a: dict) -> tuple[pd.DataFrame, int, str]:
+    """Accepts the raw Open-Meteo export (2 metadata lines + blank + header) or a plain
+    `time,temperature_2m,shortwave_radiation` CSV (as committed on main). Columns are positional."""
     with open(path, newline="") as f:
-        meta = next(csv.DictReader([next(f), next(f)]))
-    offset_s = int(meta["utc_offset_seconds"])
-    tz = meta.get("timezone") or "Europe/Zurich"
-    df = pd.read_csv(path, skiprows=3)
+        first = f.readline()
+    if first.startswith("latitude"):
+        with open(path, newline="") as f:
+            meta = next(csv.DictReader([f.readline(), f.readline()]))
+        offset_s, tz = int(meta["utc_offset_seconds"]), meta.get("timezone") or a["location"]["tz"]
+        df = pd.read_csv(path, skiprows=3)
+    else:
+        tz = a["location"]["tz"]
+        offset_s = _standard_offset_s(tz, int(a["location"]["year"]))
+        df = pd.read_csv(path)
+    df = df.iloc[:, :3]
     df.columns = ["time", "temp_c", "ghi_wm2"]
     return df, offset_s, tz
 
@@ -35,7 +50,7 @@ def load_reference_profile(path: str | Path | None = None, assumptions: dict | N
     p = Path(path) if path else DEFAULT_CSV
     if not p.exists():
         raise FileNotFoundError(f"{p} missing; run: python -m house_model.fetch")
-    raw, offset_s, tz = _read_open_meteo(p)
+    raw, offset_s, tz = _read_open_meteo(p, a)
 
     fixed = pd.to_datetime(raw["time"]).dt.tz_localize(timezone(timedelta(seconds=offset_s)))
     idx = pd.DatetimeIndex(fixed.dt.tz_convert(tz), name="time")

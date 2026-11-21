@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./vendor/resources.js"></script>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="position:fixed;top:0;left:0;height:2px;width:{{ progress }}%;background:#c93c05;z-index:70;pointer-events:none"></div>
+<div style="position:fixed;left:0;right:0;bottom:16px;z-index:60;display:flex;justify-content:center;pointer-events:none;padding:0 12px">
+  <nav style="pointer-events:auto;display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:2px;padding:5px;background:rgba(255,255,255,0.82);backdrop-filter:blur(18px) saturate(1.4);-webkit-backdrop-filter:blur(18px) saturate(1.4);border:1px solid #dcd6cc;border-radius:999px;font-family:'Geist Mono',ui-monospace,monospace;font-size:12px;box-shadow:0 10px 40px rgba(20,20,20,0.10)">
+    <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="6">
+      <a href="{{ t.href }}" onClick="{{ t.go }}" style="display:flex;align-items:center;gap:7px;padding:8px 13px;border-radius:999px;text-decoration:none;letter-spacing:0.02em;color:{{ t.color }};background:{{ t.bg }};transition:background .35s cubic-bezier(.2,.7,.2,1),color .35s" style-hover="color:#c93c05">
+        <span style="font-size:10px;opacity:0.65">{{ t.n }}</span><span>{{ t.label }}</span>
+      </a>
+    </sc-for>
+    <span style="padding:0 10px 0 8px;color:#6e6a63;font-size:11px;letter-spacing:0.06em">← →</span>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:900,&quot;height&quot;:120},&quot;active&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:1,&quot;min&quot;:1,&quot;max&quot;:6,&quot;tsType&quot;:&quot;number&quot;}}">
+class Component extends DCLogic {
+  state = { progress: 0 };
+  static PAGES = [
+    ["01", "Overview", "DigitalHeat%2001%20Overview.dc.html"],
+    ["02", "Problem", "DigitalHeat%2002%20Problem.dc.html"],
+    ["03", "Scheduler", "DigitalHeat%2003%20Scheduler.dc.html"],
+    ["04", "Live demo", "DigitalHeat%2004%20Live.dc.html"],
+    ["05", "Economics", "DigitalHeat%2005%20Economics.dc.html"],
+    ["06", "Simulator", "DigitalHeat%2006%20Simulator.dc.html"]
+  ];
+  static EASE = "cubic-bezier(.16,.84,.24,1)";
+  go(href) {
+    if (this.leaving) return; this.leaving = true;
+    const a = document.body.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "translateY(-10px)" }], { duration: 320, easing: "cubic-bezier(.4,0,.2,1)", fill: "forwards" });
+    a.onfinish = () => { location.href = href; };
+  }
+  componentDidMount() {
+    document.documentElement.style.scrollBehavior = "smooth";
+    document.body.animate([{ opacity: 0, transform: "translateY(10px)" }, { opacity: 1, transform: "none" }], { duration: 650, easing: Component.EASE });
+    this.onKey = (e) => {
+      const tg = e.target && e.target.tagName;
+      if (tg === "INPUT" || tg === "TEXTAREA" || tg === "SELECT" || e.metaKey || e.ctrlKey) return;
+      const i = Number(this.props.active ?? 1) - 1, P = Component.PAGES;
+      if (e.key === "ArrowRight" && i < P.length - 1) this.go(P[i + 1][2]);
+      if (e.key === "ArrowLeft" && i > 0) this.go(P[i - 1][2]);
+    };
+    window.addEventListener("keydown", this.onKey);
+    this.onClick = (e) => {
+      const a = e.target.closest && e.target.closest("a[href]");
+      if (!a || e.defaultPrevented || e.metaKey || e.ctrlKey || a.target) return;
+      const h = a.getAttribute("href");
+      if (h && /\.dc\.html$/.test(h) && !/^https?:/.test(h)) { e.preventDefault(); this.go(h); }
+    };
+    document.addEventListener("click", this.onClick);
+    this.onScroll = () => {
+      const max = document.documentElement.scrollHeight - innerHeight;
+      const p = max > 0 ? Math.round((scrollY / max) * 1000) / 10 : 0;
+      if (p !== this.state.progress) this.setState({ progress: p });
+    };
+    addEventListener("scroll", this.onScroll, { passive: true });
+    this.onScroll();
+    this.done = new WeakSet();
+    this.io = new IntersectionObserver((es) => es.forEach((e) => {
+      if (!e.isIntersecting) return;
+      this.io.unobserve(e.target); this.reveal(e.target, Number(e.target.dataset.dhIdx || 0));
+    }), { threshold: 0.05 });
+    setTimeout(() => this.setupReveal(), 60);
+    this.failsafe = setTimeout(() => document.querySelectorAll("[data-dh-hidden]").forEach((el) => this.reveal(el, 0)), 4000);
+  }
+  reveal(el, idx) {
+    if (!el.hasAttribute("data-dh-hidden")) return;
+    el.removeAttribute("data-dh-hidden");
+    el.style.opacity = "";
+    try {
+      el.animate([{ opacity: 0, transform: "translateY(32px)" }, { opacity: 1, transform: "none" }], { duration: 900, delay: Math.min(idx, 6) * 80, easing: Component.EASE, fill: "backwards" });
+    } catch (e) {}
+  }
+  setupReveal() {
+    document.querySelectorAll("section").forEach((sec) => {
+      let idx = 0;
+      Array.from(sec.children).forEach((el) => {
+        if (this.done.has(el)) return; this.done.add(el);
+        const cs = getComputedStyle(el);
+        if (cs.position === "absolute" || cs.position === "fixed" || el.tagName === "CANVAS") return;
+        const r = el.getBoundingClientRect();
+        if (r.top < innerHeight && r.bottom > 0) {
+          try { el.animate([{ opacity: 0, transform: "translateY(24px)" }, { opacity: 1, transform: "none" }], { duration: 900, delay: Math.min(idx, 6) * 80, easing: Component.EASE, fill: "backwards" }); } catch (e) {}
+        } else {
+          el.setAttribute("data-dh-hidden", ""); el.dataset.dhIdx = idx; el.style.opacity = "0"; this.io.observe(el);
+        }
+        idx++;
+      });
+    });
+  }
+  componentWillUnmount() {
+    removeEventListener("keydown", this.onKey); document.removeEventListener("click", this.onClick);
+    removeEventListener("scroll", this.onScroll); this.io && this.io.disconnect(); clearTimeout(this.failsafe);
+  }
+  renderVals() {
+    const a = Number(this.props.active ?? 1);
+    return {
+      progress: this.state.progress,
+      tabs: Component.PAGES.map(([n, label, href], i) => ({
+        n, label, href, go: (e) => { e.preventDefault(); this.go(href); },
+        color: i + 1 === a ? "#ffffff" : "#55524c",
+        bg: i + 1 === a ? "#141414" : "transparent"
+      }))
+    };
+  }
+}
+</script>
+</body>
+</html>

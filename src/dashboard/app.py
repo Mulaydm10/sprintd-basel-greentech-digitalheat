@@ -121,8 +121,19 @@ def pick_day(df: pd.DataFrame, which: str) -> tuple[int, pd.DataFrame]:
     return day, sub[sub["day"] == day].drop(columns="day")
 
 
-@app.get("/")
+SITE = STATIC / "site"  # Dhruv's frontend (#91), built by dashboard.site_build from design/frontend/
+DECK = "DigitalHeat Pitch Deck.dc.html"
+
+
+@app.get("/", include_in_schema=False)
 def index() -> FileResponse:
+    """The pitch deck (#91). Its pages, runtime and vendored assets are served from the root by the mount below."""
+    return FileResponse(SITE / DECK, media_type="text/html")
+
+
+@app.get("/dashboard", include_in_schema=False)
+def dashboard_page() -> FileResponse:
+    """The data dashboard (formerly at /)."""
     return FileResponse(STATIC / "index.html")
 
 
@@ -391,3 +402,14 @@ def decision_card() -> dict[str, Any]:
         return {"fixture": True, "card": {}, "note": "no decision_card.json yet (#31)"}
     return {"fixture": fixture, "source": str(p.relative_to(ROOT)) if p.is_relative_to(ROOT) else str(p),
             "card": read_json_file(p, "decision_card.json")}
+
+
+# ================================================================ #91: LIVE controls (local-only proxy) + the site
+from .live import router as _live_router  # noqa: E402
+
+app.include_router(_live_router)
+# Mounted last so every /api route above wins; serves the pages, support.js, deck-stage.js and vendor/ at the root,
+# where the pages' relative links and their same-origin "./api/..." calls resolve.
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+
+app.mount("/", StaticFiles(directory=SITE), name="site")

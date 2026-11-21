@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./vendor/resources.js"></script>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="./vendor/fonts/fonts.css">
+<style>
+html,body{margin:0;background:#f2efe9;color:#141414}
+html{scroll-behavior:smooth}
+body{font-family:'Geist',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#c93c05}a:hover{color:#a86400}
+::selection{background:#c93c05;color:#ffffff}
+input[type=range]{accent-color:#c93c05}
+@keyframes dhPulse{0%,100%{opacity:1}50%{opacity:.3}}
+</style>
+</helmet>
+<div style="min-height:100vh;background:#f2efe9;overflow-x:hidden">
+  <header style="position:fixed;top:0;left:0;right:0;z-index:40;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:16px clamp(16px,4vw,40px);font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.1em;text-transform:uppercase;color:#55524c;background:linear-gradient(#f2efe9 35%,rgba(242,239,233,0))">
+    <div style="display:flex;align-items:center;gap:10px;color:#141414"><span style="width:9px;height:9px;border-radius:50%;background:#c93c05;box-shadow:0 0 14px #c93c05"></span>DigitalHeat</div>
+    <div>04 · Live demo · 04 / 06</div>
+  </header>
+
+  <section style="padding:140px clamp(16px,4vw,40px) 40px;max-width:1400px;margin:0 auto;display:flex;flex-direction:column;gap:24px">
+    <div style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#a86400">01 · A real process, on real machines</div>
+    <h1 style="margin:0;font-weight:760;font-stretch:118%;font-size:clamp(44px,7.4vw,116px);line-height:0.88;letter-spacing:-0.055em;text-wrap:balance">Pull the plug. <span style="color:#c93c05">Nothing is lost.</span></h1>
+    <p style="margin:0;max-width:760px;font-size:clamp(17px,1.8vw,22px);line-height:1.45;color:#2e2b27;text-wrap:pretty">A replay of the tailnet run: a coordinator on the Mac mini, node agents on the Mac (certified) and the Omen (public + swiss-only), and a job split into 20 checkpointed chunks.</p>
+  </section>
+
+  <section style="padding:0 clamp(16px,4vw,40px) 40px;max-width:1400px;margin:0 auto">
+    <div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div style="display:flex;gap:4px;padding:5px;border:1px solid #dcd6cc;border-radius:999px;flex-wrap:wrap;font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.04em">
+        <sc-for list="{{ scenes }}" as="s" hint-placeholder-count="3">
+          <button onClick="{{ s.on }}" style="border:0;cursor:pointer;padding:10px 16px;border-radius:999px;font:inherit;letter-spacing:inherit;color:{{ s.c }};background:{{ s.bg }};transition:all .3s">{{ s.label }}</button>
+        </sc-for>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;font-family:'Geist Mono',monospace;font-size:12px">
+        <button onClick="{{ toggle }}" style="cursor:pointer;padding:10px 16px;border-radius:999px;border:1px solid #c4bcae;background:#f8f6f1;color:#141414;font:inherit;min-width:92px">{{ playLabel }}</button>
+        <button onClick="{{ restart }}" style="cursor:pointer;padding:10px 16px;border-radius:999px;border:1px solid #c4bcae;background:#f8f6f1;color:#141414;font:inherit">↺ Restart</button>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:22px">
+      <span style="font-family:'Geist Mono',monospace;font-size:12px;color:#c93c05;min-width:56px;font-variant-numeric:tabular-nums">{{ clock }}</span>
+      <input type="range" min="0" max="{{ dur }}" step="0.1" value="{{ sNow }}" onInput="{{ scrub }}" style="flex:1;min-width:0">
+      <span style="font-family:'Geist Mono',monospace;font-size:12px;color:#6e6a63;min-width:44px">{{ durLabel }}</span>
+    </div>
+
+    <div style="border:1px solid #dcd6cc;border-radius:20px;padding:16px 20px;margin-bottom:16px;background:{{ bannerBg }};display:flex;gap:14px;align-items:center;transition:background .5s">
+      <span style="width:10px;height:10px;border-radius:50%;background:{{ bannerDot }};box-shadow:0 0 14px {{ bannerDot }};flex:none"></span>
+      <span style="font-size:clamp(18px,2vw,26px);font-weight:700;font-stretch:108%;letter-spacing:-0.01em">{{ headline }}</span>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:16px">
+      <sc-for list="{{ nodes }}" as="n" hint-placeholder-count="2">
+        <div style="border:1px solid {{ n.bd }};border-radius:20px;background:#ffffff;padding:22px;display:flex;flex-direction:column;gap:16px;transition:border-color .4s;position:relative;overflow:hidden">
+          <div style="position:absolute;inset:0;background:{{ n.wash }};transition:background .6s;pointer-events:none"></div>
+          <div style="position:relative;display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+            <div style="display:flex;flex-direction:column;gap:4px"><span style="font-size:22px;font-weight:660;font-stretch:110%">{{ n.name }}</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#55524c">{{ n.meta }}</span></div>
+            <span style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.1em;padding:5px 10px;border-radius:999px;border:1px solid {{ n.sc }};color:{{ n.sc }};white-space:nowrap">{{ n.status }}</span>
+          </div>
+          <div style="position:relative;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;font-family:'Geist Mono',monospace">
+            <div style="display:flex;flex-direction:column;gap:4px"><span style="font-size:10px;color:#6e6a63;letter-spacing:0.1em">UNIT</span><span style="font-size:13px">{{ n.unit }}</span></div>
+            <div style="display:flex;flex-direction:column;gap:4px"><span style="font-size:10px;color:#6e6a63;letter-spacing:0.1em">CHUNKS</span><span style="font-size:13px">{{ n.done }}</span></div>
+            <div style="display:flex;flex-direction:column;gap:4px"><span style="font-size:10px;color:#6e6a63;letter-spacing:0.1em">LEASE</span><span style="font-size:13px">{{ n.lease }}</span></div>
+          </div>
+          <div style="position:relative;height:6px;border-radius:3px;background:#ebe6dd;overflow:hidden"><div style="height:100%;width:{{ n.act }}%;background:{{ n.ac }};transition:width .2s"></div></div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));gap:16px;margin-top:16px">
+      <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;padding:22px;display:flex;flex-direction:column;gap:16px">
+        <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c"><span>{{ gridTitle }}</span><span style="color:#141414">{{ progressPct }}%</span></div>
+        <div style="display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:6px">
+          <sc-for list="{{ chunks }}" as="c" hint-placeholder-count="20">
+            <div style="aspect-ratio:1;border-radius:6px;background:{{ c.bg }};border:1px solid {{ c.bd }};box-shadow:{{ c.glow }};display:flex;align-items:center;justify-content:center;font-family:'Geist Mono',monospace;font-size:10px;color:{{ c.tc }};transition:background .25s,box-shadow .25s">{{ c.i }}</div>
+          </sc-for>
+        </div>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;font-family:'Geist Mono',monospace;font-size:11px;color:#55524c">
+          <sc-for list="{{ legend }}" as="l" hint-placeholder-count="4">
+            <span style="display:flex;gap:6px;align-items:center"><span style="width:10px;height:10px;border-radius:3px;background:{{ l.c }}"></span>{{ l.t }}</span>
+          </sc-for>
+        </div>
+        <sc-if value="{{ showSignal }}" hint-placeholder-val="{{ false }}">
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) 90px;gap:16px;align-items:stretch;border-top:1px solid #dcd6cc;padding-top:16px">
+            <div style="border-radius:14px;padding:16px;background:{{ skyBg }};transition:background .8s;display:flex;flex-direction:column;gap:6px">
+              <span style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.1em;color:#141414">HEAT SIGNAL · site CH-BS</span>
+              <span style="font-size:24px;font-weight:660;font-stretch:110%">{{ skyTitle }}</span>
+              <span style="font-family:'Geist Mono',monospace;font-size:12px;color:#2e2b27">{{ skySub }}</span>
+            </div>
+            <div style="border:1px solid #c4bcae;border-radius:14px;position:relative;overflow:hidden;min-height:110px">
+              <div style="position:absolute;left:0;right:0;bottom:0;height:{{ tankPct }}%;background:linear-gradient(#f0a500,#c93c05);transition:height .6s"></div>
+              <span style="position:absolute;top:8px;left:0;right:0;text-align:center;font-family:'Geist Mono',monospace;font-size:10px;color:#141414">TANK</span>
+            </div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ showSha }}" hint-placeholder-val="{{ false }}">
+          <div style="border-top:1px solid #dcd6cc;padding-top:16px;display:flex;flex-direction:column;gap:8px;font-family:'Geist Mono',monospace;font-size:12px">
+            <div style="display:flex;justify-content:space-between;gap:10px"><span style="color:#6e6a63">uninterrupted run</span><span>sha256 486eb640…bc88d</span></div>
+            <div style="display:flex;justify-content:space-between;gap:10px"><span style="color:#6e6a63">this run</span><span style="color:{{ shaC }}">{{ shaVal }}</span></div>
+          </div>
+        </sc-if>
+      </div>
+      <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;padding:18px 20px;display:flex;flex-direction:column;gap:10px;min-height:340px">
+        <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c"><span>coordinator · audit stream</span><span style="display:flex;gap:6px;align-items:center;color:#157a43"><span style="width:6px;height:6px;border-radius:50%;background:#157a43;animation:dhPulse 1.2s infinite"></span>{{ streamLabel }}</span></div>
+        <div style="display:flex;flex-direction:column;gap:6px;font-family:'Geist Mono',monospace;font-size:12.5px;line-height:1.45">
+          <sc-for list="{{ log }}" as="l" hint-placeholder-count="6">
+            <div style="display:grid;grid-template-columns:52px minmax(0,1fr);gap:10px;opacity:{{ l.op }}"><span style="color:#6e6a63">{{ l.ts }}</span><span style="color:{{ l.c }}">{{ l.t }}</span></div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+    <p style="margin:14px 0 0;font-family:'Geist Mono',monospace;font-size:12px;color:#6e6a63">Replay of research/deploy/E2E_TAILNET.md tests 2, 4, 5 and 6, time-compressed. Workload: the cpu-hash runner, a stand-in for Whisper with the same checkpoint path.</p>
+  </section>
+
+  <section style="padding:80px clamp(16px,4vw,40px) 60px;max-width:1400px;margin:0 auto">
+    <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c;margin-bottom:20px"><span>02 · Live telemetry</span><span style="color:{{ liveC }}">{{ liveState }}</span></div>
+    <div style="border:1px solid #dcd6cc;border-radius:20px;overflow:hidden">
+      <div style="padding:16px 22px;background:#f8f6f1;font-size:15px;color:#55524c;line-height:1.5">{{ liveNote }}</div>
+      <sc-for list="{{ liveRows }}" as="r" hint-placeholder-count="0">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;padding:14px 22px;border-top:1px solid #dcd6cc;font-family:'Geist Mono',monospace;font-size:13px">
+          <span style="color:#141414">{{ r.a }}</span><span style="color:{{ r.sc }}">{{ r.b }}</span><span style="color:#55524c">{{ r.c }}</span><span style="color:#55524c">{{ r.d }}</span>
+        </div>
+      </sc-for>
+    </div>
+    <sc-if value="{{ liveOn }}" hint-placeholder-val="{{ false }}">
+      <div data-dh-live style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:16px;font-family:'Geist Mono',monospace;font-size:12px">
+        <sc-for list="{{ liveActions }}" as="a" hint-placeholder-count="3">
+          <button onClick="{{ a.on }}" style="cursor:pointer;padding:10px 16px;border-radius:999px;border:1px solid #c4bcae;background:#f8f6f1;color:#141414;font:inherit">{{ a.label }}</button>
+        </sc-for>
+        <span style="color:{{ liveActC }}">{{ liveActMsg }}</span>
+      </div>
+    </sc-if>
+  </section>
+
+  <section style="padding:40px clamp(16px,4vw,40px) 180px;max-width:1400px;margin:0 auto">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:16px">
+      <div style="border-left:2px solid #157a43;padding:4px 0 4px 18px;display:flex;flex-direction:column;gap:8px"><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#157a43">■ Exactly once</span><span style="font-size:16px;line-height:1.5;color:#2e2b27">The runner commits each chunk once and exits cleanly on SIGTERM. A crash replays from the last uploaded checkpoint.</span></div>
+      <div style="border-left:2px solid #a86400;padding:4px 0 4px 18px;display:flex;flex-direction:column;gap:8px"><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#a86400">■ Mock, said out loud</span><span style="font-size:16px;line-height:1.5;color:#2e2b27">Attestation is a mock. The protocol is real crypto: X25519 + AES-GCM and a signed audit head.</span></div>
+      <div style="border-left:2px solid #1d6bb3;padding:4px 0 4px 18px;display:flex;flex-direction:column;gap:8px"><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#1d6bb3">■ Tamper is permanent</span><span style="font-size:16px;line-height:1.5;color:#2e2b27">A restarted tampered node stays refused. It can only rejoin under a new identity.</span></div>
+    </div>
+  </section>
+
+  <dc-import name="Nav" active="{{ navActive }}" hint-size="100%,60px"></dc-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;apiBase&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;.&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  state = { scene: "migrate", s: 0, playing: true, live: null, liveErr: null };
+  static DUR = { migrate: 29, pause: 25, trust: 14 };
+  componentDidMount() {
+    let last = performance.now();
+    const loop = (now) => {
+      this.raf = requestAnimationFrame(loop);
+      const dt = (now - last) / 1000; if (dt < 0.05) return; last = now;
+      if (!this.state.playing) return;
+      const D = Component.DUR[this.state.scene];
+      let s = this.state.s + dt; if (s > D + 2.5) s = 0;
+      this.setState({ s });
+    };
+    this.raf = requestAnimationFrame(loop);
+    this.poll();
+    this.pt = setInterval(() => this.poll(), 2000);
+  }
+  componentWillUnmount() { cancelAnimationFrame(this.raf); clearInterval(this.pt); }
+  async poll() {
+    const base = (this.props.apiBase ?? "").trim();
+    if (!base) return;
+    try {
+      const r = await fetch(base.replace(/\/$/, "") + "/api/nodes");
+      const j = await r.json();
+      this.setState({ live: j, liveErr: null });
+      try { const a = await fetch(base.replace(/\/$/, "") + "/api/live/state"); this.setState({ liveCtl: a.ok ? await a.json() : null }); } catch (e) { this.setState({ liveCtl: null }); }
+    } catch (e) { this.setState({ liveErr: String(e.message || e) }); }
+  }
+  async liveAct(path, body) {
+    const base = (this.props.apiBase ?? "").trim().replace(/\/$/, "");
+    this.setState({ liveActMsg: "sending " + path + " …", liveActC: "#a86400" });
+    try {
+      const r = await fetch(base + "/api/live/" + path, { method: "POST", headers: { "Content-Type": "application/json", "X-DH-Live": "1" }, body: JSON.stringify(body || {}) });
+      const j = await r.json().catch(() => ({}));
+      this.setState({ liveActMsg: r.ok ? "✓ " + (j.summary || path) : "✗ " + (j.detail || r.status), liveActC: r.ok ? "#157a43" : "#d1173a" });
+      this.poll();
+    } catch (e) { this.setState({ liveActMsg: "✗ " + String(e.message || e), liveActC: "#d1173a" }); }
+  }
+  sceneMigrate(s) {
+    const omenDone = (i) => i < 5 && s >= 2 + i;
+    const macDone = (i) => i >= 5 && s >= 11 + (i - 5);
+    const chunks = Array.from({ length: 20 }, (_, i) => {
+      if (omenDone(i)) return { k: "omen" };
+      if (macDone(i)) return { k: "mac" };
+      if (i === 5 && s >= 6 && s < 7) return { k: "omenCur" };
+      if (i === 5 && s >= 7 && s < 10) return { k: "lost" };
+      if (i >= 5 && s >= 10 && s < 25 && Math.floor(s - 10) + 5 === i) return { k: "macCur" };
+      if (i < 5 && s >= 1 && s < 6 && Math.floor(s - 1) === i) return { k: "omenCur" };
+      return { k: "todo" };
+    });
+    const done = chunks.filter((c) => c.k === "omen" || c.k === "mac").length;
+    const lease = s < 1 ? "–" : s < 7 ? "L-1 · renewing" : s < 10 ? `L-1 · ${(10 - s).toFixed(1)} s` : "L-2";
+    const omen = { name: "node-omen", meta: "public · swiss-only · Windows", status: s < 1 ? "IDLE" : s < 7 ? "RUNNING" : "KILLED · kill -9", sc: s < 7 ? "#157a43" : "#d1173a", unit: s >= 1 && s < 7 ? "job-1/u0" : "–", done: `${Math.min(5, chunks.filter((c) => c.k === "omen").length)} committed`, lease: s < 7 ? lease : "expiring", act: s >= 1 && s < 7 ? ((s - 1) / 6) * 30 : s >= 7 ? 30 : 0, ac: s < 7 ? "#1d6bb3" : "#d1173a", bd: s >= 7 && s < 10 ? "#d1173a" : s >= 1 && s < 7 ? "#1d6bb3" : "#dcd6cc", wash: s >= 7 ? "rgba(209,23,58,0.06)" : "transparent" };
+    const mac = { name: "node-mac", meta: "certified · Mac mini M4 · coordinator host", status: s < 10 ? "IDLE · standby" : s < 25 ? "RUNNING · resumed" : "DONE", sc: s < 10 ? "#55524c" : "#157a43", unit: s >= 10 && s < 25 ? "job-1/u0 @ chunk 5" : s >= 25 ? "job-1/u0" : "–", done: `${chunks.filter((c) => c.k === "mac").length} committed`, lease: s >= 10 ? (s < 25 ? "L-2 · renewing" : "released") : "–", act: s >= 10 ? Math.min(100, 25 + ((s - 10) / 15) * 75) : 0, ac: "#c93c05", bd: s >= 10 && s < 25 ? "#c93c05" : "#dcd6cc", wash: s >= 10 && s < 25 ? "rgba(201,60,5,0.05)" : "transparent" };
+    const L = [
+      [0.2, "job-1 submitted · access swiss-only · 20 chunks", "#141414"],
+      [0.6, "admitted · can finish before deadline", "#157a43"],
+      [1.0, "lease L-1 → node-omen · key released (attested)", "#1d6bb3"],
+      [6.0, "checkpoint uploaded · next_chunk = 5 (25 %)", "#a86400"],
+      [7.0, "✕ node-omen kill -9 at 30 %", "#d1173a"],
+      [7.2, "lease L-1 timer running · no heartbeat", "#55524c"],
+      [10.0, "lease L-1 expired → L-2 → node-mac", "#141414"],
+      [10.2, "node-mac resumes from checkpoint, chunk 5", "#c93c05"],
+      [25.0, "done · completed_by = node-mac · done_chunks 0–19 once each", "#157a43"],
+      [26.0, "sha256 matches uninterrupted run ✓ byte-identical", "#157a43"]
+    ];
+    const head = s < 1 ? "Job submitted, waiting for an eligible node" : s < 7 ? "node-omen is computing job-1" : s < 10 ? "Plug pulled. The coordinator waits for the lease to expire" : s < 25 ? "node-mac picked up from the 25 % checkpoint" : "Byte-identical result, every chunk exactly once";
+    return { chunks, done, nodes: [omen, mac], L, head, danger: s >= 7 && s < 10, ok: s >= 25, showSha: s >= 25, sha: s >= 26 };
+  }
+  scenePause(s) {
+    const julyOn = s >= 5 && s < 12;
+    const pausedAt = 8.8;
+    const doneAt = (i) => (i < 5 ? 1 + i : 13 + (i - 5) * 0.66);
+    const chunks = Array.from({ length: 20 }, (_, i) => {
+      if (s >= doneAt(i)) return { k: i < 5 ? "omen" : "mac" };
+      const cur = (i < 5 && s >= i && s < 1 + i) || (i === 5 && s >= 5 && s < pausedAt) || (i >= 5 && s >= 12.34 + (i - 5) * 0.66 && s < doneAt(i));
+      if (cur) return { k: "macCur" };
+      if (i === 5 && s >= pausedAt && s < 12) return { k: "held" };
+      return { k: "todo" };
+    });
+    const done = chunks.filter((c) => c.k === "omen" || c.k === "mac").length;
+    const status = s < 5 ? "RUNNING" : s < pausedAt ? "HOLD received" : s < 12 ? "PAUSED · checkpoint" : s < 23 ? "RUNNING · resumed" : "DONE";
+    const mac = { name: "node-mac", meta: "site CH-BS · certified", status, sc: status.startsWith("PAUSED") || status.startsWith("HOLD") ? "#a86400" : "#157a43", unit: s < 23 ? "job-2/u0" : "–", done: `${done} / 20`, lease: s < 23 ? "L-3" : "released", act: (done / 20) * 100, ac: status.startsWith("PAUSED") ? "#a86400" : "#c93c05", bd: status.startsWith("PAUSED") ? "#a86400" : "#c93c05", wash: julyOn ? "rgba(240,165,0,0.05)" : "rgba(29,107,179,0.04)" };
+    const L = [
+      [0.2, "site CH-BS signal · coldest January day · heat needed", "#1d6bb3"],
+      [0.4, "decide() → Assign job-2 → node-mac", "#157a43"],
+      [5.0, "site CH-BS signal · July · demand 0.5 kW · tank 35 kWh", "#a86400"],
+      [5.6, "decide() → Hold · heat would be dumped", "#a86400"],
+      [6.0, "agent → runner SIGTERM", "#55524c"],
+      [8.8, "runner committed chunk, exit 0 · next_chunk = 5 · paused (~4 s)", "#a86400"],
+      [12.0, "site CH-BS signal · January again · heat needed", "#1d6bb3"],
+      [12.3, "decide() → Assign · runner restarts at next_chunk = 5", "#157a43"],
+      [23.0, "done · output log identical to an uninterrupted run", "#157a43"]
+    ];
+    const head = s < 5 ? "January: the house needs heat, so the job runs" : s < pausedAt ? "July: the tank is full, so decide() says Hold" : s < 12 ? "Paused with a final checkpoint at 25 %, holding while it's warm" : s < 23 ? "Cold again: resumed from the checkpoint" : "Same output as if it never stopped";
+    return { chunks, done, nodes: [mac], L, head, danger: false, warn: s >= 5 && s < 12, ok: s >= 23, july: julyOn, showSignal: true };
+  }
+  sceneTrust(s) {
+    const L = [
+      [0.5, "register job-1 · canton-bs · swiss-only", "#141414"],
+      [2.0, "release → BL-01 · region CH-BL · key sent ✓", "#157a43"],
+      [4.0, "deny → FRA-1 claims CH-BS · attested DE-HE · region_mismatch", "#d1173a"],
+      [6.0, "tamper → BL-01 · measurement changed", "#a86400"],
+      [8.0, "deny → BL-01 · node_tampered", "#d1173a"],
+      [9.5, "certified job · only non-certified node alive → no eligible site", "#d1173a"],
+      [11.0, "audit chain verified against signed head ✓", "#157a43"]
+    ];
+    const nodes = [
+      { name: "BL-01", meta: "site CH-BL · swiss", status: s < 2 ? "WAITING" : s < 6 ? "KEY RELEASED" : "TAMPERED · DENIED", sc: s < 6 ? "#157a43" : "#d1173a", unit: s >= 2 && s < 6 ? "job-1" : "–", done: "–", lease: s >= 2 && s < 6 ? "active" : "–", act: s >= 2 && s < 6 ? 60 : 0, ac: "#157a43", bd: s >= 6 ? "#d1173a" : s >= 2 ? "#157a43" : "#dcd6cc", wash: s >= 6 ? "rgba(209,23,58,0.06)" : "transparent" },
+      { name: "FRA-1", meta: "attested region DE-HE · claims CH-BS", status: s < 4 ? "ASKING" : "DENIED · region_mismatch", sc: s < 4 ? "#55524c" : "#d1173a", unit: "–", done: "–", lease: "never", act: 0, ac: "#d1173a", bd: s >= 4 ? "#d1173a" : "#dcd6cc", wash: s >= 4 ? "rgba(209,23,58,0.06)" : "transparent" }
+    ];
+    const n = L.filter((l) => s >= l[0]).length;
+    const chunks = Array.from({ length: 20 }, (_, i) => (i < n * 3 ? { k: i % 3 === 2 ? "link" : "block" } : { k: "todo" }));
+    const head = s < 2 ? "A swiss-only job asks for its key" : s < 4 ? "Basel-Land is eligible: key released" : s < 6 ? "Frankfurt lies about its region and is refused" : s < 9.5 ? "A tampered node loses its key, permanently" : s < 11 ? "Certified work never falls back to an uncertified node" : "Every decision is in a hash chain that verifies";
+    return { chunks, done: n, nodes, L, head, danger: s >= 4 && s < 9.5, ok: s >= 11, trust: true };
+  }
+  renderVals() {
+    const { scene, s, playing, live, liveErr } = this.state;
+    const D = Component.DUR[scene];
+    const R = scene === "migrate" ? this.sceneMigrate(s) : scene === "pause" ? this.scenePause(s) : this.sceneTrust(s);
+    const C = { omen: ["#1d6bb3", "#1d6bb3", "#ffffff"], mac: ["#c93c05", "#c93c05", "#ffffff"], omenCur: ["#e2eefa", "#1d6bb3", "#1d6bb3"], macCur: ["#ffe6d9", "#c93c05", "#c93c05"], lost: ["#fde3e7", "#d1173a", "#d1173a"], held: ["#fdf0d5", "#a86400", "#a86400"], todo: ["#f8f6f1", "#dcd6cc", "#9b958b"], block: ["#e3f4ea", "#157a43", "#157a43"], link: ["#ffffff", "#dcd6cc", "#6e6a63"] };
+    const chunks = R.chunks.map((c, i) => { const [bg, bd, tc] = C[c.k]; return { i: R.trust ? (c.k === "link" ? "→" : c.k === "block" ? "h" + Math.floor(i / 3) : "") : i, bg, bd, tc, glow: c.k.endsWith("Cur") ? `0 0 16px ${bd}` : "none" }; });
+    const legend = scene === "migrate" ? [{ c: "#1d6bb3", t: "committed on Omen" }, { c: "#c93c05", t: "committed on Mac" }, { c: "#d1173a", t: "lost in crash, redone" }, { c: "#f8f6f1", t: "pending" }]
+      : scene === "pause" ? [{ c: "#1d6bb3", t: "before the pause" }, { c: "#c93c05", t: "after resume" }, { c: "#a86400", t: "held at checkpoint" }]
+      : [{ c: "#157a43", t: "audit entry" }, { c: "#dcd6cc", t: "hash link to previous" }];
+    const fmt = (x) => `${String(Math.floor(x / 60)).padStart(2, "0")}:${(x % 60).toFixed(1).padStart(4, "0")}`;
+    const log = R.L.filter((l) => s >= l[0]).slice(-9).map((l, i, a) => ({ ts: fmt(l[0]), t: l[1], c: l[2], op: i === a.length - 1 ? 1 : 0.75 }));
+    const mk = (id, label) => ({ label, on: () => this.setState({ scene: id, s: 0, playing: true }), c: scene === id ? "#ffffff" : "#55524c", bg: scene === id ? "#c93c05" : "transparent" });
+    const base = (this.props.apiBase ?? "").trim();
+    let liveState = "REPLAY MODE", liveC = "#6e6a63", liveNote = "To stream real node telemetry, set the apiBase tweak to your dashboard (e.g. http://127.0.0.1:8700) and run it with DH_LIVE_NODES=1. The table then polls /api/nodes every 2 s.", liveRows = [];
+    if (base) {
+      if (liveErr) { liveState = "UNREACHABLE"; liveC = "#d1173a"; liveNote = `Could not reach ${base}/api/nodes: ${liveErr}. Check that the dashboard is running and allows this origin.`; }
+      else if (live && !live.enabled) { liveState = "LIVE VIEW OFF"; liveC = "#a86400"; liveNote = live.note; }
+      else if (live && !live.ok) { liveState = "COORDINATOR DOWN"; liveC = "#d1173a"; liveNote = live.error; }
+      else if (live) {
+        liveState = "● LIVE · " + (live.coordinator || base); liveC = "#157a43";
+        liveNote = `Queue ${JSON.stringify(live.queue)} · audit chain ${live.audit_verifies ? "verifies" : "DOES NOT verify"}`;
+        liveRows = [...(live.nodes || []).map((n) => ({ a: n.node_id, b: n.tampered ? "tampered" : n.suspect ? "suspect" : "ok", sc: n.tampered ? "#d1173a" : n.suspect ? "#a86400" : "#157a43", c: `${n.site_id} · ${n.running_unit || "idle"}`, d: n.progress == null ? "–" : Math.round(n.progress * 100) + " %" })),
+          ...(live.sites || []).map((x) => ({ a: "site " + x.site_id, b: x.degraded ? "degraded" : "signal ok", sc: x.degraded ? "#a86400" : "#1d6bb3", c: `demand ${Number(x.demand_kw).toFixed(2)} kW`, d: `tank ${Number(x.tank_level_kwh).toFixed(1)} kWh` }))];
+      } else { liveState = "CONNECTING…"; liveC = "#a86400"; liveNote = "Polling " + base + "/api/nodes"; }
+    }
+    const ctl = this.state.liveCtl;
+    const liveOn = !!(ctl && ctl.enabled);
+    const heatTo = ctl && ctl.heat === "july" ? "coldest" : "july";
+    const liveActions = liveOn ? [
+      { label: "Pull the plug · " + ctl.kill_node, on: () => this.liveAct("kill") },
+      { label: heatTo === "july" ? "Heat pause · July" : "Heat back · coldest", on: () => this.liveAct("heat", { replay: heatTo }) },
+      { label: "Tamper · " + ctl.tamper_node, on: () => this.liveAct("tamper") },
+    ] : [];
+    const liveActMsg = this.state.liveActMsg || (liveOn ? "LIVE · actions go to " + ctl.coordinator : "");
+    const liveActC = this.state.liveActC || "#55524c";
+    return {
+      liveOn, liveActions, liveActMsg, liveActC,
+      navActive: 4, scenes: [mk("migrate", "Pull the plug"), mk("pause", "Heat pause"), mk("trust", "Sovereignty + tamper")],
+      toggle: () => this.setState((st) => ({ playing: !st.playing })), playLabel: playing ? "❚❚ Pause" : "▶ Play",
+      restart: () => this.setState({ s: 0, playing: true }),
+      scrub: (e) => this.setState({ s: Number(e.target.value), playing: false }),
+      sNow: Math.min(s, D), dur: D, clock: fmt(Math.min(s, D)), durLabel: fmt(D),
+      headline: R.head, bannerDot: R.danger ? "#d1173a" : R.ok ? "#157a43" : R.warn ? "#a86400" : "#c93c05",
+      bannerBg: R.danger ? "rgba(209,23,58,0.08)" : R.ok ? "rgba(21,122,67,0.07)" : R.warn ? "rgba(240,165,0,0.07)" : "#ffffff",
+      nodes: R.nodes, chunks, legend, progressPct: R.trust ? "" : Math.round((R.done / 20) * 100), gridTitle: R.trust ? "audit chain" : "job · 20 chunks of 15 min",
+      showSignal: !!R.showSignal, skyBg: R.july ? "linear-gradient(135deg,#fbe1c4,#fdf3e6)" : "linear-gradient(135deg,#d6e7f4,#eef3f7)",
+      skyTitle: R.july ? "☀ July · tank full" : "❄ January · heat needed", skySub: R.july ? "demand 0.5 kW · tank 35 / 35 kWh" : "coldest day · tank drawing down", tankPct: R.july ? 100 : 34,
+      showSha: !!R.showSha, shaVal: R.sha ? "sha256 486eb640…bc88d ✓" : "hashing…", shaC: R.sha ? "#157a43" : "#55524c",
+      log, streamLabel: playing ? "streaming" : "paused",
+      liveState, liveC, liveNote, liveRows
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -57,7 +57,6 @@ def synthetic(days: int = 10, seed: int = 0) -> pd.DataFrame:
 
 
 # ============================================================ scheduler.admit + simulate_year --admission
-@pytest.mark.xfail(strict=True, reason="#17 r3 F20: admitted jobs miss their deadline under overload")
 def test_finding_admitted_jobs_miss_deadlines_under_overload():
     """Admission's promise (#33/#40): accept only what conservative capacity finishes by deadline - safety, so an
     admitted job is never late. Under overload it breaks: N=4, load 1.0, slack 24 h on a 10-day synthetic year
@@ -68,7 +67,6 @@ def test_finding_admitted_jobs_miss_deadlines_under_overload():
     assert b["missed_deadline_pct"] == 0, b["missed_deadline_pct"]
 
 
-@pytest.mark.xfail(strict=True, reason="#17 r3 F21: slack < deadline_safety_h silently rejects 100% of jobs")
 def test_finding_slack_below_safety_margin_rejects_everything_silently():
     """deadline = arrival + slack + 1 and latest finish = deadline - deadline_safety_h (1 h), so with slack 0 no job can
     ever be admitted. The real year at N=4, load 1.0 rejects 140,160 of 140,160 units, and the run still writes a
@@ -77,7 +75,6 @@ def test_finding_slack_below_safety_margin_rejects_everything_silently():
         simulate(synthetic(), A, 4, "merit", 0, 0.6, 0, hourly=False, admission=True)
 
 
-@pytest.mark.xfail(strict=True, reason="#17 r3 F22: one unit split across sites in the same hour")
 def test_finding_admit_splits_one_unit_across_sites():
     """admit() sums capacity over sites and hours, but a unit is atomic and runs on one server. A 2 kWh unit with two
     1 kWh/h sites is admitted to finish at hour 1, which is impossible: one 1 kW server needs 2 hours."""
@@ -85,7 +82,6 @@ def test_finding_admit_splits_one_unit_across_sites():
     assert not a.accepted or a.earliest_finish_hour >= 2, a
 
 
-@pytest.mark.xfail(strict=True, reason="#17 r3 F23: NaN backlog silently ignored -> double-booking")
 def test_finding_net_of_backlog_nan_is_silently_zero():
     """max(0.0, nan) == 0.0, so a NaN backlog (e.g. a corrupt queue sum) frees the whole forecast and admission
     double-books capacity that queued work will use. Expected: InvalidInput/ValueError."""
@@ -93,13 +89,11 @@ def test_finding_net_of_backlog_nan_is_silently_zero():
         net_of_backlog([1.0, 1.0], float("nan"))
 
 
-@pytest.mark.xfail(strict=True, reason="#17 r3 F24: past-deadline job rejected with the 'horizon' reason")
 def test_finding_admit_reason_for_past_deadline_job():
     a = admit([unit(deadline=0)], [site()], 5, {"a": []}, P)
     assert not a.accepted and a.reason == R_DEADLINE, a.reason
 
 
-@pytest.mark.xfail(strict=True, reason="#17 r3 F25: admit accepts a negative hour and bool capacities")
 def test_finding_admit_accepts_negative_hour_and_bool_capacity():
     with pytest.raises(TYPED):
         admit([unit(deadline=-40)], [site()], -50, {"a": [1.0] * 5}, P)
@@ -145,6 +139,10 @@ def test_pays_off_iff_net_income_non_negative(seed, n, load, slack, pol, ballast
     except ConfigError:
         return
     prof = synthetic(days=4, seed=seed)
+    if adm and slack < a["scheduler"]["deadline_safety_h"]:  # #54 / F21: admission needs slack >= the margin
+        with pytest.raises(ValueError, match="deadline_safety_h"):
+            simulate(prof, a, n, pol, slack, load, seed, hourly=False, ballast=ballast, admission=adm)
+        return
     b, _ = simulate(prof, a, n, pol, slack, load, seed, hourly=False, ballast=ballast, admission=adm)
     hw = n * capex / life * len(prof) / 8760
     net = (b["compute_income_chf"] or 0) + (b["ballast_income_chf"] or 0) + b["heat_value_chf"] \

@@ -33,6 +33,8 @@ RUNTIME = ("support.js", "deck-stage.js")
 NAV_PAGE = "Nav.dc.html"
 NAV_EXTRA = [
     ("07", "Year", "DigitalHeat 07 Year.dc.html"),
+    ("08", "Client", "DigitalHeat 08 Client.dc.html"),  # #102: compute customer (portal client API)
+    ("09", "GPU Server", "DigitalHeat 09 GPU Server.dc.html"),  # #102: host / server owner (portal host API)
     ("10", "Coordinator", "DigitalHeat 10 Coordinator.dc.html"),
 ]
 NAV_OLD = '    ["06", "Simulator", "DigitalHeat%2006%20Simulator.dc.html"]\n  ];'
@@ -40,6 +42,43 @@ NAV_NEW = ('    ["06", "Simulator", "DigitalHeat%2006%20Simulator.dc.html"],\n'
            + ",\n".join(f'    ["{n}", "{label}", "{f.replace(" ", "%20")}"]' for n, label, f in NAV_EXTRA) + "\n  ];")
 NAV_MAX_OLD = "&quot;min&quot;:1,&quot;max&quot;:6,"
 NAV_MAX_NEW = f"&quot;min&quot;:1,&quot;max&quot;:{6 + len(NAV_EXTRA)},"
+
+# Nav layout with 10 tabs (#102): the export's pill row wraps to two lines below ~1150 px and then covers content.
+# It now stays ONE line: under 1240 px the inactive tabs show only their number (label kept as title/aria-label),
+# the active tab keeps its label; if even that does not fit (phones) the row scrolls sideways with the active tab
+# centred. A spacer of the Nav's height ends every page (the Nav is each page's last element), so nothing at the
+# bottom of a page can sit under it. Same look: colours, font, pill, blur and motion are unchanged.
+NAV_LAYOUT = [
+    ('<nav style="pointer-events:auto;display:flex;flex-wrap:wrap;justify-content:center;',
+     '<nav data-dh-nav style="pointer-events:auto;display:flex;flex-wrap:nowrap;justify-content:flex-start;'
+     'max-width:100%;overflow-x:auto;scrollbar-width:none;'),
+    ('<a href="{{ t.href }}" onClick="{{ t.go }}" style="display:flex;align-items:center;gap:7px;padding:8px 13px;',
+     '<a href="{{ t.href }}" onClick="{{ t.go }}" title="{{ t.label }}" aria-label="{{ t.n }} {{ t.label }}" '
+     'data-dh-tab="{{ t.on }}" style="flex:none;white-space:nowrap;display:flex;align-items:center;gap:7px;'
+     'padding:8px {{ t.px }}px;'),
+    ('<span>{{ t.label }}</span>', '<span style="display:{{ t.disp }}">{{ t.label }}</span>'),
+    ('<span style="padding:0 10px 0 8px;color:#6e6a63;', '<span style="flex:none;white-space:nowrap;padding:0 10px 0 8px;color:#6e6a63;'),
+    ('  </nav>\n</div>\n</x-dc>',
+     '  </nav>\n</div>\n<div aria-hidden="true" data-dh-nav-spacer style="height:80px"></div>\n</x-dc>'),
+    ('  state = { progress: 0 };', '  state = { progress: 0, compact: false };'),
+    ('    addEventListener("scroll", this.onScroll, { passive: true });\n    this.onScroll();\n',
+     '    addEventListener("scroll", this.onScroll, { passive: true });\n    this.onScroll();\n'
+     '    this.onResize = () => { const c = innerWidth < 1240; if (c !== this.state.compact) this.setState({ compact: c });'
+     ' clearTimeout(this.navT); this.navT = setTimeout(() => this.centerTab(), 80); };\n'
+     '    addEventListener("resize", this.onResize); this.onResize();\n'),
+    ('  reveal(el, idx) {\n',
+     '  centerTab() {\n'
+     '    const n = document.querySelector("[data-dh-nav]"), t = n && n.querySelector(\'[data-dh-tab="1"]\');\n'
+     '    if (n && t && n.scrollWidth > n.clientWidth) n.scrollLeft = t.offsetLeft - (n.clientWidth - t.offsetWidth) / 2;\n'
+     '  }\n'
+     '  reveal(el, idx) {\n'),
+    ('    removeEventListener("scroll", this.onScroll);',
+     '    removeEventListener("scroll", this.onScroll); removeEventListener("resize", this.onResize); clearTimeout(this.navT);'),
+    ('        bg: i + 1 === a ? "#141414" : "transparent"\n',
+     '        bg: i + 1 === a ? "#141414" : "transparent",\n'
+     '        on: i + 1 === a ? "1" : "0", disp: !this.state.compact || i + 1 === a ? "inline" : "none",'
+     ' px: this.state.compact ? 10 : 13\n'),
+]
 
 FONT_LINKS = ('<link rel="preconnect" href="https://fonts.googleapis.com">\n'
               '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family='
@@ -109,7 +148,8 @@ RET_NEW = '''    const ctl = this.state.liveCtl;
       liveOn, liveActions, liveActMsg, liveActC,
 '''
 WIRING = ["vendor/resources.js before support.js", "local fonts.css", "apiBase default '.' on 04 and 06",
-          "04 Live: LIVE controls row + liveAct()", "Nav: 07 Year tab (#96)"]
+          "04 Live: LIVE controls row + liveAct()", "Nav: extra tabs 07-10 (#96, #102, #103)",
+          "Nav: one line (compact numbers, sideways scroll) + bottom spacer (#102)"]
 
 
 def wire(name: str, html: str) -> str:
@@ -126,6 +166,8 @@ def wire(name: str, html: str) -> str:
     if name == NAV_PAGE:
         html = sub(html, NAV_OLD, NAV_NEW)
         html = sub(html, NAV_MAX_OLD, NAV_MAX_NEW)
+        for old, new in NAV_LAYOUT:
+            html = sub(html, old, new)
     if name == LIVE_PAGE:
         html = sub(html, LIVE_ANCHOR, LIVE_ROW)
         html = sub(html, POLL_OLD, POLL_NEW)

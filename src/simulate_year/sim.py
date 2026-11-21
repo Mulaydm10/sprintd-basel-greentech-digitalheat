@@ -150,6 +150,15 @@ def simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h:
     return bal, df
 
 
+def thermostat_load(profile: pd.DataFrame, a: dict, servers: int) -> float:
+    """Like-for-like A/B: the load at which paid work equals the server-hours the thermostat baseline runs
+    (its utilisation), so merit and thermostat sell the same work. 0 for N=0."""
+    if servers <= 0:
+        return 0.0
+    bal, _ = simulate(profile, a, servers, "thermostat", 0.0, 0.0, 0, hourly=False)
+    return float(bal["run_h"]) / (servers * len(profile))
+
+
 def _r(x, nd=6):
     return None if x is None else round(float(x), nd)
 

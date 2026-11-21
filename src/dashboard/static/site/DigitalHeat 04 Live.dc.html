@@ -298,6 +298,7 @@ class Component extends DCLogic {
       { label: "Pull the plug · " + ctl.kill_node, on: () => this.liveAct("kill") },
       { label: heatTo === "july" ? "Heat pause · July" : "Heat back · coldest", on: () => this.liveAct("heat", { replay: heatTo }) },
       { label: "Tamper · " + ctl.tamper_node, on: () => this.liveAct("tamper") },
+      ...((ctl.drained || []).includes(ctl.kill_node) ? [{ label: "Restore · " + ctl.kill_node, on: () => this.liveAct("restore") }] : []),
     ] : [];
     const liveActMsg = this.state.liveActMsg || (liveOn ? "LIVE · actions go to " + ctl.coordinator : "");
     const liveActC = this.state.liveActC || "#55524c";

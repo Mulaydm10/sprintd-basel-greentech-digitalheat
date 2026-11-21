@@ -13,21 +13,33 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-ASSUMED_RE = re.compile(r"\bASSUMED\b")
+# Case-sensitive whole word, not when negated ("NOT ASSUMED", "not ASSUMED"): red team F32.
+ASSUMED_RE = re.compile(r"(?<!NOT )(?<!not )(?<!Not )\bASSUMED\b")
 
 
 def assumed_paths(yaml_text: str) -> set[str]:
-    """Dotted paths ('hardware', 'ballast.bid_chf_per_server_h', 'jobs[1]') marked ASSUMED in the yaml text."""
+    """Dotted paths ('hardware', 'ballast.bid_chf_per_server_h', 'jobs[1]') marked ASSUMED in the yaml text.
+
+    A key is ASSUMED if its own line says so, or if the block of full-line comments directly above it does
+    (red team F31; a blank line breaks the link). A section header marks the whole section. List entries
+    (e.g. `jobs:`) are ASSUMED if any line of the entry says so.
+    """
     out: set[str] = set()
     stack: list[tuple[int, str]] = []  # (indent, path) of open mapping keys
     list_idx: dict[str, int] = {}
     entry_path: str | None = None
     entry_indent = -1
+    comment_above = False  # the comment block right above the next key mentions ASSUMED
     for raw in yaml_text.splitlines():
-        if not raw.strip() or raw.lstrip().startswith("#") and not ASSUMED_RE.search(raw):
+        stripped = raw.strip()
+        if not stripped:
+            comment_above = False
+            continue
+        if stripped.startswith("#"):
+            comment_above = comment_above or bool(ASSUMED_RE.search(stripped))
             continue
         indent = len(raw) - len(raw.lstrip())
-        line = raw.strip()
+        line = stripped
         if entry_path is not None and indent <= entry_indent and not line.startswith("- "):
             entry_path = None
         while stack and stack[-1][0] >= indent and not (line.startswith("- ") and stack[-1][0] < indent):
@@ -39,14 +51,17 @@ def assumed_paths(yaml_text: str) -> set[str]:
             entry_path, entry_indent = f"{parent}[{i}]", indent
             line = line[2:]
             indent += 2
+        marked = bool(ASSUMED_RE.search(raw)) or comment_above
+        comment_above = False
         m = re.match(r"([A-Za-z_][\w-]*)\s*:", line)
+        in_entry = entry_path is not None and indent > entry_indent
         if m:
-            base = entry_path if entry_path and indent > entry_indent else parent
+            base = entry_path if in_entry else parent
             path = f"{base}.{m.group(1)}" if base else m.group(1)
             stack.append((indent, path))
-            if ASSUMED_RE.search(raw):
-                out.add(entry_path if entry_path and indent > entry_indent else path)
-        elif ASSUMED_RE.search(raw) and entry_path:
+            if marked:
+                out.add(entry_path if in_entry else path)
+        elif marked and entry_path:
             out.add(entry_path)
     return out
 

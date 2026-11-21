@@ -131,6 +131,8 @@ def upload(c, node, lease_id, data: bytes, next_chunk: int):
 
 
 def complete(c, node, lease_id, unit_id, sha=None):
+    # a real agent uploads its final checkpoint before completing (F35 plausibility); ignore 410 on a done lease
+    upload(c, node, lease_id, b"final-checkpoint", CHUNKS_PER_UNIT)
     return c.post(f"/v1/leases/{lease_id}/complete", headers=H(node),
                   json={"result_sha256": sha or expected_sha(unit_id), "chunk_ids": list(range(CHUNKS_PER_UNIT))})
 
@@ -342,6 +344,7 @@ def test_duplicate_and_conflicting_completion(env):
     submit(c)
     L = lease(c, "node-a")
     unit = L["unit"]["unit_id"]
+    env.clock.t += 1  # some work time passes (F35 floor)
     assert complete(c, "node-a", L["lease_id"], unit).json()["duplicate"] is False
     assert complete(c, "node-a", L["lease_id"], unit).json()["duplicate"] is True  # counted once
     assert complete(c, "node-a", L["lease_id"], unit, sha="f" * 64).status_code == 409
@@ -394,6 +397,7 @@ def test_degraded_when_heat_signal_stale_and_no_dump_only_work(env):
     assert fresh.get("degraded") is False
     lease_id = fresh.get("lease_id")
     if lease_id:  # fresh signal: forced deadline work may dump; release it for the degraded check
+        env.clock.t += 1  # some work time passes (F35 floor)
         complete(c, "node-a", lease_id, fresh["unit"]["unit_id"])
         submit(c, deadline_h=0.25)
     env.clock.t += 10  # heat signal older than 2 ticks
@@ -557,3 +561,98 @@ def test_last_error_reported_in_status(env):
     st = c.get("/v1/status", headers=H("observer")).json()
     assert st["nodes"][0]["last_error"] == "key denied: node_tampered"
     assert c.post("/v1/nodes/node-a/heartbeat", headers=H("node-a"), json={"last_error": "x" * 501}).status_code == 422
+
+
+# ------------------------------------------------------------------ #71 hardening (red team F34-F36)
+def test_completion_without_evidence_is_422_and_audited(env):
+    c = env.client()
+    register(c, "node-a")
+    submit(c)
+    L = lease(c, "node-a")
+    env.clock.t += 1
+    r = c.post(f"/v1/leases/{L['lease_id']}/complete", headers=H("node-a"),
+               json={"result_sha256": "a" * 64, "chunk_ids": list(range(CHUNKS_PER_UNIT))})
+    assert r.status_code == 422 and "evidence of work" in r.json()["detail"]
+    st = c.get("/v1/status", headers=H("admin")).json()
+    assert any(e["type"] == "complete_implausible" for e in st["recent_audit"])
+    # progress heartbeats are evidence too (no checkpoint needed)
+    c.post("/v1/nodes/node-a/heartbeat", headers=H("node-a"), json={"running_unit": L["unit"]["unit_id"], "progress": 0.6})
+    r = c.post(f"/v1/leases/{L['lease_id']}/complete", headers=H("node-a"),
+               json={"result_sha256": "a" * 64, "chunk_ids": list(range(CHUNKS_PER_UNIT))})
+    assert r.status_code == 200, r.text
+
+
+def test_completion_faster_than_the_floor_is_422(env):
+    c = env.client()
+    register(c, "node-a")
+    submit(c)
+    L = lease(c, "node-a")
+    upload(c, "node-a", L["lease_id"], b"ck", 1)
+    r = c.post(f"/v1/leases/{L['lease_id']}/complete", headers=H("node-a"),  # 0 s elapsed
+               json={"result_sha256": "a" * 64, "chunk_ids": list(range(CHUNKS_PER_UNIT))})
+    assert r.status_code == 422
+
+
+def test_reregister_identical_is_idempotent_and_changes_are_rate_limited(env):
+    c = env.client()
+    register(c, "node-a")
+    n0 = c.get("/v1/status", headers=H("admin")).json()["recent_audit"][0]["idx"]
+    body = {"node_id": "node-a", "site_id": "site-a", "eligible_classes": ["public", "swiss-only"],
+            "server_kw_el": 1.0, "attestation": attestation("node-a")}
+    r = c.post("/v1/nodes/register", headers=H("node-a"), json=body)
+    assert r.json().get("unchanged") is True
+    assert c.get("/v1/status", headers=H("admin")).json()["recent_audit"][0]["idx"] == n0
+    changed = {**body, "eligible_classes": ["public"]}
+    assert c.post("/v1/nodes/register", headers=H("node-a"), json=changed).status_code == 429
+    env.clock.t += 11
+    assert c.post("/v1/nodes/register", headers=H("node-a"), json=changed).status_code == 200
+
+
+def test_per_client_connection_cap_returns_503():
+    import asyncio
+    from coordinator.auth import ConnCap
+
+    gate = asyncio.Event()
+
+    async def slow_app(scope, receive, send):
+        await gate.wait()
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    cap = ConnCap(slow_app, per_client=2)
+
+    def scope(ip, xff=None):
+        h = [(b"x-forwarded-for", xff.encode())] if xff else []
+        return {"type": "http", "client": (ip, 1), "headers": h, "path": "/"}
+
+    async def call(sc):
+        out = []
+
+        async def send(m):
+            out.append(m)
+
+        async def recv():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        await cap(sc, recv, send)
+        return out[0]["status"]
+
+    async def main():
+        held = [asyncio.create_task(call(scope("127.0.0.1", "9.9.9.9"))) for _ in range(2)]
+        await asyncio.sleep(0.05)
+        third = await call(scope("127.0.0.1", "9.9.9.9"))  # same client behind Funnel -> capped
+        other = asyncio.create_task(call(scope("127.0.0.1", "8.8.8.8")))  # a different client is not affected
+        await asyncio.sleep(0.05)
+        gate.set()
+        return third, [await t for t in held], await other
+
+    third, held, other = asyncio.run(main())
+    assert third == 503 and held == [200, 200] and other == 200
+
+
+def test_fast_large_checkpoint_is_not_cut_off_by_the_deadline(env):
+    c = env.client()
+    register(c, "node-a")
+    submit(c)
+    L = lease(c, "node-a")
+    assert upload(c, "node-a", L["lease_id"], b"\1" * (8 << 20), 3).status_code == 200

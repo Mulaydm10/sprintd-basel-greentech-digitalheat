@@ -87,7 +87,6 @@ def test_finding_node_reported_heat_bypasses_site_signal(env):
 
 
 # ================================================================== F34 slow body upload never times out
-@pytest.mark.xfail(strict=True, reason="#65 r4 F34: a slow request body holds a worker forever (slow-loris)")
 def test_finding_slow_body_has_no_read_timeout(env):
     """Live: one TLS connection sent headers with Content-Length 200 and then 1 byte every 5 s; after 29 s the server
     had not answered or closed it (healthz stayed 200). uvicorn runs with limit_concurrency=64, so 64 such connections
@@ -120,7 +119,6 @@ def test_finding_slow_body_has_no_read_timeout(env):
 
 
 # ================================================================== F35 completing a unit without doing any work
-@pytest.mark.xfail(strict=True, reason="#65 r4 F35: a unit can be completed 0 s after its lease, without any work")
 def test_finding_complete_without_any_work(env):
     """complete() checks only the chunk-id set and result-hash consistency. A node can lease a ~15-minute unit and
     complete it in the same second with an invented hash, no checkpoint and no progress: the work is counted as done
@@ -137,7 +135,6 @@ def test_finding_complete_without_any_work(env):
 
 
 # ================================================================== F36 unbounded audit growth from one node token
-@pytest.mark.xfail(strict=True, reason="#65 r4 F36: one node token can append audit entries without bound")
 def test_finding_audit_log_growth_from_one_node_token(env):
     """Every register call appends a 'register_node' audit entry, even when nothing changed. One node token at the
     rate limit (20/s) adds ~1.7M entries a day: the hash chain, state.db and the startup verify (which replays the

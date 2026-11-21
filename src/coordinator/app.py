@@ -21,7 +21,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from .auth import BodyLimit, Principal, RateLimiter, authenticate, load_tokens
+from .auth import BodyLimit, ConnCap, Principal, RateLimiter, authenticate, load_tokens
 from .core import MAX_CHUNKS, MAX_ROUNDS, VERSION, CoordError, Coordinator
 
 log = logging.getLogger("coordinator")
@@ -101,6 +101,7 @@ def create_app(state_dir: Path, tokens: dict[str, str] | None = None, clock=time
     app.state.limiter = limiter
     app.add_middleware(BodyLimit, default=BODY_MAX, large=CKPT_MAX,
                        large_path=re.compile(r"^/v1/leases/[a-z0-9-]{1,64}/checkpoint$"))
+    app.add_middleware(ConnCap, per_client=16)  # added last = outermost: runs before body read and auth (F34)
 
     @app.exception_handler(CoordError)
     async def _coord_err(_req, e: CoordError):

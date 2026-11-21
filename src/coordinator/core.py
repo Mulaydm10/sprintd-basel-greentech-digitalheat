@@ -36,6 +36,7 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 import trust
 from common.config import load_assumptions
 from jobs.arrivals import Job, to_units
+from jobs.runner import DEFAULT_ROUNDS as RUNNER_DEFAULT_ROUNDS
 from jobs.catalogue import by_name, load_catalogue
 from scheduler import Assign, Hold, Params, Route, SiteState, Unit, decide, heat_value_chf_kwh
 from scheduler.admit import admit
@@ -53,6 +54,9 @@ SIGNAL_MAX_AGE_S = 2 * HEARTBEAT_S  # "older than 2 ticks" -> degraded
 MAX_CHUNKS, MAX_ROUNDS = 2000, 10_000_000  # bounds for JobIn.chunks / JobIn.rounds (v2.1 demo sizing)
 CHUNKS_PER_UNIT = 20  # a unit (~15 min) is N runner chunks; completion must report exactly 0..N-1
 HOLD_RETRY_S = 5.0
+MIN_ROUND_S = 2e-6  # completion floor per runner round (F35): 10x below the fastest measured (M4: ~20.7 us/round)
+MIN_PROGRESS_FOR_COMPLETE = 0.5  # or a heartbeat showing >= half the unit done on this node (F35)
+REREGISTER_MIN_S = 10.0  # a CHANGED re-registration at most this often per node (F36)
 REGION_KEY = "region"
 
 
@@ -270,21 +274,37 @@ class Coordinator:
                 self._audit(db, {"type": "register_denied", "node": node_id, "attestation": "mock"})
                 raise CoordError(403, "attestation rejected")
             region = attestation.evidence[REGION_KEY]
+            # registry ceiling first (#69): never more classes than the operator allows; certified only if registered so
             ceiling = set(reg["max_classes"])
+            claim_rejected = False
             if not reg["certified"]:
                 ceiling.discard("certified")
-                if attestation.evidence.get("certified") is True:
-                    self._audit(db, {"type": "certified_claim_rejected", "node": node_id})
+                claim_rejected = attestation.evidence.get("certified") is True
             eligible = [c for c in eligible if c in ceiling]
+            classes = json.dumps(sorted(set(eligible)))
+            old = db.execute("SELECT * FROM nodes WHERE node_id=?", (node_id,)).fetchone()
+            if eligible and old is not None and (old["site_id"], old["eligible_classes"], float(old["server_kw_el"]),
+                                                 old["attestation"], old["region"]) == (site_id, classes, float(kw),
+                                                                                       json.dumps(att), region):
+                # identical re-register: idempotent, no audit entry (F36, #71)
+                db.execute("UPDATE nodes SET last_hb=? WHERE node_id=?", (now, node_id))
+                return {"ok": True, "node_id": node_id, "eligible_classes": sorted(set(eligible)),
+                        "certified": bool(reg["certified"]), "heartbeat_s": HEARTBEAT_S, "lease_s": LEASE_S,
+                        "unchanged": True}
+            if claim_rejected:
+                self._audit(db, {"type": "certified_claim_rejected", "node": node_id})
             if not eligible:
                 self._audit(db, {"type": "register_denied", "node": node_id, "reason": "no_allowed_classes"})
                 raise CoordError(403, "no requested class is allowed for this node by the registry")
+            if old is not None and now - float(old["registered_at"]) < REREGISTER_MIN_S:
+                raise CoordError(429, f"registration changed too often; retry in {REREGISTER_MIN_S:g} s")
             db.execute("""INSERT INTO nodes(node_id, site_id, eligible_classes, server_kw_el, attestation, region,
                           registered_at, last_hb) VALUES(?,?,?,?,?,?,?,?)
                           ON CONFLICT(node_id) DO UPDATE SET site_id=excluded.site_id,
                           eligible_classes=excluded.eligible_classes, server_kw_el=excluded.server_kw_el,
-                          attestation=excluded.attestation, region=excluded.region, last_hb=excluded.last_hb""",
-                       (node_id, site_id, json.dumps(sorted(set(eligible))), kw, json.dumps(att), region, now, now))
+                          attestation=excluded.attestation, region=excluded.region, last_hb=excluded.last_hb,
+                          registered_at=excluded.registered_at""",
+                       (node_id, site_id, classes, kw, json.dumps(att), region, now, now))
             self._audit(db, {"type": "register_node", "node": node_id, "site": site_id, "region": region,
                              "attestation": "mock", "classes": sorted(set(eligible)),
                              "certified": bool(reg["certified"])})
@@ -491,6 +511,20 @@ class Coordinator:
                 raise CoordError(410, f"lease {lz['state']}: another node owns this unit now")
             if sorted(chunk_ids) != list(range(u["chunks"])) or len(set(chunk_ids)) != len(chunk_ids):
                 raise CoordError(422, f"chunk_ids must be exactly 0..{u['chunks'] - 1}, each once")
+            # plausibility (F35): evidence of work (a checkpoint for this unit, or this node reporting >= half of it
+            # done) and no faster than the unit's chunks could possibly run since it was first leased
+            first = db.execute("SELECT MIN(issued_at) FROM leases WHERE unit_id=?", (u["unit_id"],)).fetchone()[0]
+            ckpt = db.execute("SELECT 1 FROM checkpoints WHERE unit_id=? LIMIT 1", (u["unit_id"],)).fetchone()
+            me = db.execute("SELECT running_unit, progress FROM nodes WHERE node_id=?", (node_id,)).fetchone()
+            progressed = me is not None and me["running_unit"] == u["unit_id"] and \
+                (me["progress"] or 0.0) >= MIN_PROGRESS_FOR_COMPLETE
+            floor = u["chunks"] * (u["rounds"] or RUNNER_DEFAULT_ROUNDS) * MIN_ROUND_S
+            if not (ckpt or progressed) or now - float(first) < floor:
+                self._audit(db, {"type": "complete_implausible", "unit": u["unit_id"], "node": node_id,
+                                 "elapsed_s": round(now - float(first), 3), "checkpoint": bool(ckpt),
+                                 "progress": me["progress"] if me is not None else None})
+                raise CoordError(422, f"completion without evidence of work: need a checkpoint or progress >= "
+                                      f"{MIN_PROGRESS_FOR_COMPLETE:g}, and >= {floor:g} s since the first lease")
             db.execute("""UPDATE units SET state='done', result_sha256=?, done_chunks=?, completed_at=?, completed_by=?
                           WHERE unit_id=?""", (result_sha256, json.dumps(sorted(chunk_ids)), now, node_id, u["unit_id"]))
             db.execute("UPDATE leases SET state='completed' WHERE lease_id=?", (lease_id,))

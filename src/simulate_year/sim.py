@@ -24,6 +24,8 @@ import pandas as pd
 from common.config import ROOT
 from jobs.catalogue import JobType, load_catalogue
 from scheduler import Assign, Params, Route, SetPower, SiteState, Unit, decide, heat_value_chf_kwh
+from scheduler.admit import admit, net_of_backlog, persistence_forecast
+from scheduler.policy import used_capacity_kwh_el
 
 POLICIES = ("merit", "thermostat", "always_on")
 TOL = 1e-6
@@ -67,6 +69,7 @@ class _Acc:
     run_h: float = 0.0
     units_in: int = 0
     ballast_kwh: float = 0.0
+    rejected: int = 0
     units_done: int = 0
     missed: int = 0
     transitions: int = 0
@@ -74,23 +77,27 @@ class _Acc:
 
 def simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h: float = 0.0, load: float = 0.0,
              seed: int = 0, a_hash: str = "", hourly: bool = True,
-             ballast: bool = False) -> tuple[dict, pd.DataFrame | None]:
+             ballast: bool = False, admission: bool = False) -> tuple[dict, pd.DataFrame | None]:
     """Run one year. ballast=True (merit only, #37) offers unlimited heat-backed filler work each hour at
     `ballast.bid_chf_per_server_h`, which must satisfy MC_used <= bid < MC_dump, so it runs only where its
-    heat is used and never dumps. Unassigned filler is dropped each hour (never queued, never missed). Defers the cyclic GC for the loop (8,760 decide() calls allocate many short-lived
+    heat is used and never dumps; unassigned filler is dropped each hour (never queued, never missed).
+    admission=True gates every arriving job with scheduler.admit (contract v2.2): persistence forecast of the
+    last 24 h of heat-used capacity, net of queued work; rejected units never enter the queue and are not
+    counted as missed. Both off by default (golden numbers unchanged). Defers the cyclic GC for the loop (8,760 decide() calls allocate many short-lived
     actions; refcounting still frees them) and restores its previous state. scheduler.decide() itself
     never touches GC (#21 review)."""
     was = gc.isenabled()
     gc.disable()
     try:
-        return _simulate(profile, a, servers, policy, slack_h, load, seed, a_hash, hourly, ballast)
+        return _simulate(profile, a, servers, policy, slack_h, load, seed, a_hash, hourly, ballast, admission)
     finally:
         if was:
             gc.enable()
 
 
 def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h: float, load: float,
-              seed: int, a_hash: str, hourly: bool, ballast: bool = False) -> tuple[dict, pd.DataFrame | None]:
+              seed: int, a_hash: str, hourly: bool, ballast: bool = False,
+              admission: bool = False) -> tuple[dict, pd.DataFrame | None]:
     if policy not in POLICIES:
         raise ValueError(f"policy {policy!r} not in {POLICIES}")
     if servers < 0 or load < 0 or slack_h < 0:
@@ -128,19 +135,30 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
                                          "dump", "backup", "tank_level", "queue_len", "missed")} if hourly else None
     modes = np.zeros(H, dtype=bool) if hourly else None
     slack_int = int(math.ceil(slack_h))
+    history: list[float] = []  # heat-used electric capacity per past hour (admission forecast input)
 
     for h in range(H):
-        # 1. arrivals
-        acc_units += rate
-        while acc_units >= 1.0 - 1e-12:
-            queue.append(Unit(f"u{k}", f"j{k}", job_class, access, unit_kwh, bid, h + slack_int + 1, slack_h, True))
-            k += 1
-            acc_units -= 1.0
-        # 2. site state
+        # site state at the start of hour h (does not depend on this hour's arrivals)
         dem = space[h] + dhw[h]
         site = SiteState("house", h, space[h], lvl, cap, servers, kw, rec, p_el,
                          heat_value_chf_kwh(p_el, div, dem, lvl, high), frozenset({access}), None, False,
                          low, high, mode, dhw[h])
+        # 1. arrivals (optionally gated by admission at submit)
+        acc_units += rate
+        fc = None
+        while acc_units >= 1.0 - 1e-12:
+            u = Unit(f"u{k}", f"j{k}", job_class, access, unit_kwh, bid, h + slack_int + 1, slack_h, True)
+            k += 1
+            acc_units -= 1.0
+            if admission:
+                if fc is None:
+                    fc = net_of_backlog(persistence_forecast(history, slack_int + 2), sum(q.kwh_el for q in queue))
+                if not admit([u], [site], h, {"house": fc}, params).accepted:
+                    t.rejected += 1
+                    continue
+                fc = net_of_backlog(fc, u.kwh_el)
+            queue.append(u)
+        history.append(used_capacity_kwh_el(site))
         # 3. decide + apply
         offer = queue
         if use_ballast and servers > 0:
@@ -200,6 +218,7 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
     # thermostat/always_on run servers without paid work: that is implicit ballast
     bal["ballast_run_h"] = _r(max(0.0, t.run_h - paid_run_h), 3)
     bal["ballast_income_chf"] = _r(max(0.0, t.run_h - paid_run_h) * b_bid, 3) if b_bid is not None else None
+    bal["admission"] = admission
     df = None
     if hourly:
         df = pd.DataFrame(rec_cols, index=profile.index)
@@ -268,8 +287,10 @@ def _balance(a, servers, policy, slack_h, load, seed, a_hash, H, space, dhw, t: 
         "run_h": _r(t.run_h, 3),
         "utilisation": _r(t.run_h / (servers * H) if servers > 0 else None),
         "jobs_total": t.units_in,
+        "admitted_units": t.units_in - t.rejected,
+        "rejected_units": t.rejected,
         "units_done": t.units_done,
-        "missed_deadline_pct": _r(100.0 * t.missed / t.units_in if t.units_in else 0.0, 4),
+        "missed_deadline_pct": _r(100.0 * t.missed / (t.units_in - t.rejected) if t.units_in - t.rejected else 0.0, 4),
         "transitions_per_day": _r(t.transitions / (H / 24.0), 4),
         "electricity_cost_chf": _r(elec, 3),
         "heat_value_chf": _r(heat_value, 3),

@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono:wght@400..700&display=swap">
+<style>
+html,body{margin:0;background:#f2efe9;color:#141414}
+html{scroll-behavior:smooth}
+body{font-family:'Geist',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#c93c05}a:hover{color:#a86400}
+::selection{background:#c93c05;color:#ffffff}
+input[type=range]{accent-color:#c93c05}
+</style>
+</helmet>
+<div style="min-height:100vh;background:#f2efe9;overflow-x:hidden">
+  <header style="position:fixed;top:0;left:0;right:0;z-index:40;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:16px clamp(16px,4vw,40px);font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.1em;text-transform:uppercase;color:#55524c;background:linear-gradient(#f2efe9 35%,rgba(242,239,233,0))">
+    <div style="display:flex;align-items:center;gap:10px;color:#141414"><span style="width:9px;height:9px;border-radius:50%;background:#c93c05;box-shadow:0 0 14px #c93c05"></span>DigitalHeat</div>
+    <div>03 · The scheduler · 03 / 06</div>
+  </header>
+
+  <section style="padding:150px clamp(16px,4vw,40px) 60px;max-width:1400px;margin:0 auto;display:flex;flex-direction:column;gap:28px">
+    <div style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#a86400">01 · The core idea</div>
+    <h1 style="margin:0;font-weight:760;font-stretch:118%;font-size:clamp(48px,8.4vw,132px);line-height:0.88;letter-spacing:-0.055em;text-wrap:balance">We gave every kilowatt-hour a <span style="color:#c93c05">price.</span></h1>
+    <p style="margin:0;max-width:760px;font-size:clamp(18px,2vw,24px);line-height:1.4;color:#2e2b27;text-wrap:pretty">Every hour each house says what a kWh of compute costs it. It's cheaper when the heat warms the house and dearer when it would be dumped. Work runs where its price clears. One function, <span style="font-family:'Geist Mono',monospace;color:#a86400">decide()</span>, drives both the 8,760-hour simulation and the live machines.</p>
+  
+    <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;padding:18px 20px 14px;display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#55524c"><span>Live merit order · one house · scrolling hours</span><span style="display:flex;gap:14px"><span style="color:#141414">— cost / kWh</span><span style="color:#c93c05">— ballast bid 0.25</span><span style="color:#157a43">■ runs</span></span></div>
+      <svg viewBox="0 0 1000 150" preserveAspectRatio="none" style="width:100%;height:150px;display:block">
+        <text x="4" y="22" style="font-family:'Geist Mono';font-size:11px;fill:#6e6a63">0.3325 dumped</text>
+        <text x="4" y="118" style="font-family:'Geist Mono';font-size:11px;fill:#6e6a63">0.226 used</text>
+        <line x1="0" x2="1000" y1="{{ bidY }}" y2="{{ bidY }}" stroke="#c93c05" stroke-width="2" stroke-dasharray="6 6"></line>
+        <sc-for list="{{ runBars }}" as="b" hint-placeholder-count="0"><rect x="{{ b.x }}" y="136" width="{{ b.w }}" height="10" rx="2" fill="#157a43"></rect></sc-for>
+        <path d="{{ costPath }}" fill="none" stroke="#141414" stroke-width="2.2" stroke-linejoin="round"></path>
+        <circle cx="{{ headX }}" cy="{{ headY }}" r="6" fill="#c93c05"></circle>
+      </svg>
+    </div>
+  </section>
+
+  <section style="padding:40px clamp(16px,4vw,40px) 120px;max-width:1400px;margin:0 auto">
+    <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c;margin-bottom:20px"><span>02 · One tick of decide()</span><span style="color:#c93c05">step {{ pipeStep }} / 6</span></div>
+    <div style="position:relative;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:1px;background:#dcd6cc;border:1px solid #dcd6cc;border-radius:20px;overflow:hidden">
+      <sc-for list="{{ pipe }}" as="p" hint-placeholder-count="6">
+        <div style="background:{{ p.bg }};padding:22px 20px 24px;display:flex;flex-direction:column;gap:12px;min-height:200px;transition:background .4s;position:relative">
+          <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-family:'Geist Mono',monospace;font-size:12px;color:{{ p.nc }}">{{ p.n }}</span><span style="width:8px;height:8px;border-radius:50%;background:{{ p.dot }};box-shadow:{{ p.glow }};transition:all .3s"></span></div>
+          <span style="font-size:19px;font-weight:700;font-stretch:106%;line-height:1.15">{{ p.t }}</span>
+          <span style="font-size:14px;line-height:1.45;color:#55524c">{{ p.d }}</span>
+          <div style="position:absolute;left:0;bottom:0;height:3px;width:{{ p.bar }}%;background:#c93c05"></div>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <section style="padding:40px clamp(16px,4vw,40px) 120px;max-width:1400px;margin:0 auto">
+    <div style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c;margin-bottom:20px">03 · Where does a job clear? Try it</div>
+    <h2 style="margin:0 0 14px;font-weight:660;font-stretch:112%;font-size:clamp(34px,5vw,72px);line-height:0.95;letter-spacing:-0.045em;max-width:1100px;text-wrap:balance">Pick a job. Click a house to change its weather.</h2>
+    <p style="margin:0 0 32px;max-width:760px;font-size:17px;line-height:1.5;color:#55524c">A house's cost is 0.226 CHF/kWh when its heat is used and 0.3325 when it would be dumped. A job runs where its bid covers the cost and its access class allows the site. A 1 kW server burns 1 kWh an hour, so CHF per server-hour and CHF per kWh compare directly.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:22px">
+      <sc-for list="{{ jobs }}" as="j" hint-placeholder-count="3">
+        <button onClick="{{ j.on }}" style="cursor:pointer;text-align:left;padding:14px 18px;border-radius:16px;border:1px solid {{ j.bd }};background:{{ j.bg }};color:#141414;display:flex;flex-direction:column;gap:6px;min-width:220px;transition:all .3s">
+          <span style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:{{ j.cc }}">{{ j.cls }}</span>
+          <span style="font-size:18px;font-weight:700">{{ j.name }}</span>
+          <span style="font-family:'Geist Mono',monospace;font-size:12px;color:#55524c">bid {{ j.bid }} · deadline {{ j.dl }}</span>
+        </button>
+      </sc-for>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:16px">
+      <sc-for list="{{ houses }}" as="h" hint-placeholder-count="3">
+        <button onClick="{{ h.on }}" style="cursor:pointer;text-align:left;border-radius:20px;border:1px solid {{ h.bd }};background:#ffffff;color:#141414;padding:0;overflow:hidden;display:flex;flex-direction:column;transition:border-color .4s">
+          <div style="height:150px;position:relative;background:{{ h.sky }};transition:background .6s;overflow:hidden">
+            <div style="position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:120px;height:70px;background:#e9e4db;border:1px solid #c4bcae;border-bottom:0"></div>
+            <div style="position:absolute;left:50%;bottom:70px;transform:translateX(-50%);width:0;height:0;border-left:72px solid transparent;border-right:72px solid transparent;border-bottom:44px solid #dcd6cc"></div>
+            <div style="position:absolute;left:50%;bottom:14px;transform:translateX(-50%);width:{{ h.glowW }}px;height:28px;border-radius:6px;background:#c93c05;opacity:{{ h.glowOp }};box-shadow:0 0 30px 10px rgba(201,60,5,{{ h.glowOp }});transition:all .5s"></div>
+            <div style="position:absolute;top:14px;left:16px;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.08em;color:#141414">{{ h.wx }}</div>
+            <div style="position:absolute;top:14px;right:16px;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.08em;color:{{ h.vc }};padding:3px 8px;border-radius:999px;background:rgba(255,255,255,0.75)">{{ h.verdict }}</div>
+          </div>
+          <div style="padding:18px 20px;display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;justify-content:space-between;gap:8px"><span style="font-size:18px;font-weight:700">{{ h.name }}</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#55524c">{{ h.site }}</span></div>
+            <div style="display:flex;justify-content:space-between;gap:8px;font-family:'Geist Mono',monospace;font-size:12px"><span style="color:#55524c">{{ h.tags }}</span><span style="color:{{ h.costC }}">{{ h.cost }} CHF/kWh</span></div>
+            <span style="font-size:14px;color:#55524c;line-height:1.4">{{ h.why }}</span>
+          </div>
+        </button>
+      </sc-for>
+    </div>
+  </section>
+
+  <section style="padding:40px clamp(16px,4vw,40px) 120px;max-width:1400px;margin:0 auto">
+    <div style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c;margin-bottom:20px">04 · Patience is a battery</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));gap:40px;align-items:start">
+      <div style="display:flex;flex-direction:column;gap:20px">
+        <h2 style="margin:0;font-weight:660;font-stretch:112%;font-size:clamp(34px,5vw,72px);line-height:0.95;letter-spacing:-0.045em;text-wrap:balance">Jobs that can wait, wait for the cold.</h2>
+        <p style="margin:0;font-size:17px;line-height:1.5;color:#55524c">Slack is the time a job may wait before its deadline. The more slack, the more work moves out of warm afternoons into cold nights, where its heat is wanted.</p>
+        <div style="display:flex;gap:6px;padding:5px;border:1px solid #dcd6cc;border-radius:999px;width:max-content;font-family:'Geist Mono',monospace;font-size:12px">
+          <sc-for list="{{ slacks }}" as="s" hint-placeholder-count="3">
+            <button onClick="{{ s.on }}" style="border:0;cursor:pointer;padding:10px 18px;border-radius:999px;font:inherit;color:{{ s.c }};background:{{ s.bg }};transition:all .3s">{{ s.label }}</button>
+          </sc-for>
+        </div>
+        <div style="display:flex;align-items:baseline;gap:12px"><span style="font-weight:760;font-stretch:115%;font-size:clamp(56px,7vw,96px);letter-spacing:-0.04em;line-height:1;color:{{ slackC }};font-variant-numeric:tabular-nums">{{ slackVal }}</span><span style="font-size:16px;color:#55524c;max-width:220px">heat dumped vs. no slack</span></div>
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;color:#6e6a63">24 h ≈ −7 % · 7 d ≈ −17 % · Run B + our replay</span>
+      </div>
+      <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;padding:22px">
+        <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:11px;color:#6e6a63;margin-bottom:10px"><span>00:00</span><span>one spring day</span><span>24:00</span></div>
+        <div style="display:grid;grid-template-columns:repeat(24,minmax(0,1fr));gap:3px;height:150px;align-items:end">
+          <sc-for list="{{ dayBars }}" as="b" hint-placeholder-count="24">
+            <div style="height:100%;display:flex;flex-direction:column;justify-content:flex-end;gap:3px">
+              <div style="height:{{ b.job }}%;background:{{ b.jc }};border-radius:3px;transition:height .9s cubic-bezier(.3,1.3,.5,1),background .6s"></div>
+              <div style="height:{{ b.need }}%;background:#5a93c9;border-radius:3px"></div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display:flex;gap:16px;margin-top:14px;font-family:'Geist Mono',monospace;font-size:11px;color:#55524c;flex-wrap:wrap">
+          <span style="display:flex;gap:6px;align-items:center"><span style="width:10px;height:10px;border-radius:2px;background:#5a93c9"></span>house heat need</span>
+          <span style="display:flex;gap:6px;align-items:center"><span style="width:10px;height:10px;border-radius:2px;background:#c93c05"></span>work, heat used</span>
+          <span style="display:flex;gap:6px;align-items:center"><span style="width:10px;height:10px;border-radius:2px;background:#d1173a"></span>work, heat dumped</span>
+        </div>
+        <p style="margin:10px 0 0;font-size:12px;color:#6e6a63;font-family:'Geist Mono',monospace">Illustrative day shape. The % figures are from the yearly runs.</p>
+      </div>
+    </div>
+  </section>
+
+  <section style="padding:40px clamp(16px,4vw,40px) 120px;max-width:1400px;margin:0 auto">
+    <div style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c;margin-bottom:20px">05 · Every job, the same journey</div>
+    <h2 style="margin:0 0 36px;font-weight:660;font-stretch:112%;font-size:clamp(34px,5vw,72px);line-height:0.95;letter-spacing:-0.045em;text-wrap:balance">Admitted means on time.</h2>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#6e6a63">Healthy journey</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+        <sc-for list="{{ fsmA }}" as="s" hint-placeholder-count="6">
+          <span style="padding:12px 18px;border-radius:999px;border:1px solid {{ s.bd }};background:{{ s.bg }};color:{{ s.c }};font-size:15px;font-weight:600;transition:all .35s">{{ s.t }}</span>
+        </sc-for>
+      </div>
+      <div style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#6e6a63;margin-top:18px">Example · Whisper transcription on a July afternoon</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+        <sc-for list="{{ fsmB }}" as="s" hint-placeholder-count="7">
+          <span style="padding:12px 18px;border-radius:999px;border:1px solid {{ s.bd }};background:{{ s.bg }};color:{{ s.c }};font-size:15px;font-weight:600;transition:all .35s">{{ s.t }}</span>
+        </sc-for>
+      </div>
+      <p style="margin:8px 0 0;font-size:16px;color:#55524c;max-width:760px;line-height:1.5">{{ fsmCaption }}</p>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:16px;margin-top:48px">
+      <div style="border-left:2px solid #a86400;padding:4px 0 4px 18px;display:flex;flex-direction:column;gap:8px"><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#a86400">■ Tank band</span><span style="font-size:16px;line-height:1.5;color:#2e2b27">The tank stays between 10 and 33 kWh of its 35. Hysteresis stops servers flapping on and off.</span></div>
+      <div style="border-left:2px solid #157a43;padding:4px 0 4px 18px;display:flex;flex-direction:column;gap:8px"><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#157a43">■ Admission rule</span><span style="font-size:16px;line-height:1.5;color:#2e2b27">A job is accepted only if it can finish in time with a 1 h safety margin. Admitted jobs never missed a deadline, even at 2× load.</span></div>
+      <div style="border-left:2px solid #1d6bb3;padding:4px 0 4px 18px;display:flex;flex-direction:column;gap:8px"><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#1d6bb3">■ Honesty rule</span><span style="font-size:16px;line-height:1.5;color:#2e2b27">Admission forecasts with persistence (yesterday repeats). In spring warm-ups it can overstate capacity, and we say so.</span></div>
+    </div>
+  </section>
+
+  <section style="padding:40px clamp(16px,4vw,40px) 180px;max-width:1400px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap;border-top:1px solid #dcd6cc;padding-top:40px">
+    <span style="font-family:'Geist Mono',monospace;font-size:12px;color:#6e6a63">src/scheduler/policy.py · admit.py · data/assumptions.yaml</span>
+    <a href="DigitalHeat%2004%20Live.dc.html" style="padding:14px 22px;border-radius:999px;background:#c93c05;color:#ffffff;text-decoration:none;font-weight:700" style-hover="background:#e3a008;color:#ffffff">Watch it run live →</a>
+  </section>
+
+  <dc-import name="Nav" active="{{ navActive }}" hint-size="100%,60px"></dc-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { t: 0, job: "whisper", wx: { bs: "cold", bl: "warm", fr: "cold" }, slack: 0 };
+  componentDidMount() {
+    this.start = performance.now(); let last = 0;
+    const loop = (now) => { this.raf = requestAnimationFrame(loop); if (now - last > 33) { last = now; this.setState({ t: (now - this.start) / 1000 }); } };
+    this.raf = requestAnimationFrame(loop);
+  }
+  componentWillUnmount() { cancelAnimationFrame(this.raf); }
+  renderVals() {
+    const { t, job, wx, slack } = this.state;
+    const P = [
+      ["Heat signal", "Each site posts demand and tank level every tick."],
+      ["Cost per kWh", "Heat used: 0.3325 − 0.3325/2.5 ≈ 0.226 CHF. Heat dumped: 0.3325."],
+      ["Admission", "Can it finish before its deadline? If not, refuse it now, not later."],
+      ["Eligibility", "public, swiss-only or certified. A Frankfurt node can't take Basel data."],
+      ["Lease + key", "The key broker releases the job key only to an attested, untampered node."],
+      ["Run · Hold · Move", "Assign, pause with a checkpoint, or migrate. Every chunk runs exactly once."]
+    ];
+    const cyc = (t * 0.55) % 6, step = Math.floor(cyc), frac = cyc - step;
+    const pipe = P.map(([tt, d], i) => ({
+      n: String(i + 1).padStart(2, "0"), t: tt, d,
+      bg: i === step ? "#fff1e8" : "#ffffff", nc: i <= step ? "#c93c05" : "#6e6a63",
+      dot: i === step ? "#c93c05" : i < step ? "#157a43" : "#dcd6cc", glow: i === step ? "0 0 14px #c93c05" : "none",
+      bar: i < step ? 100 : i === step ? (frac * 100).toFixed(0) : 0
+    }));
+    const J = {
+      whisper: { name: "Whisper transcription", cls: "swiss-only", cc: "#1d6bb3", bid: 1.70, dl: "24 h", unit: "CHF/h" },
+      tagging: { name: "Image tagging", cls: "public", cc: "#157a43", bid: 0.50, dl: "7 d", unit: "CHF/h" },
+      ballast: { name: "Ballast filler", cls: "public", cc: "#157a43", bid: 0.25, dl: "none", unit: "CHF/h" }
+    };
+    const jobs = Object.entries(J).map(([k, j]) => ({ ...j, bid: j.bid.toFixed(2), on: () => this.setState({ job: k }), bd: job === k ? "#c93c05" : "#dcd6cc", bg: job === k ? "rgba(201,60,5,0.08)" : "#ffffff" }));
+    const H = [
+      { k: "bs", name: "House Basel", site: "CH-BS", swiss: true, cert: true },
+      { k: "bl", name: "House Liestal", site: "CH-BL", swiss: true, cert: false },
+      { k: "fr", name: "Node Frankfurt", site: "DE-HE", swiss: false, cert: false }
+    ];
+    const jj = J[job];
+    const houses = H.map((h) => {
+      const cold = wx[h.k] === "cold";
+      const cost = cold ? 0.226 : 0.3325;
+      const eligible = jj.cls === "public" || (jj.cls === "swiss-only" && h.swiss) || (jj.cls === "certified" && h.cert);
+      const clears = jj.bid >= cost;
+      const run = eligible && clears;
+      const why = !eligible ? `Refused: region_mismatch. A ${jj.cls} job can't run in ${h.site}.` : !clears ? `Holds: bid ${jj.bid.toFixed(2)} is below the dumped-heat cost ${cost}. No paid heat is wasted.` : cold ? "Runs: the house uses the heat, so this kWh is cheap." : "Runs anyway: the bid pays even if the heat goes to the tank or is dumped.";
+      return {
+        ...h, on: () => this.setState((s) => ({ wx: { ...s.wx, [h.k]: s.wx[h.k] === "cold" ? "warm" : "cold" } })),
+        wx: cold ? "❄ January · heat needed" : "☀ July · tank full", sky: cold ? "linear-gradient(#d6e7f4,#f2efe9)" : "linear-gradient(#fbe1c4,#f2efe9)",
+        tags: [h.swiss ? "swiss" : "EU", h.cert ? "certified" : null].filter(Boolean).join(" · "),
+        cost: cost.toFixed(4).replace(/0+$/, ""), costC: cold ? "#157a43" : "#d1173a",
+        verdict: run ? "RUNS" : !eligible ? "INELIGIBLE" : "HOLDS", vc: run ? "#157a43" : !eligible ? "#d1173a" : "#a86400",
+        bd: run ? "#c93c05" : "#dcd6cc", glowOp: run ? (0.6 + 0.3 * Math.sin(t * 4)).toFixed(2) : 0, glowW: run ? 70 : 40, why
+      };
+    });
+    const S = [[0, "0 h", "0 %"], [24, "24 h", "−7 %"], [168, "7 d", "−17 %"]];
+    const slacks = S.map(([v, label]) => ({ label, on: () => this.setState({ slack: v }), c: slack === v ? "#ffffff" : "#55524c", bg: slack === v ? "#c93c05" : "transparent" }));
+    const sv = S.find((s) => s[0] === slack);
+    const need = Array.from({ length: 24 }, (_, h) => Math.max(0, 0.55 + 0.45 * Math.cos(((h - 4) / 24) * Math.PI * 2)));
+    const shift = slack === 0 ? 0 : slack === 24 ? 0.5 : 0.85;
+    const dayBars = need.map((n, h) => {
+      const flat = 0.5, target = n * 0.95;
+      const job = flat + (target - flat) * shift;
+      const dumped = job > n + 0.02;
+      return { need: (n * 45).toFixed(1), job: (job * 45).toFixed(1), jc: dumped ? "#d1173a" : "#c93c05" };
+    });
+    const A = ["Submitted", "Admitted", "Leased", "Running", "Committed", "Done"];
+    const B = ["Submitted", "Admitted", "Running", "Held · checkpoint", "Resumed @ chunk", "Done"];
+    const ca = Math.floor(t * 1.2) % (A.length + 3);
+    const cb = Math.floor(t * 0.9) % (B.length + 3);
+    const pill = (arr, c, warnIdx) => arr.map((x, i) => {
+      const on = i <= c, cur = i === c;
+      const warn = i === warnIdx && on;
+      return { t: x, bd: cur ? (warn ? "#a86400" : "#c93c05") : on ? "#c4bcae" : "#dcd6cc", bg: cur ? (warn ? "rgba(240,165,0,0.14)" : "rgba(201,60,5,0.14)") : "transparent", c: on ? (warn ? "#a86400" : "#141414") : "#6e6a63" };
+    });
+    const NP = 60, off = t * 1.6, W = 1000 / NP;
+    const needAt = (hh) => 0.5 + 0.5 * Math.cos((hh / 24) * 2 * Math.PI) + 0.25 * Math.sin(hh / 5.3);
+    const costAt = (k) => (needAt(Math.floor(k + off)) > 0.55 ? 0.226 : 0.3325);
+    const Yc = (c) => 116 - ((c - 0.226) / (0.3325 - 0.226)) * 98;
+    const fr = off % 1;
+    let costPath = "", runBars = [];
+    for (let k = 0; k <= NP; k++) {
+      const c = costAt(k), x0 = (k - fr) * W, x1 = x0 + W, y = Yc(c);
+      costPath += (k ? ` L${x0.toFixed(1)},${y.toFixed(1)}` : `M${x0.toFixed(1)},${y.toFixed(1)}`) + ` L${x1.toFixed(1)},${y.toFixed(1)}`;
+      if (c <= 0.25) runBars.push({ x: (x0 + 1).toFixed(1), w: (W - 2).toFixed(1) });
+    }
+    const hk = Math.floor(NP * 0.7 + fr);
+    return {
+      navActive: 3, costPath, runBars, bidY: Yc(0.25).toFixed(1), headX: ((NP * 0.7) * W).toFixed(1), headY: Yc(costAt(NP * 0.7)).toFixed(1), pipe, pipeStep: step + 1, jobs, houses, slacks,
+      slackVal: sv[2], slackC: slack === 0 ? "#55524c" : "#157a43", dayBars,
+      fsmA: pill(A, ca, -1), fsmB: pill(B, cb, 3),
+      fsmCaption: "The house switches to July and the tank is full. decide() returns Hold, the agent sends SIGTERM, and the runner commits its current chunk and exits cleanly. When heat is needed again it resumes at next_chunk, and the output log is identical to an uninterrupted run."
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono:wght@400..700&display=swap">
+<style>
+html,body{margin:0;background:#f2efe9;color:#141414}
+html{scroll-behavior:smooth}
+body{font-family:'Geist',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#c93c05}a:hover{color:#a86400}
+::selection{background:#c93c05;color:#ffffff}
+@keyframes dhPulse{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes dhMarquee{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+</style>
+</helmet>
+<div style="min-height:100vh;background:#f2efe9;overflow-x:hidden">
+  <header style="position:fixed;top:0;left:0;right:0;z-index:40;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:16px clamp(16px,4vw,40px);font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.1em;text-transform:uppercase;color:#55524c;background:linear-gradient(#f2efe9 35%,rgba(242,239,233,0))">
+    <div style="display:flex;align-items:center;gap:10px;color:#141414"><span style="width:9px;height:9px;border-radius:50%;background:#c93c05;box-shadow:0 0 14px #c93c05"></span>DigitalHeat</div>
+    <div>01 · Overview · 01 / 06</div>
+  </header>
+
+  <section style="position:relative;min-height:100vh;display:flex;flex-direction:column;justify-content:flex-end;padding:120px clamp(16px,4vw,40px) 120px;overflow:hidden">
+    <canvas ref="{{ canvasRef }}" style="position:absolute;inset:0;width:100%;height:100%;display:block"></canvas>
+    <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(242,239,233,0) 55%,#f2efe9 100%);pointer-events:none"></div>
+    <div style="position:relative;display:flex;flex-direction:column;gap:28px;max-width:1400px">
+      <div style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#a86400;display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+        <span style="display:flex;align-items:center;gap:8px"><span style="width:7px;height:7px;border-radius:50%;background:#157a43;animation:dhPulse 1.6s infinite"></span>Basel 2025 · reference house · 8,760 hours</span>
+        <span style="color:#6e6a63">sprintd Basel · GreenTech</span>
+      </div>
+      <h1 style="margin:0;font-weight:760;font-stretch:125%;font-size:clamp(56px,13vw,220px);line-height:0.82;letter-spacing:-0.055em;text-transform:uppercase">Digital<span style="color:#c93c05">heat</span></h1>
+      <div style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-end;justify-content:space-between">
+        <p style="margin:0;max-width:620px;font-size:clamp(18px,2vw,24px);line-height:1.35;color:#2e2b27;text-wrap:pretty">Basement servers that heat the house. We decide <em style="color:#141414;font-style:normal;font-weight:700">when</em> they compute by what their heat is worth, and we say when it doesn't pay.</p>
+        <button onClick="{{ replay }}" style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;padding:12px 18px;border-radius:999px;border:1px solid #c4bcae;background:rgba(255,255,255,0.7);color:#141414;cursor:pointer" style-hover="border-color:#c93c05;color:#c93c05">↺ Replay</button>
+      </div>
+    </div>
+  </section>
+  <div style="border-top:1px solid #dcd6cc;border-bottom:1px solid #dcd6cc;overflow:hidden;background:#ffffff;padding:14px 0">
+    <div style="display:flex;gap:48px;width:max-content;animation:dhMarquee 38s linear infinite;font-family:'Geist Mono',monospace;font-size:13px;letter-spacing:0.06em;text-transform:uppercase;color:#141414;white-space:nowrap">
+      <span>31,231 kWh heat / year</span><span style="color:#c93c05">●</span><span>57.9 % covered by 4 servers</span><span style="color:#c93c05">●</span><span>0 % paid deadlines missed</span><span style="color:#c93c05">●</span><span>0.53 CHF / server-h to pay off</span><span style="color:#c93c05">●</span><span>Whisper at 35× real time · 9.2 W</span><span style="color:#c93c05">●</span><span>Byte-identical after kill -9</span><span style="color:#c93c05">●</span><span>Swiss data stays in Switzerland</span><span style="color:#c93c05">●</span>
+      <span>31,231 kWh heat / year</span><span style="color:#c93c05">●</span><span>57.9 % covered by 4 servers</span><span style="color:#c93c05">●</span><span>0 % paid deadlines missed</span><span style="color:#c93c05">●</span><span>0.53 CHF / server-h to pay off</span><span style="color:#c93c05">●</span><span>Whisper at 35× real time · 9.2 W</span><span style="color:#c93c05">●</span><span>Byte-identical after kill -9</span><span style="color:#c93c05">●</span><span>Swiss data stays in Switzerland</span><span style="color:#c93c05">●</span>
+    </div>
+  </div>
+
+  <section style="padding:40px clamp(16px,4vw,40px) 120px">
+    <div data-reveal="1" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:1px;background:#dcd6cc;border:1px solid #dcd6cc;border-radius:20px;overflow:hidden;max-width:1400px;margin:0 auto">
+      <sc-for list="{{ figs }}" as="f" hint-placeholder-count="4">
+        <div style="background:#ffffff;padding:28px 24px 26px;display:flex;flex-direction:column;gap:12px;min-height:180px;justify-content:space-between">
+          <div style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#6e6a63">{{ f.k }}</div>
+          <div style="display:flex;align-items:baseline;gap:8px"><span style="font-weight:660;font-stretch:112%;font-size:clamp(40px,4.6vw,64px);letter-spacing:-0.03em;line-height:1;font-variant-numeric:tabular-nums;color:{{ f.c }}">{{ f.v }}</span><span style="font-family:'Geist Mono',monospace;font-size:13px;color:#55524c">{{ f.u }}</span></div>
+          <div style="font-size:15px;line-height:1.4;color:#55524c;text-wrap:pretty">{{ f.l }}</div>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <section ref="{{ cmpRef }}" style="padding:80px clamp(16px,4vw,40px) 140px;max-width:1400px;margin:0 auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c;margin-bottom:24px">
+      <span>02 · Thermostat vs merit</span><span style="color:#c93c05">Scan {{ scanPct }}%</span>
+    </div>
+    <h2 data-reveal="1" style="margin:0 0 48px;font-weight:660;font-stretch:112%;font-size:clamp(36px,5.4vw,80px);line-height:0.95;letter-spacing:-0.045em;max-width:1100px;text-wrap:balance">Same house. Same four servers. Same year.</h2>
+    <div style="position:relative;border:1px solid #dcd6cc;border-radius:20px;overflow:hidden">
+      <div style="position:absolute;top:0;bottom:0;left:{{ scanPct }}%;width:2px;background:#c93c05;box-shadow:0 0 24px 4px rgba(201,60,5,0.55);z-index:2;pointer-events:none;opacity:{{ scanVis }}"></div>
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);background:#f8f6f1;font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.1em;text-transform:uppercase">
+        <div style="padding:16px 22px;color:#55524c;border-right:1px solid #dcd6cc"><span style="color:#7d8088">●</span> Thermostat-led: runs when the room is cold</div>
+        <div style="padding:16px 22px;color:#141414"><span style="color:#c93c05">●</span> DigitalHeat merit: runs when the heat is worth it</div>
+      </div>
+      <sc-for list="{{ rows }}" as="r" hint-placeholder-count="4">
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);border-top:1px solid #dcd6cc">
+          <div style="padding:26px 22px;border-right:1px solid #dcd6cc;display:flex;flex-direction:column;gap:10px;opacity:{{ r.aOp }};transition:opacity .4s">
+            <span style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;color:{{ r.aC }}">{{ r.aTag }}</span>
+            <span style="font-weight:700;font-stretch:108%;font-size:clamp(22px,2.6vw,34px);letter-spacing:-0.02em;line-height:1.05">{{ r.a }}</span>
+            <span style="font-size:14px;color:#55524c">{{ r.label }}</span>
+          </div>
+          <div style="padding:26px 22px;display:flex;flex-direction:column;gap:10px;background:{{ r.bBg }};transition:background .5s,opacity .5s;opacity:{{ r.bOp }}">
+            <span style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;color:{{ r.bC }}">{{ r.bTag }}</span>
+            <span style="font-weight:700;font-stretch:108%;font-size:clamp(22px,2.6vw,34px);letter-spacing:-0.02em;line-height:1.05">{{ r.b }}</span>
+            <span style="font-size:14px;color:#55524c">{{ r.note }}</span>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+    <p style="margin:18px 0 0;font-family:'Geist Mono',monospace;font-size:12px;color:#6e6a63;letter-spacing:0.04em">Always-on gives the same 58.0 % but dumps 9,910 kWh a year and needs 0.69 CHF/h. Source: design/PITCH_DECK.md rows 2–44. Scroll to scan ↓</p>
+  </section>
+
+  <section style="padding:80px clamp(16px,4vw,40px) 140px;max-width:1400px;margin:0 auto">
+    <div style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c;margin-bottom:24px">03 · How it works</div>
+    <h2 data-reveal="1" style="margin:0 0 48px;font-weight:660;font-stretch:112%;font-size:clamp(36px,5.4vw,80px);line-height:0.95;letter-spacing:-0.045em;text-wrap:balance">Sense. Price. Dispatch.</h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px">
+      <div data-reveal="1" style="border:1px solid #dcd6cc;border-radius:20px;padding:26px;display:flex;flex-direction:column;gap:18px;background:#ffffff">
+        <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:12px;color:#c93c05"><span>01</span><span style="color:#6e6a63">every hour</span></div>
+        <div style="height:150px;border-radius:14px;background:#ffffff;border:1px solid #dcd6cc;position:relative;overflow:hidden;display:flex;align-items:flex-end;gap:10px;padding:16px">
+          <div style="flex:1;display:flex;flex-direction:column;gap:6px;height:100%;justify-content:flex-end">
+            <div style="height:{{ g1Demand }}%;background:linear-gradient(#5aa6e6,#1d6bb3);border-radius:6px;transition:height .2s"></div>
+            <span style="font-family:'Geist Mono',monospace;font-size:10px;color:#55524c">demand</span>
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column;gap:6px;height:100%;justify-content:flex-end">
+            <div style="height:100%;border:1px solid #c4bcae;border-radius:6px;position:relative;overflow:hidden"><div style="position:absolute;left:0;right:0;bottom:0;height:{{ g1Tank }}%;background:#e3a008;opacity:0.85"></div></div>
+            <span style="font-family:'Geist Mono',monospace;font-size:10px;color:#55524c">tank 35 kWh</span>
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column;gap:6px;height:100%;justify-content:flex-end">
+            <div style="height:{{ g1Out }}%;background:#c93c05;border-radius:6px;transition:height .2s"></div>
+            <span style="font-family:'Geist Mono',monospace;font-size:10px;color:#55524c">server heat</span>
+          </div>
+        </div>
+        <h3 style="margin:0;font-size:24px;font-weight:700;font-stretch:108%">Sense</h3>
+        <p style="margin:0;font-size:16px;line-height:1.5;color:#55524c">Each house posts its heat demand and tank level. Demand follows the case formula on Basel 2025 weather; hot water adds 12 kWh a day.</p>
+      </div>
+      <div data-reveal="1" style="border:1px solid #dcd6cc;border-radius:20px;padding:26px;display:flex;flex-direction:column;gap:18px;background:#ffffff">
+        <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:12px;color:#c93c05"><span>02</span><span style="color:#6e6a63">CHF per kWh</span></div>
+        <div style="height:150px;border-radius:14px;background:#ffffff;border:1px solid #dcd6cc;position:relative;overflow:hidden">
+          <div style="position:absolute;left:16px;right:16px;top:28px;display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:10px;color:#d1173a"><span>heat dumped · 0.3325</span><span>✕ ballast</span></div>
+          <div style="position:absolute;left:16px;right:16px;top:44px;height:1px;background:#d1173a"></div>
+          <div style="position:absolute;left:16px;right:16px;top:{{ g2Bid }}px;height:2px;background:#141414;box-shadow:0 0 12px #141414"></div>
+          <div style="position:absolute;right:16px;top:{{ g2BidLabel }}px;font-family:'Geist Mono',monospace;font-size:10px;color:#141414">bid 0.25</div>
+          <div style="position:absolute;left:16px;right:16px;top:112px;height:1px;background:#157a43"></div>
+          <div style="position:absolute;left:16px;right:16px;top:118px;display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:10px;color:#157a43"><span>heat used · ~0.226</span><span>✓ runs</span></div>
+        </div>
+        <h3 style="margin:0;font-size:24px;font-weight:700;font-stretch:108%">Price</h3>
+        <p style="margin:0;font-size:16px;line-height:1.5;color:#55524c">Each kWh costs 0.3325 CHF. When the heat is used it is worth price / 2.5, so the net cost drops to about 0.226. Cheap flexible work only clears where its heat is used.</p>
+      </div>
+      <div data-reveal="1" style="border:1px solid #dcd6cc;border-radius:20px;padding:26px;display:flex;flex-direction:column;gap:18px;background:#ffffff">
+        <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:12px;color:#c93c05"><span>03</span><span style="color:#6e6a63">{{ g3State }}</span></div>
+        <div style="height:150px;border-radius:14px;background:#ffffff;border:1px solid #dcd6cc;padding:16px;display:grid;grid-template-columns:repeat(10,1fr);gap:5px;align-content:center">
+          <sc-for list="{{ chunks }}" as="c" hint-placeholder-count="20">
+            <div style="aspect-ratio:1;border-radius:4px;background:{{ c.bg }};box-shadow:{{ c.glow }};transition:background .25s"></div>
+          </sc-for>
+        </div>
+        <h3 style="margin:0;font-size:24px;font-weight:700;font-stretch:108%">Dispatch</h3>
+        <p style="margin:0;font-size:16px;line-height:1.5;color:#55524c">Jobs run in 15-minute chunks. When the house is warm they checkpoint and pause, then resume at the next chunk here or move to another eligible house.</p>
+      </div>
+    </div>
+  </section>
+
+  <section style="padding:80px clamp(16px,4vw,40px) 140px;max-width:1400px;margin:0 auto">
+    <div style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c;margin-bottom:24px">04 · Proven on real machines</div>
+    <h2 data-reveal="1" style="margin:0 0 40px;font-weight:660;font-stretch:112%;font-size:clamp(36px,5.4vw,80px);line-height:0.95;letter-spacing:-0.045em;text-wrap:balance">A Mac and an Omen, heating two houses.</h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:1px;background:#dcd6cc;border:1px solid #dcd6cc;border-radius:20px;overflow:hidden">
+      <sc-for list="{{ proofs }}" as="p" hint-placeholder-count="6">
+        <div data-reveal="1" style="background:#ffffff;padding:22px 24px;display:grid;grid-template-columns:44px minmax(0,1fr);gap:14px;align-items:start">
+          <span style="font-family:'Geist Mono',monospace;font-size:12px;color:#157a43;border:1px solid #a7d3b8;border-radius:999px;padding:4px 0;text-align:center">✓</span>
+          <div style="display:flex;flex-direction:column;gap:6px"><span style="font-size:18px;font-weight:700;font-stretch:106%">{{ p.t }}</span><span style="font-size:15px;line-height:1.45;color:#55524c">{{ p.d }}</span></div>
+        </div>
+      </sc-for>
+    </div>
+    <p style="margin:18px 0 0;font-family:'Geist Mono',monospace;font-size:12px;color:#6e6a63">research/deploy/E2E_TAILNET.md · 21 Nov 2026, 06:24–08:36 CET</p>
+  </section>
+
+  <section style="padding:80px clamp(16px,4vw,40px) 120px;max-width:1400px;margin:0 auto">
+    <div style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c;margin-bottom:24px">05 · Principles</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:16px">
+      <sc-for list="{{ principles }}" as="p" hint-placeholder-count="4">
+        <div data-reveal="1" style="border-top:2px solid #c93c05;padding:20px 0;display:flex;flex-direction:column;gap:10px">
+          <span style="font-family:'Geist Mono',monospace;font-size:12px;color:#c93c05">§ {{ p.n }}</span>
+          <span style="font-size:22px;font-weight:700;font-stretch:108%;line-height:1.2;text-wrap:balance">{{ p.t }}</span>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <section style="padding:100px clamp(16px,4vw,40px) 180px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:28px">
+    <div style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#157a43;display:flex;gap:8px;align-items:center"><span style="width:7px;height:7px;border-radius:50%;background:#157a43;animation:dhPulse 1.6s infinite"></span>Scheduler ready · same code, year and live</div>
+    <h2 style="margin:0;font-weight:760;font-stretch:125%;font-size:clamp(48px,9vw,150px);line-height:0.85;letter-spacing:-0.055em;text-transform:uppercase">Follow the <span style="color:#c93c05">heat.</span></h2>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center">
+      <a href="DigitalHeat%2002%20Problem.dc.html" style="padding:16px 26px;border-radius:999px;background:#c93c05;color:#ffffff;text-decoration:none;font-weight:700;font-size:16px" style-hover="background:#e3a008;color:#ffffff">See the problem →</a>
+      <a href="DigitalHeat%2006%20Simulator.dc.html" style="padding:16px 26px;border-radius:999px;border:1px solid #c4bcae;color:#141414;text-decoration:none;font-weight:600;font-size:16px" style-hover="border-color:#c93c05;color:#c93c05">Open the simulator</a>
+    </div>
+    <p style="margin:40px 0 0;font-family:'Geist Mono',monospace;font-size:12px;color:#6e6a63;letter-spacing:0.06em">DigitalHeat · sprintd Basel GreenTech 2026 · useful load ⇒ useful heat</p>
+  </section>
+
+  <dc-import name="Nav" active="{{ navActive }}" hint-size="100%,60px"></dc-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { t: 0, t0: 0, scan: 0 };
+  canvasRef = React.createRef();
+  cmpRef = React.createRef();
+  componentDidMount() {
+    this.start = performance.now();
+    this.mouse = { x: 0.7, y: 0.4 };
+    this.onMove = (e) => { this.mouse = { x: e.clientX / innerWidth, y: e.clientY / innerHeight }; };
+    window.addEventListener("pointermove", this.onMove);
+    this.onScroll = () => {
+      const el = this.cmpRef.current; if (!el) return;
+      const r = el.getBoundingClientRect();
+      const p = (innerHeight * 0.75 - r.top) / (r.height * 0.8);
+      this.setState({ scan: Math.max(0, Math.min(1, p)) });
+    };
+    window.addEventListener("scroll", this.onScroll, { passive: true });
+    let last = 0;
+    const loop = (now) => {
+      this.raf = requestAnimationFrame(loop);
+      this.draw(now / 1000);
+      if (now - last > 50) { last = now; this.setState({ t: (now - this.start) / 1000 }); }
+    };
+    this.raf = requestAnimationFrame(loop);
+    
+  }
+  componentWillUnmount() {
+    cancelAnimationFrame(this.raf); this.io && this.io.disconnect();
+    window.removeEventListener("pointermove", this.onMove); window.removeEventListener("scroll", this.onScroll);
+  }
+  draw(s) {
+    const c = this.canvasRef.current; if (!c) return;
+    const dpr = Math.min(2, devicePixelRatio || 1), w = c.clientWidth, h = c.clientHeight;
+    if (c.width !== Math.round(w * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+    const x = c.getContext("2d"); x.setTransform(dpr, 0, 0, dpr, 0, 0);
+    x.fillStyle = "#f2efe9"; x.fillRect(0, 0, w, h);
+    const m = this.sm || (this.sm = { x: 0.72, y: 0.42 });
+    m.x += (this.mouse.x - m.x) * 0.06; m.y += (this.mouse.y - m.y) * 0.06;
+    const src = [
+      [0.72 + 0.08 * Math.sin(s * 0.23), 0.38 + 0.06 * Math.cos(s * 0.19), 0.16, 1.0],
+      [0.3 + 0.1 * Math.cos(s * 0.17), 0.55 + 0.05 * Math.sin(s * 0.29), 0.2, 0.6],
+      [m.x, m.y, 0.11, 1.2]
+    ];
+    const field = (px, py) => { let v = 0; for (const [sx, sy, r, a] of src) { const dx = (px - sx) / r, dy = (py - sy) / (r * 1.4); v += a * Math.exp(-(dx * dx + dy * dy)); } return v; };
+    const lines = Math.max(24, Math.round(h / 16)), step = 10;
+    for (let i = 0; i < lines; i++) {
+      const y0 = ((i + 0.5) / lines) * h;
+      x.beginPath(); let peak = 0;
+      for (let px = 0; px <= w + step; px += step) {
+        const nx = px / w, ny = y0 / h;
+        const v = field(nx, ny);
+        const wave = Math.sin(nx * 9 + s * 0.9 + i * 0.35) * 2.2;
+        const yy = y0 - v * 46 + wave * (0.4 + v);
+        peak = Math.max(peak, v);
+        px === 0 ? x.moveTo(px, yy) : x.lineTo(px, yy);
+      }
+      const hot = Math.min(1, peak);
+      x.strokeStyle = hot > 0.35 ? `rgba(201,60,5,${0.18 + hot * 0.55})` : `rgba(20,20,20,${0.08 + hot * 0.2})`;
+      x.lineWidth = hot > 0.35 ? 1.4 : 1; x.stroke();
+    }
+    const cx = m.x * w, cy = m.y * h;
+    x.beginPath(); x.arc(cx, cy, 4, 0, Math.PI * 2); x.fillStyle = "#c93c05"; x.fill();
+    x.beginPath(); x.arc(cx, cy, 18 + 6 * Math.sin(s * 3), 0, Math.PI * 2); x.strokeStyle = "rgba(201,60,5,0.35)"; x.lineWidth = 1; x.stroke();
+    x.font = "11px 'Geist Mono', monospace"; x.fillStyle = "#55524c"; x.fillText("heat source · move me", cx + 26, cy + 4);
+  }
+  renderVals() {
+    const { t, t0, scan } = this.state;
+    const p = (d) => { const k = Math.max(0, Math.min(1, (t - t0 - d) / 1.8)); return 1 - Math.pow(1 - k, 4); };
+    const figs = [
+      { k: "Heat a year", v: Math.round(31231 * p(0.2)).toLocaleString("en-CH"), u: "kWh", l: "the reference Basel house needs: space heating plus hot water", c: "#141414" },
+      { k: "Covered", v: (57.9 * p(0.35)).toFixed(1), u: "%", l: "of it, by four basement servers on our scheduler", c: "#c93c05" },
+      { k: "Deadlines missed", v: (31 * (1 - p(0.5))).toFixed(0), u: "%", l: "of paid work. The thermostat way misses 31 %", c: "#157a43" },
+      { k: "Pays off above", v: (0.53 * p(0.65)).toFixed(2), u: "CHF / h", l: "per server-hour incl. hardware. At today's 0.50, it does not", c: "#a86400" }
+    ];
+    const R = [
+      { label: "Share of the house's heat covered", a: "58.0 %", aTag: "OK", b: "57.9 %", bTag: "OK · SAME HEAT", note: "Heat in the house is the same" },
+      { label: "Paid deadlines missed", a: "31 %", aTag: "FAILED · LATE WORK", b: "0 %", bTag: "OK · ADMITTED = ON TIME", note: "Admitted jobs never missed, even at 2× load" },
+      { label: "Paid price needed to pay off incl. hardware", a: "0.74 CHF/h", aTag: "COSTLY", b: "0.53 CHF/h", bTag: "−28 %", note: "Same work, cheaper to make it pay" }
+    ];
+    const rows = R.map((r, i) => {
+      const done = scan > (i + 0.7) / R.length;
+      const good = !r.aTag.startsWith("OK");
+      return { ...r, aOp: done ? 1 : 0.55, aC: good ? "#d1173a" : "#7d8088", bOp: done ? 1 : 0.15, bC: "#157a43", bBg: done ? "rgba(201,60,5,0.06)" : "transparent" };
+    });
+    const ph = t % 10;
+    const demand = 55 + 30 * Math.sin(t * 0.7);
+    const tank = 35 + 45 * (0.5 + 0.5 * Math.sin(t * 0.35));
+    const bidY = 74 + 4 * Math.sin(t * 2);
+    const n = Math.floor(t * 2.2) % 34;
+    let done = 0, state = "running";
+    if (n < 8) { done = n; } else if (n < 14) { done = 8; state = "paused · checkpoint @ chunk 8"; } else if (n < 26) { done = 8 + (n - 14); state = "resumed @ chunk 8"; } else { done = 20; state = "done · byte-identical"; }
+    const chunks = Array.from({ length: 20 }, (_, i) => {
+      const paused = state.startsWith("paused");
+      if (i < done) return { bg: i === 7 && n >= 8 ? "#a86400" : "#c93c05", glow: "none" };
+      if (i === done && !state.startsWith("done")) return { bg: paused ? "#c4bcae" : "#f6b796", glow: paused ? "none" : "0 0 12px #c93c05" };
+      return { bg: "#ebe6dd", glow: "none" };
+    });
+    return {
+      canvasRef: this.canvasRef, cmpRef: this.cmpRef, navActive: 1,
+      replay: () => this.setState({ t0: this.state.t }),
+      figs, rows, scanPct: Math.round(scan * 100), scanVis: scan > 0 && scan < 1 ? 1 : 0,
+      g1Demand: demand.toFixed(1), g1Tank: tank.toFixed(1), g1Out: Math.min(95, demand + 8 * Math.sin(t * 3)).toFixed(1),
+      g2Bid: bidY.toFixed(1), g2BidLabel: (bidY - 14).toFixed(1),
+      g3State: state, chunks,
+      proofs: [
+        { t: "Submitted → admitted → leased → done", d: "Key released only to the eligible node; result checked end to end." },
+        { t: "Pull the plug mid-job", d: "Omen killed at 30 %. The Mac resumes from the 25 % checkpoint. The result is byte-identical and every chunk runs exactly once." },
+        { t: "Coordinator killed for 8 s", d: "The lease survived with a frozen timer; the node reconnected by itself." },
+        { t: "Heat pause on a real process", d: "House switches to July: job checkpoints and pauses within ~4 s. Back to January: resumes at 25 %." },
+        { t: "Certified job, no certified node", d: "Refused at admission: “no eligible site”." },
+        { t: "Tampered node", d: "Key denied (node_tampered), no work runs there, audit chain still verifies." }
+      ],
+      principles: [
+        { n: 1, t: "Every number regenerates from one command" },
+        { n: 2, t: "The same scheduler code runs the year and the live machines" },
+        { n: 3, t: "Jobs only move to sites eligible for their access class" },
+        { n: 4, t: "We say exactly when it does not pay off" }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

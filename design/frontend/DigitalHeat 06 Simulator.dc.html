@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono:wght@400..700&display=swap">
+<style>
+html,body{margin:0;background:#f2efe9;color:#141414}
+html{scroll-behavior:smooth}
+body{font-family:'Geist',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#c93c05}a:hover{color:#a86400}
+::selection{background:#c93c05;color:#ffffff}
+input[type=range]{accent-color:#c93c05}
+@keyframes dhPulse{0%,100%{opacity:1}50%{opacity:.3}}
+</style>
+</helmet>
+<div style="min-height:100vh;background:#f2efe9;overflow-x:hidden">
+  <header style="position:fixed;top:0;left:0;right:0;z-index:40;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:16px clamp(16px,4vw,40px);font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.1em;text-transform:uppercase;color:#55524c;background:linear-gradient(#f2efe9 35%,rgba(242,239,233,0))">
+    <div style="display:flex;align-items:center;gap:10px;color:#141414"><span style="width:9px;height:9px;border-radius:50%;background:#c93c05;box-shadow:0 0 14px #c93c05"></span>DigitalHeat</div>
+    <div style="display:flex;gap:14px;align-items:center"><span style="display:flex;gap:6px;align-items:center;color:{{ srcC }}"><span style="width:6px;height:6px;border-radius:50%;background:{{ srcC }};animation:dhPulse 1.2s infinite"></span>{{ srcLabel }}</span><span>06 · Simulator · 06 / 06</span></div>
+  </header>
+
+  <section style="padding:110px clamp(12px,3vw,32px) 20px;max-width:1560px;margin:0 auto">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:16px;margin-bottom:18px">
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#a86400">Reference house · Basel · 1 kW servers → 0.8 kW heat each</span>
+        <h1 style="margin:0;font-weight:760;font-stretch:118%;font-size:clamp(36px,5vw,72px);line-height:0.9;letter-spacing:-0.04em">One day, <span style="color:#c93c05">hour by hour.</span></h1>
+      </div>
+      <div style="display:flex;gap:4px;padding:5px;border:1px solid #dcd6cc;border-radius:999px;flex-wrap:wrap;font-family:'Geist Mono',monospace;font-size:12px">
+        <sc-for list="{{ days }}" as="d" hint-placeholder-count="3">
+          <button onClick="{{ d.on }}" style="border:0;cursor:pointer;padding:10px 14px;border-radius:999px;font:inherit;color:{{ d.c }};background:{{ d.bg }};transition:all .3s">{{ d.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:#dcd6cc;border:1px solid #dcd6cc;border-radius:18px;overflow:hidden;margin-bottom:14px">
+      <sc-for list="{{ tiles }}" as="k" hint-placeholder-count="8">
+        <div style="background:#ffffff;padding:12px 14px 10px;display:flex;flex-direction:column;gap:4px;min-width:0">
+          <span style="font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:#6e6a63;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ k.l }}</span>
+          <span style="font-weight:660;font-stretch:108%;font-size:24px;font-variant-numeric:tabular-nums;color:{{ k.c }};line-height:1.1">{{ k.v }}</span>
+          <svg viewBox="0 0 100 24" preserveAspectRatio="none" style="width:100%;height:22px;display:block"><polyline points="{{ k.spark }}" fill="none" stroke="{{ k.c }}" stroke-width="1.6" vector-effect="non-scaling-stroke" opacity="0.85"></polyline></svg>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,540px),1fr));gap:14px">
+      <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;overflow:hidden;position:relative">
+        <svg viewBox="0 0 600 460" style="width:100%;height:auto;display:block">
+          <defs>
+            <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{{ skyTop }}"></stop><stop offset="1" stop-color="#ffffff"></stop></linearGradient>
+            <radialGradient id="roomGlow" cx="0.5" cy="0.6" r="0.7"><stop offset="0" stop-color="#c93c05" stop-opacity="{{ roomGlow }}"></stop><stop offset="1" stop-color="#c93c05" stop-opacity="0"></stop></radialGradient>
+            <radialGradient id="roomCold" cx="0.5" cy="0.5" r="0.7"><stop offset="0" stop-color="#1d6bb3" stop-opacity="{{ roomCold }}"></stop><stop offset="1" stop-color="#1d6bb3" stop-opacity="0"></stop></radialGradient>
+            <linearGradient id="tankFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f0a500"></stop><stop offset="1" stop-color="#c2410c"></stop></linearGradient>
+          </defs>
+          <rect x="0" y="0" width="600" height="300" fill="url(#sky)"></rect>
+          <circle cx="{{ sunX }}" cy="{{ sunY }}" r="16" fill="{{ sunC }}" opacity="0.9"></circle>
+          <text x="22" y="34" style="font-family:'Geist Mono',monospace;font-size:12px;fill:#55524c">OUTSIDE</text>
+          <text x="22" y="64" style="font-family:'Geist';font-weight:660;font-size:30px;fill:#141414">{{ tempLabel }}</text>
+          <text x="22" y="86" style="font-family:'Geist Mono',monospace;font-size:12px;fill:#55524c">{{ clockLabel }}</text>
+          <polygon points="90,150 300,58 510,150" fill="#e9e4db" stroke="#c4bcae"></polygon>
+          <rect x="110" y="150" width="380" height="150" fill="#f8f6f1" stroke="#c4bcae"></rect>
+          <rect x="122" y="162" width="176" height="126" fill="url(#roomCold)"></rect>
+          <rect x="122" y="162" width="176" height="126" fill="url(#roomGlow)"></rect>
+          <rect x="302" y="162" width="176" height="126" fill="url(#roomCold)"></rect>
+          <rect x="302" y="162" width="176" height="126" fill="url(#roomGlow)"></rect>
+          <line x1="300" y1="150" x2="300" y2="300" stroke="#c4bcae"></line>
+          <text x="210" y="234" text-anchor="middle" style="font-family:'Geist Mono',monospace;font-size:11px;fill:#2e2b27">LIVING</text>
+          <text x="390" y="234" text-anchor="middle" style="font-family:'Geist Mono',monospace;font-size:11px;fill:#2e2b27">HOT WATER</text>
+          <text x="300" y="132" text-anchor="middle" style="font-family:'Geist Mono',monospace;font-size:12px;fill:#141414">{{ demandText }}</text>
+          <line x1="0" y1="300" x2="600" y2="300" stroke="#c4bcae" stroke-width="2"></line>
+          <rect x="110" y="300" width="380" height="146" fill="#ece7de" stroke="#dcd6cc"></rect>
+          <text x="122" y="320" style="font-family:'Geist Mono',monospace;font-size:10px;fill:#6e6a63">BASEMENT</text>
+          <path d="M 250 350 L 400 350" stroke="#dcd6cc" stroke-width="6" fill="none"></path>
+          <path d="M 250 350 L 400 350" stroke="#a86400" stroke-width="3" fill="none" stroke-dasharray="6 10" stroke-dashoffset="{{ flowTank }}" opacity="{{ opTank }}"></path>
+          <path d="M 430 320 L 430 280" stroke="#dcd6cc" stroke-width="6" fill="none"></path>
+          <path d="M 200 340 L 200 280" stroke="#dcd6cc" stroke-width="6" fill="none"></path>
+          <path d="M 200 340 L 200 280" stroke="#c93c05" stroke-width="3" fill="none" stroke-dasharray="6 10" stroke-dashoffset="{{ flowHouse }}" opacity="{{ opHouse }}"></path>
+          <path d="M 430 320 L 430 280" stroke="#a86400" stroke-width="3" fill="none" stroke-dasharray="6 10" stroke-dashoffset="{{ flowDraw }}" opacity="{{ opDraw }}"></path>
+          <path d="M 130 360 L 70 360 L 70 120" stroke="#dcd6cc" stroke-width="6" fill="none"></path>
+          <path d="M 130 360 L 70 360 L 70 120" stroke="#d1173a" stroke-width="3" fill="none" stroke-dasharray="6 10" stroke-dashoffset="{{ flowDump }}" opacity="{{ opDump }}"></path>
+          <text x="58" y="112" text-anchor="middle" style="font-family:'Geist Mono',monospace;font-size:10px;fill:#d1173a" opacity="{{ opDumpT }}">DUMP</text>
+          <sc-for list="{{ racks }}" as="r" hint-placeholder-count="4">
+            <g>
+              <rect x="{{ r.x }}" y="362" width="22" height="58" rx="3" fill="{{ r.fill }}" stroke="{{ r.stroke }}"></rect>
+              <rect x="{{ r.lx }}" y="370" width="12" height="3" fill="{{ r.led }}"></rect>
+              <rect x="{{ r.lx }}" y="380" width="12" height="3" fill="{{ r.led2 }}"></rect>
+              <rect x="{{ r.lx }}" y="390" width="12" height="3" fill="{{ r.led }}"></rect>
+            </g>
+          </sc-for>
+          <text x="130" y="438" style="font-family:'Geist Mono',monospace;font-size:10px;fill:#55524c">{{ racksLabel }}</text>
+          <rect x="400" y="322" width="64" height="110" rx="10" fill="#f8f6f1" stroke="#c4bcae"></rect>
+          <rect x="402" y="{{ tankY }}" width="60" height="{{ tankH }}" rx="8" fill="url(#tankFill)" opacity="0.9"></rect>
+          <text x="432" y="316" text-anchor="middle" style="font-family:'Geist Mono',monospace;font-size:10px;fill:#55524c">{{ tankText }}</text>
+          <rect x="330" y="392" width="40" height="40" rx="6" fill="#f8f6f1" stroke="{{ backupStroke }}"></rect>
+          <path d="{{ flame }}" fill="#7d8088" opacity="{{ opBackup }}"></path>
+          <text x="350" y="446" text-anchor="middle" style="font-family:'Geist Mono',monospace;font-size:10px;fill:#55524c">BACKUP</text>
+        </svg>
+        <div style="position:absolute;right:14px;top:14px;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.08em;padding:6px 10px;border-radius:999px;background:rgba(255,255,255,0.8);border:1px solid {{ decC }};color:{{ decC }}">decide() → {{ decision }}</div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:14px;min-width:0">
+        <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;padding:18px 18px 12px">
+          <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#55524c;margin-bottom:10px"><span>Where every kWh went</span><span>{{ chartMax }} kW max</span></div>
+          <div style="position:relative;height:220px;display:grid;grid-template-columns:repeat(24,minmax(0,1fr));gap:2px;align-items:end;border-bottom:1px solid #dcd6cc">
+            <svg viewBox="0 0 240 100" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:none;overflow:visible"><polyline points="{{ demandLine }}" fill="none" stroke="#141414" stroke-width="1.5" vector-effect="non-scaling-stroke"></polyline></svg>
+            <sc-for list="{{ bars }}" as="b" hint-placeholder-count="24">
+              <div style="height:100%;display:flex;flex-direction:column-reverse;opacity:{{ b.op }};outline:{{ b.ol }};outline-offset:1px;border-radius:2px">
+                <div style="height:{{ b.use }}%;background:#c93c05"></div>
+                <div style="height:{{ b.tin }}%;background:#e3a008"></div>
+                <div style="height:{{ b.dump }}%;background:#d1173a"></div>
+                <div style="height:{{ b.back }}%;background:#8e9198"></div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:10px;color:#6e6a63;padding-top:6px"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;font-family:'Geist Mono',monospace;font-size:10.5px;color:#55524c;margin-top:8px">
+            <span style="display:flex;gap:5px;align-items:center"><span style="width:9px;height:9px;border-radius:2px;background:#c93c05"></span>heat used</span>
+            <span style="display:flex;gap:5px;align-items:center"><span style="width:9px;height:9px;border-radius:2px;background:#e3a008"></span>into tank</span>
+            <span style="display:flex;gap:5px;align-items:center"><span style="width:9px;height:9px;border-radius:2px;background:#d1173a"></span>dumped</span>
+            <span style="display:flex;gap:5px;align-items:center"><span style="width:9px;height:9px;border-radius:2px;background:#8e9198"></span>backup heater</span>
+            <span style="display:flex;gap:5px;align-items:center"><span style="width:12px;height:2px;background:#141414"></span>demand</span>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:14px;flex:1">
+          <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;padding:16px 18px;display:flex;flex-direction:column;gap:10px">
+            <span style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#55524c">Day so far</span>
+            <sc-for list="{{ dayKpis }}" as="k" hint-placeholder-count="5">
+              <div style="display:flex;justify-content:space-between;gap:10px;border-top:1px solid #ebe6dd;padding-top:8px"><span style="font-size:14px;color:#55524c">{{ k.l }}</span><span style="font-family:'Geist Mono',monospace;font-size:14px;color:{{ k.c }};font-variant-numeric:tabular-nums">{{ k.v }}</span></div>
+            </sc-for>
+          </div>
+          <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;padding:16px 18px;display:flex;flex-direction:column;gap:6px;min-width:0">
+            <span style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#55524c;margin-bottom:4px">Scheduler log</span>
+            <sc-for list="{{ log }}" as="l" hint-placeholder-count="6">
+              <div style="display:grid;grid-template-columns:40px minmax(0,1fr);gap:8px;font-family:'Geist Mono',monospace;font-size:11.5px;line-height:1.4;opacity:{{ l.op }}"><span style="color:#6e6a63">{{ l.h }}</span><span style="color:{{ l.c }}">{{ l.t }}</span></div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;padding:16px 20px;margin-top:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:18px;align-items:center">
+      <div style="display:flex;gap:8px;align-items:center">
+        <button onClick="{{ toggle }}" style="cursor:pointer;padding:10px 16px;border-radius:999px;border:0;background:#c93c05;color:#ffffff;font-family:'Geist Mono',monospace;font-size:12px;font-weight:700;min-width:96px">{{ playLabel }}</button>
+        <input type="range" min="0" max="23.99" step="0.01" value="{{ hNow }}" onInput="{{ scrub }}" style="flex:1;min-width:0">
+      </div>
+      <div style="display:flex;gap:4px;padding:4px;border:1px solid #dcd6cc;border-radius:999px;font-family:'Geist Mono',monospace;font-size:11.5px;flex-wrap:wrap">
+        <sc-for list="{{ pols }}" as="p" hint-placeholder-count="3">
+          <button onClick="{{ p.on }}" style="border:0;cursor:pointer;padding:8px 12px;border-radius:999px;font:inherit;color:{{ p.c }};background:{{ p.bg }};transition:all .3s;flex:1">{{ p.label }}</button>
+        </sc-for>
+      </div>
+      <label style="display:flex;flex-direction:column;gap:6px"><span style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:11px;color:#55524c"><span>servers in the basement</span><span style="color:#141414">{{ nVal }}</span></span><input type="range" min="1" max="8" step="1" value="{{ nVal }}" onInput="{{ setN }}"></label>
+      <label style="display:flex;flex-direction:column;gap:6px"><span style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:11px;color:#55524c"><span>speed</span><span style="color:#141414">{{ speedVal }} h / s</span></span><input type="range" min="0.25" max="4" step="0.25" value="{{ speedVal }}" onInput="{{ setSpeed }}"></label>
+    </div>
+    <p style="margin:12px 0 0;font-family:'Geist Mono',monospace;font-size:11.5px;color:#6e6a63;line-height:1.6">{{ srcNote }}</p>
+  </section>
+
+  <section style="padding:60px clamp(12px,3vw,32px) 180px;max-width:1560px;margin:0 auto">
+    <div style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c;margin-bottom:16px">The whole year · {{ nVal }} servers</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:14px">
+      <sc-for list="{{ year }}" as="y" hint-placeholder-count="3">
+        <div style="border:1px solid {{ y.bd }};border-radius:20px;background:#ffffff;padding:22px;display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><span style="font-size:20px;font-weight:660;font-stretch:108%">{{ y.name }}</span><span style="font-family:'Geist Mono',monospace;font-size:11px;color:{{ y.tc }}">{{ y.tag }}</span></div>
+          <div style="height:10px;border-radius:5px;background:#ebe6dd;overflow:hidden;display:flex"><div style="width:{{ y.covW }}%;background:#c93c05"></div></div>
+          <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px">
+            <div style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'Geist Mono',monospace;font-size:10px;color:#6e6a63">COVERED</span><span style="font-weight:660;font-size:22px">{{ y.cov }}</span></div>
+            <div style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'Geist Mono',monospace;font-size:10px;color:#6e6a63">DUMPED</span><span style="font-weight:660;font-size:22px;color:{{ y.dc }}">{{ y.dump }}</span></div>
+            <div style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'Geist Mono',monospace;font-size:10px;color:#6e6a63">UTILISATION</span><span style="font-weight:660;font-size:22px">{{ y.util }}</span></div>
+          </div>
+          <span style="font-size:14px;color:#55524c;line-height:1.45">{{ y.note }}</span>
+        </div>
+      </sc-for>
+    </div>
+    <p style="margin:14px 0 0;font-family:'Geist Mono',monospace;font-size:11.5px;color:#6e6a63">Year figures: research/briefing/numbers.json sweep (heat-led, always-on). Merit at N = 4: python -m simulate_year --servers 4 --policy merit --slack-h 24 --load thermostat.</p>
+  </section>
+
+  <dc-import name="Nav" active="{{ navActive }}" hint-size="100%,60px"></dc-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;apiBase&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  state = { day: "jan", pol: "merit", n: 4, h: 0, playing: true, speed: 1.25, t: 0, real: {} };
+  static DAYS = { jan: { label: "❄ Coldest January day", mean: -3.0, amp: 2.6, tank0: 10 }, apr: { label: "◐ April day", mean: 9.0, amp: 5.0, tank0: 18 }, jul: { label: "☀ July day", mean: 22.0, amp: 5.5, tank0: 30 } };
+  static SW = {
+    follow: [[0.1955, 0, 0.8711], [0.3276, 0, 0.7299], [0.4554, 0, 0.6765], [0.5805, 0, 0.6467], [0.6987, 0, 0.6227], [0.7959, 0, 0.5912], [0.871, 0, 0.5545], [0.9295, 0, 0.5178]],
+    always: [[0.1955, 903, 1], [0.3276, 3786, 1], [0.4554, 6801, 1], [0.5805, 9903, 1], [0.6987, 13220, 1], [0.7959, 17191, 1], [0.871, 21854, 1], [0.9295, 27037, 1]]
+  };
+  componentDidMount() {
+    let last = performance.now();
+    const loop = (now) => {
+      this.raf = requestAnimationFrame(loop);
+      const dt = (now - last) / 1000; if (dt < 0.015) return; last = now;
+      const st = this.state;
+      let h = st.h; if (st.playing) { h += dt * st.speed; if (h >= 24) h = 0; }
+      this.setState({ h, t: st.t + dt });
+    };
+    this.raf = requestAnimationFrame(loop);
+    this.loadReal();
+  }
+  componentWillUnmount() { cancelAnimationFrame(this.raf); }
+  async loadReal() {
+    const base = (this.props.apiBase ?? "").trim().replace(/\/$/, "");
+    if (!base) return;
+    const out = {};
+    for (const [k, w] of [["jan", "january"], ["jul", "july"]]) {
+      try { const r = await fetch(`${base}/api/day/${w}`); if (r.ok) { const j = await r.json(); out[k] = j; } } catch (e) { out.err = String(e.message || e); }
+    }
+    try { const b = await fetch(`${base}/api/balance`); if (b.ok) out.balance = await b.json(); } catch (e) {}
+    this.setState({ real: out });
+  }
+  model(dayKey, pol, N) {
+    const D = Component.DAYS[dayKey];
+    const temps = Array.from({ length: 24 }, (_, h) => D.mean + D.amp * Math.cos(((h - 15) / 24) * 2 * Math.PI));
+    const heating = D.mean < 12;
+    let tank = D.tank0, paidDone = 0;
+    const PAID = 4;
+    return temps.map((T, h) => {
+      const space = heating ? Math.max(0, (10 * (20 - T)) / 25.6) : 0;
+      const dem = space + 0.5;
+      let on;
+      const behind = PAID - paidDone > (24 - h) * 0.5;
+      if (pol === "always") on = N;
+      else if (pol === "thermostat") on = Math.min(N, Math.ceil(dem / 0.8 - 1e-9));
+      else { on = Math.min(N, Math.floor((dem + Math.max(0, 33 - tank)) / 0.8 + 1e-9)); if (behind) on = Math.max(on, 1); }
+      const H = on * 0.8;
+      const use = Math.min(H, dem);
+      let sur = H - use, def = dem - use;
+      const tin = Math.min(sur, 35 - tank); const dump = sur - tin; tank += tin;
+      const draw = Math.min(def, tank); tank -= draw; const back = def - draw;
+      paidDone = Math.min(PAID, paidDone + on);
+      const why = pol === "always" ? "always on" : pol === "thermostat" ? (on ? "room below setpoint" : "room warm") : behind && on === 1 ? "paid deadline due" : on === N ? "heat needed, all servers" : on ? "heat used + tank below band" : "tank in band, heat not needed";
+      return { h, T, dem, on, use, tin, draw, dump, back, tank, why };
+    });
+  }
+  fromReal(j) {
+    return j.rows.map((r, i) => ({ h: i, T: null, dem: r.demand || 0, on: r.servers_on || 0, use: (r.space || 0) + (r.dhw || 0), tin: r.tank_in || 0, draw: r.tank_draw || 0, dump: r.dump || 0, back: r.backup || 0, tank: r.tank_level || 0, why: r.mode || "run" }));
+  }
+  renderVals() {
+    const { day, pol, n, h, playing, speed, t, real } = this.state;
+    const useReal = real[day] && real[day].rows && real[day].rows.length;
+    const rows = useReal ? this.fromReal(real[day]) : this.model(day, pol, n);
+    const N = useReal ? Math.max(...rows.map((r) => r.on), 1) : n;
+    const hi = Math.min(rows.length - 1, Math.floor(h));
+    const r = rows[hi];
+    const upto = rows.slice(0, hi + 1);
+    const sum = (k) => upto.reduce((a, x) => a + x[k], 0);
+    const maxStack = Math.max(...rows.map((x) => Math.max(x.dem, x.use + x.tin + x.dump + x.back)), 1);
+    const spark = (k, mx) => { const m = mx || Math.max(...rows.map((x) => x[k]), 0.001); return upto.map((x, i) => `${((i / 23) * 100).toFixed(1)},${(22 - (x[k] / m) * 20).toFixed(1)}`).join(" ") || "0,22"; };
+    const f1 = (x) => x.toFixed(1);
+    const tiles = [
+      { l: "outside", v: r.T == null ? "n/a" : f1(r.T) + "°", c: "#1d6bb3", spark: r.T == null ? "0,22" : upto.map((x, i) => `${((i / 23) * 100).toFixed(1)},${(22 - ((x.T + 10) / 40) * 20).toFixed(1)}`).join(" ") },
+      { l: "demand kW", v: f1(r.dem), c: "#141414", spark: spark("dem", maxStack) },
+      { l: "servers on", v: `${r.on}/${N}`, c: "#c93c05", spark: spark("on", N) },
+      { l: "heat used kW", v: f1(r.use), c: "#c93c05", spark: spark("use", maxStack) },
+      { l: "tank kWh", v: f1(r.tank), c: "#a86400", spark: spark("tank", 35) },
+      { l: "dumped kW", v: f1(r.dump), c: r.dump > 0.01 ? "#d1173a" : "#6e6a63", spark: spark("dump", maxStack) },
+      { l: "backup kW", v: f1(r.back), c: r.back > 0.01 ? "#55524c" : "#6e6a63", spark: spark("back", maxStack) },
+      { l: "cost CHF/h", v: (r.on * 0.3325).toFixed(2), c: "#141414", spark: spark("on", N) }
+    ];
+    const pct = (x) => ((x / maxStack) * 100).toFixed(2);
+    const bars = rows.map((x, i) => ({ use: pct(x.use), tin: pct(x.tin), dump: pct(x.dump), back: pct(x.back), op: i <= hi ? 1 : 0.12, ol: i === hi ? "1px solid #141414" : "none" }));
+    const demandLine = upto.map((x, i) => `${(i * 10 + 5).toFixed(1)},${(100 - (x.dem / maxStack) * 100).toFixed(2)}`).join(" ");
+    const demTot = sum("dem"), backTot = sum("back"), dumpTot = sum("dump"), runh = sum("on"), usedTot = sum("use") + sum("draw");
+    const dayKpis = [
+      { l: "heat from servers", v: demTot ? ((1 - backTot / demTot) * 100).toFixed(1) + " %" : "–", c: "#c93c05" },
+      { l: "heat dumped", v: f1(dumpTot) + " kWh", c: dumpTot > 0.05 ? "#d1173a" : "#157a43" },
+      { l: "server-hours sold", v: runh.toFixed(0) + " h", c: "#141414" },
+      { l: "utilisation", v: ((runh / (N * (hi + 1))) * 100).toFixed(0) + " %", c: "#141414" },
+      { l: "net cost / server-h", v: runh ? ((runh * 0.3325 - (usedTot * 0.3325) / 2.5) / runh).toFixed(3) : "–", c: "#a86400" }
+    ];
+    const log = upto.slice(-7).map((x, i, a) => ({ h: String(x.h).padStart(2, "0") + ":00", t: `${x.on} on · ${x.why}${x.dump > 0.01 ? " · dumping " + f1(x.dump) : ""}${x.back > 0.01 ? " · backup " + f1(x.back) : ""}`, c: x.dump > 0.01 ? "#d1173a" : x.on ? "#141414" : "#55524c", op: i === a.length - 1 ? 1 : 0.6 }));
+    const racks = Array.from({ length: N }, (_, i) => {
+      const on = i < r.on; const blink = Math.sin(t * 9 + i * 1.7) > 0;
+      const x = 130 + i * (Math.min(240 / N, 30));
+      return { x: x.toFixed(1), lx: (x + 5).toFixed(1), fill: on ? "#ffe9dc" : "#f8f6f1", stroke: on ? "#c93c05" : "#dcd6cc", led: on ? (blink ? "#c93c05" : "#e8b9a0") : "#dcd6cc", led2: on ? (blink ? "#157a43" : "#a86400") : "#dcd6cc" };
+    });
+    const flow = (k) => (-(t * 30) % 1000).toFixed(1);
+    const hf = h % 24, isDay = hf > 6.5 && hf < 18.5;
+    const ang = isDay ? Math.max(0, Math.min(Math.PI, ((hf - 6.5) / 12) * Math.PI)) : Math.PI * 0.75;
+    const sunX = isDay ? 300 - Math.cos(ang) * 250 : 540, sunY = isDay ? 140 - Math.sin(ang) * 110 : 40;
+    const cover = r.dem > 0 ? (r.use + r.draw) / r.dem : 1;
+    const skyTop = day === "jul" ? (isDay ? "#fbe0bf" : "#dcd5df") : day === "apr" ? (isDay ? "#dfe8ec" : "#d3dae0") : isDay ? "#d3e6f4" : "#cdd6e0";
+    const decision = r.on === 0 ? "Hold all" : r.on === N ? `Assign ${r.on}/${N}` : `Assign ${r.on} · Hold ${N - r.on}`;
+    const mk = (id, label) => ({ label, on: () => this.setState({ pol: id }), c: pol === id ? "#ffffff" : "#55524c", bg: pol === id ? "#c93c05" : "transparent" });
+    const dk = (id) => ({ label: Component.DAYS[id].label, on: () => this.setState({ day: id, h: 0 }), c: day === id ? "#ffffff" : "#55524c", bg: day === id ? "#c93c05" : "transparent" });
+    const flameH = 14 + 4 * Math.sin(t * 12);
+    const S = Component.SW;
+    const yf = S.follow[n - 1], ya = S.always[n - 1];
+    const year = [
+      { name: "Heat-led", tag: "no dump", tc: "#157a43", bd: "#dcd6cc", covW: (yf[0] * 100).toFixed(1), cov: (yf[0] * 100).toFixed(1) + " %", dump: "0 kWh", dc: "#157a43", util: (yf[2] * 100).toFixed(0) + " %", note: "Runs only when the heat is used. Deadlines are ignored, so paid work waits for winter." },
+      { name: "Always on", tag: "dumps", tc: "#d1173a", bd: "#dcd6cc", covW: (ya[0] * 100).toFixed(1), cov: (ya[0] * 100).toFixed(1) + " %", dump: ya[1].toLocaleString("en-CH") + " kWh", dc: "#d1173a", util: "100 %", note: "Every hour sold, but the extra hours only make heat that gets dumped." },
+      { name: "DigitalHeat merit", tag: n === 4 ? "N = 4 · full run" : "run at N = 4", tc: "#c93c05", bd: "#c93c05", covW: n === 4 ? 57.9 : 0, cov: n === 4 ? "57.9 %" : "–", dump: n === 4 ? "minimal" : "–", dc: "#a86400", util: n === 4 ? "sold by price" : "–", note: n === 4 ? "Same heat as the thermostat, 0 % missed paid deadlines, 0.53 CHF/h to pay off incl. hardware." : "Merit figures come from the full simulation at 4 servers. Set N to 4." }
+    ];
+    const base = (this.props.apiBase ?? "").trim();
+    const srcLabel = useReal ? "REAL RUN · " + (real.balance ? real.balance.policy || "run" : "api") : base ? (real.err ? "API UNREACHABLE · MODEL" : day === "apr" ? "MODEL (no April replay)" : "CONNECTING · MODEL") : "BROWSER MODEL";
+    const srcNote = useReal
+      ? `Hourly rows from ${base}/api/day/${day === "jan" ? "january" : "july"}, the dashboard's newest simulate_year run. Servers and policy come from that run.`
+      : "Browser replica of the reference house: demand = max(0, 10 kW × (20 − T) / 25.6) on heating days, hot water 0.5 kW, 35 kWh lossless tank, 0.8 kW heat per server. The hourly temperature curve is illustrative (January bottoms out at −5.6 °C). Real numbers: python -m simulate_year, then set the apiBase tweak to the dashboard to replay its run here.";
+    return {
+      navActive: 6, srcLabel, srcC: useReal ? "#157a43" : "#a86400", srcNote,
+      days: ["jan", "apr", "jul"].map(dk), pols: [mk("merit", "Merit"), mk("thermostat", "Thermostat"), mk("always", "Always on")],
+      tiles, bars, demandLine, chartMax: f1(maxStack), dayKpis, log, racks, racksLabel: `${r.on} of ${N} servers computing`,
+      skyTop, sunX: sunX.toFixed(1), sunY: sunY.toFixed(1), sunC: isDay ? "#f0a500" : "#9aa3ad",
+      tempLabel: r.T == null ? "run data" : f1(r.T) + " °C", clockLabel: `${String(Math.floor(hf)).padStart(2, "0")}:${String(Math.floor((hf % 1) * 60)).padStart(2, "0")} · ${Component.DAYS[day].label.slice(2)}`,
+      demandText: "demand " + f1(r.dem) + " kW", roomGlow: Math.min(0.75, cover * 0.75).toFixed(2), roomCold: r.back > 0.01 ? Math.min(0.6, (r.back / Math.max(r.dem, 0.1)) * 0.8).toFixed(2) : "0",
+      flowTank: flow(), flowHouse: flow(), flowDraw: flow(), flowDump: flow(),
+      opTank: r.tin > 0.01 ? 1 : 0, opHouse: r.use > 0.01 ? 1 : 0, opDraw: r.draw > 0.01 ? 1 : 0, opDump: r.dump > 0.01 ? 1 : 0, opDumpT: r.dump > 0.01 ? 1 : 0.3,
+      tankY: (430 - (r.tank / 35) * 106).toFixed(1), tankH: ((r.tank / 35) * 106).toFixed(1), tankText: "TANK " + f1(r.tank),
+      backupStroke: r.back > 0.01 ? "#55524c" : "#dcd6cc", opBackup: r.back > 0.01 ? 1 : 0,
+      flame: `M 342 428 Q 350 ${(428 - flameH * 2).toFixed(1)} 358 428 Z`,
+      decision, decC: r.on ? "#c93c05" : "#a86400",
+      toggle: () => this.setState((s) => ({ playing: !s.playing })), playLabel: playing ? "❚❚ Pause" : "▶ Play",
+      scrub: (e) => this.setState({ h: Number(e.target.value), playing: false }), hNow: h.toFixed(2),
+      nVal: n, setN: (e) => this.setState({ n: Number(e.target.value) }), speedVal: speed, setSpeed: (e) => this.setState({ speed: Number(e.target.value) }),
+      year
+    };
+  }
+}
+</script>
+</body>
+</html>

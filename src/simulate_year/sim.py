@@ -24,7 +24,7 @@ import pandas as pd
 from common.config import ROOT, validate_assumptions
 from jobs.catalogue import JobType, load_catalogue
 from scheduler import Assign, Params, Route, SetPower, SiteState, Unit, decide, heat_value_chf_kwh
-from scheduler.admit import admit, net_of_backlog, persistence_forecast
+from scheduler.admit import admit, pessimistic_forecast
 from scheduler.policy import used_capacity_kwh_el
 
 POLICIES = ("merit", "thermostat", "always_on")
@@ -146,7 +146,12 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
                                          "dump", "backup", "tank_level", "queue_len", "missed")} if hourly else None
     modes = np.zeros(H, dtype=bool) if hourly else None
     slack_int = int(math.ceil(slack_h))
-    history: list[float] = []  # heat-used electric capacity per past hour (admission forecast input)
+    if admission and slack_h < params.deadline_safety_h:
+        raise ValueError(f"--admission needs slack_h >= scheduler.deadline_safety_h ({params.deadline_safety_h:g} h): "
+                         f"with slack {slack_h:g} h no job can finish before deadline - deadline_safety_h, so every "
+                         f"job would be rejected (#54, red team F21)")
+    # realized heat-backed electric capacity per past hour, 0 when the site was idle (admission input, #54)
+    history: list[float] = []
 
     for h in range(H):
         # site state at the start of hour h (does not depend on this hour's arrivals)
@@ -162,14 +167,12 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
             k += 1
             acc_units -= 1.0
             if admission:
-                if fc is None:
-                    fc = net_of_backlog(persistence_forecast(history, slack_int + 2), sum(q.kwh_el for q in queue))
-                if not admit([u], [site], h, {"house": fc}, params).accepted:
+                if fc is None:  # conservative: per hour of day, the minimum of the last 7 days
+                    fc = {"house": pessimistic_forecast(history, slack_int + 2)}
+                if not admit([u], [site], h, fc, params, backlog=queue).accepted:  # EDF incl. admitted backlog
                     t.rejected += 1
                     continue
-                fc = net_of_backlog(fc, u.kwh_el)
             queue.append(u)
-        history.append(used_capacity_kwh_el(site))
         # 3. decide + apply
         offer = queue
         filler_ids: set[str] = set()
@@ -193,6 +196,10 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
         if n_ballast:
             t.ballast_kwh += n_ballast * unit_kwh
             done -= filler_ids
+        # sustainable heat-backed capacity this hour: heat that is actually consumed (space + hot water), never the
+        # tank's free room (the tank fills once, not every hour) -> the admission forecast cannot double-count it
+        # ... and only hours the site was running for non-forced work (idle by hysteresis -> 0)
+        history.append(min(servers * kw, (space[h] + dhw[h]) / rec) if rec > 0 and dec.next_mode["house"] else 0.0)
         if dec.next_mode["house"] != mode:
             t.transitions += 1
         mode = dec.next_mode["house"]

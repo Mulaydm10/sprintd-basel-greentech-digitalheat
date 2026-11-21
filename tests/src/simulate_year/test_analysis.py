@@ -197,4 +197,7 @@ def test_property_ballast_never_hurts_coverage_or_deadlines(seed, shift, n, load
     # Filler can take heat-backed capacity that merit was holding for paid work, so paid units wait until forced:
     # they are deferred, never lost. At the horizon the extra backlog is bounded by one slack window of N servers.
     # (Over the real year paid_run_h is identical with and without ballast; see test_simulate_year #37 golden.)
-    assert off["paid_run_h"] - n * (24 + 2) <= on["paid_run_h"] <= off["paid_run_h"] + 1e-6
+    # Upper bound (#54): queue-level deadline forcing can pull deferred paid work forward, so with ballast slightly
+    # MORE paid work may finish inside a short horizon (never more than what arrived).
+    unit_h = A["scheduler"]["unit_minutes"] / 60
+    assert off["paid_run_h"] - n * (24 + 2) <= on["paid_run_h"] <= on["jobs_total"] * unit_h + 1e-6

@@ -376,3 +376,11 @@ def test_event_format_is_one_data_line():
     lines = raw.split("\n")
     assert lines[0] == "id: 7" and lines[1] == "event: job.state" and lines[2].startswith("data: ")
     assert raw.endswith("\n\n") and raw.count("\n") == 4  # the newline inside data is escaped
+
+
+def test_overview_on_a_fresh_coordinator_with_empty_audit(app, be, monkeypatch):
+    """Found wiring #91 against a real fresh coordinator: audit.head is None until the first entry."""
+    ov = be.ops_overview()
+    monkeypatch.setattr(be, "ops_overview", lambda: {**ov, "audit": {"ok": True, "head": None, "length": 0}})
+    r = c(app, "tok-obs").get("/v1/ops/overview")
+    assert r.status_code == 200 and r.json()["audit"]["head"] is None

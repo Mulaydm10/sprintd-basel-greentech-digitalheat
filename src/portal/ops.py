@@ -44,7 +44,7 @@ class JobCounts(Open):
 
 class AuditState(Open):
     ok: bool
-    head: str
+    head: str | None = None  # None while the audit log is still empty (fresh coordinator)
     length: int
 
 

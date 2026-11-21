@@ -269,7 +269,7 @@ def test_live_nodes_missing_token_file(client, live, monkeypatch):
 
 
 def test_live_nodes_page_polls_every_2s(client):
-    html = client.get("/").text
+    html = client.get("/dashboard").text
     assert "setInterval(drawNodes, 2000)" in html and "drawNodes" in html
 
 
@@ -277,10 +277,10 @@ def test_live_nodes_page_polls_every_2s(client):
 def test_favicon_served_and_linked(client):
     r = client.get("/favicon.ico")
     assert r.status_code == 200 and r.headers["content-type"].startswith("image/svg+xml") and "<svg" in r.text
-    assert 'rel="icon"' in client.get("/").text
+    assert 'rel="icon"' in client.get("/dashboard").text
 
 
 def test_sample_data_banners_point_to_the_real_commands(client):
-    html = client.get("/").text
+    html = client.get("/dashboard").text
     assert "FIXTURE until #31" not in html and "#31 writes" not in html
     assert "Sample data" in html and "python -m simulate_year" in html and "python -m tools.pitch" in html

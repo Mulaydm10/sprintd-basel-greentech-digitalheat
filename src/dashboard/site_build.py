@@ -180,7 +180,7 @@ def build(src: Path = SRC, dst: Path = DST) -> list[str]:
     dst.mkdir(parents=True, exist_ok=True)
     out = []
     for p in sorted(src.glob("*.dc.html")):
-        (dst / p.name).write_text(wire(p.name, p.read_text(encoding="utf-8")), encoding="utf-8")
+        (dst / p.name).write_text(wire(p.name, p.read_text(encoding="utf-8")), encoding="utf-8", newline="\n")
         out.append(p.name)
     for f in RUNTIME:
         shutil.copyfile(src / f, dst / f)
@@ -191,7 +191,7 @@ def build(src: Path = SRC, dst: Path = DST) -> list[str]:
         html = p.read_text(encoding="utf-8")
         if pos is not None:
             html = html.replace("__NAV_INDEX__", str(pos)).replace("__NAV_TOTAL__", f"{total:02d}")
-        (dst / p.name).write_text(html, encoding="utf-8")
+        (dst / p.name).write_text(html, encoding="utf-8", newline="\n")
         out.append(p.name)
     return out
 

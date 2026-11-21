@@ -167,8 +167,7 @@ def bake(raw: dict, district_raw: dict | None = None) -> dict:
             a = area(pts)
             if len(pts) >= 3 and a >= MIN_AREA_M2:
                 blds.append((pts, height_m(t), 1 if t["building"] in RESIDENTIAL else 0, a,
-                             t["building"], t.get("name") or t.get("addr:street", "") + (" " + t["addr:housenumber"]
-                                                                                     if t.get("addr:housenumber") else "")))
+                             t["building"], t.get("name", "")))  # proper names only (schools, churches), never addresses
         elif t.get("waterway") == "river" and "geometry" in e:
             rivers.append(ring(e["geometry"]))
         elif t.get("natural") == "water":
@@ -198,7 +197,10 @@ def bake(raw: dict, district_raw: dict | None = None) -> dict:
     live = {}
     for node, spot in LIVE_SPOTS.items():
         lx, ly = project(*spot)
-        i = min((i for i in cand if i not in taken), key=lambda i: math.hypot(centroid[i][0] - lx, centroid[i][1] - ly))
+        free = [i for i in cand if i not in taken]
+        if not free:  # tiny extracts (tests): no building left for this live node
+            continue
+        i = min(free, key=lambda i: math.hypot(centroid[i][0] - lx, centroid[i][1] - ly))
         live[node] = i
         taken.add(i)
     dist = districts(district_raw)
@@ -210,7 +212,7 @@ def bake(raw: dict, district_raw: dict | None = None) -> dict:
         "origin": ORIGIN, "bbox": BBOX, "q": Q,
         "buildings": [[round(h * 10), k] + enc(p) for p, h, k, *_ in blds],
         "btypes": (bt := sorted({b[4] for b in blds})), "bt": [bt.index(b[4]) for b in blds],  # #115: OSM building=*
-        "names": {str(i): b[5].strip() for i, b in enumerate(blds) if b[5].strip()},  # OSM name, else street + no.
+        "names": {str(i): b[5].strip() for i, b in enumerate(blds) if b[5].strip()},  # OSM name=* only (#115)
         "areas_m2": [round(b[3]) for b in blds],
         "water": [enc(p) for p in water if len(p) >= 3], "rivers": [enc(p) for p in rivers if len(p) >= 2],
         "roads": [enc(p) for p in roads if len(p) >= 2],

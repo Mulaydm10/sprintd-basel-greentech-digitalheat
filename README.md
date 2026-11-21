@@ -1,7 +1,60 @@
-# sprintd Basel GreenTech 2026 - DigitalHeat
+# DigitalHeat: basement servers that heat the house
 
-Scheduler + yearly economic model for heat-reuse AI servers (DigitalHeat case).
-Team: Mulaydm10 / Dhruv (Main Agent and Main Human, solo) + AI agents on Omen and Mac. Compute: local machines (several act as "houses").
+**sprintd Basel GreenTech 2026 · case "Useful Load ⇒ Useful Heat".** A heat-aware scheduler runs paid, interruptible AI jobs on servers in people's basements so that their waste heat covers the house's heat demand. The same `scheduler.decide()` drives a simulated Basel 2025 year (8,760 h) and real machines that pause, resume and move jobs between houses on the heat signal.
+
+## Try it (live)
+- **Website** (overview, problem, scheduler, live demo, economics, simulator, whole-year simulation, coordinator): https://dhruvs-mac-mini.tailaf7ebe.ts.net:8443
+- **Coordinator API** (token required; `/healthz` is open): https://dhruvs-mac-mini.tailaf7ebe.ts.net
+
+## Key results (reference house, Basel 2025; every number regenerates with `python -m tools.pitch` → `research/PITCH_NUMBERS.md`)
+- With 4 servers our scheduler covers **57.9 %** of the house's heat and misses **0 %** of paid deadlines; a thermostat-led policy covers the same heat but misses **31 %**.
+- Break-even incl. hardware: paid work must sell for **≥ 0.53 CHF/server-h** (thermostat: 0.74). At the assumed 0.50 it does **not** pay off yet; we say so.
+- Recommended size (`python -m simulate_year.yearview`): **N = 3** servers (45 % coverage, ≤ 10 % of demand dumped, 0 % missed).
+- Measured (EXP-0001): Whisper-small on an Apple M4 runs at 35× real time at 9.2 W.
+
+## What is real and what is mocked
+| Real | Mocked / simulated (stated on stage) |
+|---|---|
+| Scheduler, yearly simulation on real Open-Meteo Basel 2025 weather | Heat demand comes from the case's reference-house formula, not a real thermostat (`coordinator.sitesim`) |
+| Coordinator with leases, checkpoints, exactly-once completion, SQLite state, auth, rate limits | Attestation is a **mock** (signed evidence); certification comes from the operator registry |
+| Two real nodes (Mac mini M4, HP Omen) running jobs; a job migrates mid-run and finishes byte-identical | Fleet houses in the 3D view are illustrative; only the reference house is a graded number |
+| AES-GCM envelopes, X25519 key wrap, hash-chained audit log, tamper → key denied | Prices for paid work and hardware capex are ASSUMED (`data/assumptions.yaml`) |
+
+## Run it yourself (macOS or Linux, Python ≥ 3.11)
+```bash
+git clone https://github.com/Mulaydm10/sprintd-basel-greentech-digitalheat && cd sprintd-basel-greentech-digitalheat
+python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt     # or: uv sync --extra dev
+PYTHONPATH=src .venv/bin/python -m pytest -q                               # ~1,190 tests
+PYTHONPATH=src .venv/bin/python -m simulate_year --servers 4 --policy merit --slack-h 24   # one year → runs/
+PYTHONPATH=src .venv/bin/python -m simulate_year.yearview --out runs/yearview             # N=1..8, ours vs thermostat (~7 s)
+PYTHONPATH=src .venv/bin/python -m tools.pitch                             # regenerate every pitch number
+PYTHONPATH=src .venv/bin/python -m dashboard                               # website on http://127.0.0.1:8700
+```
+Live system (one machine is enough; tokens are created locally, never committed):
+```bash
+PYTHONPATH=src .venv/bin/python -m coordinator --state runs/coordinator --make-tokens node-mac --make-site-tokens node-mac
+python3 -c "import json,os;d=json.load(open('runs/coordinator/tokens.json'));os.makedirs('runs/coordinator/tok',exist_ok=True)
+[open(f'runs/coordinator/tok/{r.replace(\":\",\"_\")}','w').write(t) for t,r in d.items()]"   # one file per role, e.g. tok/node_node-mac
+PYTHONPATH=src .venv/bin/python -m coordinator --state runs/coordinator --register-node node-mac --certified --classes public,swiss-only,certified --site node-mac
+PYTHONPATH=src .venv/bin/python -m coordinator --state runs/coordinator --port 8710
+PYTHONPATH=src .venv/bin/python -m live_agent --coordinator http://127.0.0.1:8710 --node-id node-mac --token-file runs/coordinator/tok/node_node-mac
+PYTHONPATH=src .venv/bin/python -m coordinator.sitesim --coordinator http://127.0.0.1:8710 --token-file runs/coordinator/tok/site_node-mac --site node-mac --replay coldest --loop
+PYTHONPATH=src .venv/bin/python -m tools.e2e --help                        # one-command live end-to-end check (9 steps)
+```
+
+## Architecture
+```
+ customers ──(client API)──┐                    ┌── node agent (Mac)  ── jobs.runner (checkpointed)
+ house owners ─(host API)──┼─► coordinator ◄────┼── node agent (Omen) ── jobs.runner
+ operator ──(ops API, SSE)─┘   leases · scheduler.decide() · audit chain · key broker
+ sitesim (heat signal per house) ──►│
+ website (dashboard) ◄── yearview / balance / live status
+```
+
+## AI tools and templates used
+- Built with **Claude Code** (Anthropic): one design session plus several worker sessions coordinating through GitHub issues (agent-bus protocol, `AGENTS.md`); every PR cross-reviewed and merged only after the full test suite passed.
+- The website was designed by the team in **Claude Design** (exported verbatim to `design/frontend/`, served unchanged).
+- No other template; libraries are listed in `pyproject.toml`.
 
 ## Cold start (humans and agents)
 **Read order:** `CLAUDE.md` (or `AGENTS.md` if not Claude Code) -> `STATE.md` -> `VISION.md` -> `COMPETITION.md` -> `GOVERNANCE.md` -> `AGENTS.md` -> tail of `workflow.md` -> `runs/experiment_tracker.md`. Work order: `tasks/README.md`. Pitch script: `DEMO.md`. Paste-ready prompt: `notes/2026-11-21_onboarding_addendum.md`.
@@ -26,9 +79,6 @@ If a doc is still `TODO(<owner>)`, say so rather than invent.
 
 ## Scoring
 Weights: `COMPETITION.md`. Rubric -> artifact map: `notes/judging_alignment.md`.
-
-## Planned wow demo
-Several machines act as houses. A real job (Whisper transcript / embedding batch) is checkpointed, migrated to another house and resumed mid-way. Sovereignty rule: jobs carry an access class (public / swiss-only / certified) and may only move to eligible sites; dashboard shows the cost of that rule.
 
 ## Resources
 MLPerf Inference datacenter power results; Alibaba cluster-trace-gpu-v2020 (job durations/arrivals); cloud on-demand/spot prices; case PDF slides ("Sovereign AI", "slow down / pause & resume / distribute to eligible site, respect access and deadlines").
@@ -57,10 +107,4 @@ MLPerf Inference datacenter power results; Alibaba cluster-trace-gpu-v2020 (job 
 | `runs/experiment_tracker.md` | Append-only experiment rows |
 | `tests/` | pytest |
 
-## Quickstart
-```bash
-uv sync            # or: python3 -m venv .venv && pip install -e .[dev]
-uv run pytest
-uv run python -m simulate_year   # stub until implemented
-```
-Onboard any AI agent: paste `notes/2026-11-21_onboarding_addendum.md` (the older locked `notes/ai_onboarding_prompt.md` is stale).
+Onboard any AI agent: paste `notes/2026-11-21_onboarding_addendum.md`.

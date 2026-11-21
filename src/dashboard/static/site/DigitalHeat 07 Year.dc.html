@@ -10,6 +10,7 @@
 <x-dc>
 <helmet>
 <link rel="stylesheet" href="./vendor/fonts/fonts.css">
+<script src="./year3d.js"></script>
 <style>
 html,body{margin:0;background:#f2efe9;color:#141414}
 html{scroll-behavior:smooth}
@@ -32,9 +33,23 @@ input[type=range]{accent-color:#c93c05}
         <span style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#a86400">Reference house · Basel 2025 · 8,760 hours · {{ nLabel }}</span>
         <h1 style="margin:0;font-weight:760;font-stretch:118%;font-size:clamp(36px,5vw,72px);line-height:0.9;letter-spacing:-0.04em">One year, <span style="color:#c93c05">every hour.</span></h1>
       </div>
-      <div style="display:flex;gap:4px;padding:5px;border:1px solid #dcd6cc;border-radius:999px;flex-wrap:wrap;font-family:'Geist Mono',monospace;font-size:12px">
+      <div data-dh-verdict style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;text-align:right;max-width:min(100%,620px)">
+        <div style="display:flex;align-items:baseline;gap:12px"><span style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c">recommended</span><span style="font-weight:760;font-stretch:118%;font-size:clamp(34px,4vw,52px);line-height:0.9;letter-spacing:-0.03em;color:#c93c05">N = {{ recN }}</span></div>
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;line-height:1.45;color:{{ heroC }}">{{ heroVerdict }}</span>
+      </div>
+    </div>
+
+    <div data-dh-controls style="display:grid;grid-template-columns:auto minmax(0,1fr);gap:14px;align-items:center;border:1px solid #dcd6cc;border-radius:20px;background:#f8f6f1;padding:14px 18px;margin-bottom:14px">
+      <button onClick="{{ toggle }}" style="cursor:pointer;padding:10px 16px;border-radius:999px;border:0;background:#c93c05;color:#ffffff;font-family:'Geist Mono',monospace;font-size:12px;font-weight:700;min-width:96px">{{ playLabel }}</button>
+      <input type="range" min="0" max="{{ hMax }}" step="1" value="{{ hNow }}" onInput="{{ scrub }}" style="width:100%;min-width:0">
+      <label style="display:flex;flex-direction:column;gap:6px;grid-column:1 / -1"><span style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:11px;color:#55524c"><span>servers in the basement</span><span style="color:#141414">N = {{ nVal }}</span></span><input type="range" min="1" max="8" step="1" value="{{ nVal }}" onInput="{{ setN }}"></label>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;grid-column:1 / -1;font-family:'Geist Mono',monospace;font-size:12px">
+        <sc-for list="{{ speeds }}" as="s" hint-placeholder-count="3">
+          <button onClick="{{ s.on }}" style="border:1px solid #dcd6cc;cursor:pointer;padding:8px 12px;border-radius:999px;font:inherit;color:{{ s.c }};background:{{ s.bg }};transition:all .3s">{{ s.label }}</button>
+        </sc-for>
+        <span style="flex:1"></span>
         <sc-for list="{{ pols }}" as="p" hint-placeholder-count="2">
-          <button onClick="{{ p.on }}" style="border:0;cursor:pointer;padding:10px 14px;border-radius:999px;font:inherit;color:{{ p.c }};background:{{ p.bg }};transition:all .3s">{{ p.label }}</button>
+          <button onClick="{{ p.on }}" style="border:1px solid #dcd6cc;cursor:pointer;padding:8px 12px;border-radius:999px;font:inherit;color:{{ p.c }};background:{{ p.bg }};transition:all .3s">{{ p.label }}</button>
         </sc-for>
       </div>
     </div>
@@ -61,14 +76,18 @@ input[type=range]{accent-color:#c93c05}
       </div>
     </div>
 
-    <div style="display:grid;grid-template-columns:auto minmax(0,1fr);gap:14px;align-items:center;border:1px solid #dcd6cc;border-radius:20px;background:#f8f6f1;padding:14px 18px;margin-bottom:14px">
-      <button onClick="{{ toggle }}" style="cursor:pointer;padding:10px 16px;border-radius:999px;border:0;background:#c93c05;color:#ffffff;font-family:'Geist Mono',monospace;font-size:12px;font-weight:700;min-width:96px">{{ playLabel }}</button>
-      <input type="range" min="0" max="{{ hMax }}" step="1" value="{{ hNow }}" onInput="{{ scrub }}" style="width:100%;min-width:0">
-      <label style="display:flex;flex-direction:column;gap:6px;grid-column:1 / -1"><span style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:11px;color:#55524c"><span>servers in the basement</span><span style="color:#141414">N = {{ nVal }}</span></span><input type="range" min="1" max="8" step="1" value="{{ nVal }}" onInput="{{ setN }}"></label>
-      <div style="display:flex;gap:4px;flex-wrap:wrap;grid-column:1 / -1;font-family:'Geist Mono',monospace;font-size:12px">
-        <sc-for list="{{ speeds }}" as="s" hint-placeholder-count="3">
-          <button onClick="{{ s.on }}" style="border:1px solid #dcd6cc;cursor:pointer;padding:8px 12px;border-radius:999px;font:inherit;color:{{ s.c }};background:{{ s.bg }};transition:all .3s">{{ s.label }}</button>
-        </sc-for>
+    <div data-dh-year3d style="position:relative;border-radius:20px;background:#0e0d0c;overflow:hidden;margin-bottom:14px;border:1px solid #141414">
+      <div id="dh-year-3d-host" style="width:100%;height:min(72vh,620px)"></div>
+      <div style="position:absolute;top:16px;left:18px;right:18px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;pointer-events:none;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#c4bcae">
+        <span>the year as a helix · one turn = one day · 1 Jan at the bottom · {{ polLabel }}</span><span style="color:#f2efe9">{{ clock }}</span>
+      </div>
+      <div style="position:absolute;bottom:14px;left:18px;right:18px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;pointer-events:none;font-family:'Geist Mono',monospace;font-size:11px;color:#c4bcae">
+        <span style="display:flex;gap:14px;flex-wrap:wrap">
+          <span><span style="color:#1d6bb3">●</span> cold · <span style="color:#f2efe9">●</span> mild · <span style="color:#c93c05">●</span> warm (colour = outside °C)</span>
+          <span>radius = heat demand</span><span><span style="color:#ff8c1f">●</span> glow = server heat used</span>
+          <span><span style="color:#d1173a">●</span> dumped</span><span>dark = paused</span>
+        </span>
+        <span>{{ v3Note }}</span>
       </div>
     </div>
 
@@ -102,19 +121,19 @@ input[type=range]{accent-color:#c93c05}
         <span style="font-family:'Geist Mono',monospace;font-size:12px;color:#6e6a63;line-height:1.5">{{ cheapNote }}</span>
       </div>
     </div>
-    <p data-dh-note style="margin:14px 0 120px;font-family:'Geist Mono',monospace;font-size:12px;color:#6e6a63;line-height:1.5">{{ srcNote }}</p>
+    <p data-dh-note style="margin:14px 0 170px;font-family:'Geist Mono',monospace;font-size:12px;color:#6e6a63;line-height:1.5">{{ srcNote }}</p>
   </section>
   <dc-import name="Nav" active="{{ navActive }}" hint-size="100%,60px"></dc-import>
 </div>
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props="{&quot;apiBase&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;.&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
 class Component extends DCLogic {
-  state = { n: 4, pol: "ours", h: 0, playing: false, speed: 240, idx: null, run: null, err: null, loading: true };
+  state = { n: null, pol: "ours", h: 0, playing: false, speed: 240, idx: null, run: null, err: null, loading: true };
   static MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   static C = { temp: "#1d6bb3", tempHot: "#c93c05", used: "#c93c05", dump: "#d1173a", backup: "#c4bcae", demand: "#141414", srv: "#c93c05", grid: "#ebe6dd" };
   componentDidMount() {
     this.runs = {};
-    this.load(this.state.n);
+    this.load(null);  // opens at the recommended N from /api/year/sizing (#104)
     let last = performance.now(), lastUi = 0;
     const loop = (now) => {
       this.raf = requestAnimationFrame(loop);
@@ -126,22 +145,45 @@ class Component extends DCLogic {
         if (this.hf >= run.hours - 1) this.setState({ playing: false });
       } else this.hf = this.state.h;
       this.draw(this.hf);
+      this.sync3d(this.hf);
       if (now - lastUi > 80 && Math.floor(this.hf) !== this.state.h) { lastUi = now; this.setState({ h: Math.floor(this.hf) }); }
     };
     this.raf = requestAnimationFrame(loop);
     this.onResize = () => { this.bg = null; };
     addEventListener("resize", this.onResize);
   }
-  componentWillUnmount() { cancelAnimationFrame(this.raf); removeEventListener("resize", this.onResize); }
+  componentWillUnmount() { cancelAnimationFrame(this.raf); removeEventListener("resize", this.onResize); if (this.v3) this.v3.destroy(); }
+  sync3d(hf) {  // #101: the 3D helix follows this page's run, policy and playhead (year3d.js, raw WebGL2)
+    // the template re-renders this card (its clock updates), replacing child elements: the WebGL canvas is created
+    // once here and re-attached to the current host, so its context and state survive every re-render
+    const host = document.getElementById("dh-year-3d-host");
+    if (!host || !window.DHYear3D || this.v3 === false || !this.state.run) return;
+    if (!this.cv3) {
+      this.cv3 = document.createElement("canvas");
+      this.cv3.style.cssText = "width:100%;height:100%;display:block;cursor:grab;touch-action:none";
+    }
+    if (this.cv3.parentNode !== host) host.appendChild(this.cv3);
+    const cv = this.cv3;
+    if (!this.v3) {
+      this.v3 = window.DHYear3D.create(cv, { onError: (e) => console.warn("year3d", e) }) || false;
+      if (this.v3 === false) { this.setState({ v3off: true }); return; }
+    }
+    if (this.v3Run !== this.state.run) { this.v3Run = this.state.run; this.v3.setRun(this.state.run); }
+    this.v3.setPolicy(this.state.pol);
+    this.v3.setHour(hf);
+  }
   base() { return (this.props.apiBase ?? ".").trim().replace(/\/$/, "") || "."; }
   async load(n) {
     this.setState({ loading: true });
     try {
-      if (!this.state.idx) {
+      let idx = this.state.idx;
+      if (!idx) {
         const r = await fetch(this.base() + "/api/year/sizing");
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || ("HTTP " + r.status));
-        this.setState({ idx: await r.json() });
+        idx = await r.json();
+        this.setState({ idx });
       }
+      if (n == null) n = (idx.sizing && idx.sizing.recommended_n) || 4;
       if (!this.runs[n]) {
         const r = await fetch(this.base() + "/api/year?n=" + n);
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || ("HTTP " + r.status));
@@ -212,7 +254,8 @@ class Component extends DCLogic {
     return t.toLocaleString("en-CH", { timeZone: "Europe/Zurich", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   }
   renderVals() {
-    const { n, pol, h, playing, speed, idx, run, err, loading } = this.state;
+    const { pol, h, playing, speed, idx, run, err, loading } = this.state;
+    const n = this.state.n ?? (idx && idx.sizing ? idx.sizing.recommended_n : 4);
     const s = this.series(), w = run && run.weather, hours = run ? run.hours : 8760, i = Math.min(h, hours - 1);
     const st = idx && idx.settings, k = st && st.constants, price = st ? st.paid_price_chf_per_server_h : null;
     const f1 = (x, u) => (x == null || !isFinite(x) ? "–" : x.toFixed(1) + (u || ""));
@@ -241,6 +284,9 @@ class Component extends DCLogic {
     ];
     const pays = A ? !!A.pays_off : null;
     const sz = idx && idx.sizing;
+    const recRow = sz && idx.by_n ? idx.by_n.find((r) => r.n === sz.recommended_n) : null, R = recRow && recRow.ours;
+    const heroVerdict = R ? `${pct(R.coverage_pct)} of the heat · ${pct(R.missed_pct)} paid deadlines missed · ${pct(dumpShare(R))} dumped · ${R.pays_off ? "pays off" : "does not pay off"} at ${price} CHF/server-h (needs ${chf(R.pays_off_above_chf_per_server_h)})`
+      : err ? "no year simulation loaded" : "loading the sizing…";
     const tankCap = k ? k.tank_kwh : 35;
     const on = s ? Math.round(s.servers_on[i]) : 0;
     const racks = Array.from({ length: run ? run.n : n }, (_, j) => ({ bg: j < on ? "#c93c05" : "#f8f6f1", bd: j < on ? "#c93c05" : "#c4bcae" }));
@@ -257,7 +303,8 @@ class Component extends DCLogic {
       ? `Could not load the year simulation (${err}). Run python -m simulate_year.yearview --out runs/yearview, then reload. Nothing on this page is invented: without data it stays empty.`
       : `Simulated with our scheduler on the real Basel 2025 weather (${prov.profile || "data/raw/basel_2025_hourly.csv"}), reference house, ${st ? `slack ${st.ours.slack_h} h, paid load ${st.ours.load}` : "…"}; thermostat baseline on the same paid work. Key ${prov.key || "–"} · assumptions ${String(prov.assumptions_hash || "–").slice(0, 12)} · ${prov.generated_at || ""}. Hardware is ASSUMED (${st ? st.capex_chf_per_server + " CHF over " + st.life_years + " y" : "–"}).`;
     return {
-      navActive: 7, srcLabel, srcC: err ? "#a86400" : "#157a43", srcNote,
+      navActive: 7, v3Note: this.state.v3off ? "3D needs WebGL2: the 2D view below shows the same data" : "drag to orbit · scroll to zoom",
+      srcLabel, srcC: err ? "#a86400" : "#157a43", srcNote,
       nLabel: `N = ${n} servers`, polLabel: pol === "ours" ? "DigitalHeat merit + heat-backed filler" : "thermostat baseline",
       pols: [mk("ours", "Ours (merit)"), mk("thermostat", "Thermostat")],
       tiles, clock: s ? this.when(i) : "–",
@@ -273,6 +320,7 @@ class Component extends DCLogic {
       tankPct: s ? Math.max(0, Math.min(100, (100 * s.tank_kwh[i]) / tankCap)) : 0, tankLabel: s ? s.tank_kwh[i].toFixed(1) + " kWh" : "–",
       racks, nowNote,
       recN: sz ? sz.recommended_n : "–", recWhy: sz ? sz.reason + (sz.rule ? " Rule: " + sz.rule : "") : (err ? "No sizing without the year simulation." : "…"),
+      heroVerdict, heroC: R ? (R.pays_off ? "#157a43" : "#55524c") : "#6e6a63",
       cmp, paysLabel: pays == null ? "" : pays ? `pays off at ${price} CHF/server-h` : `does not pay off at ${price} CHF/server-h`,
       paysC: pays ? "#157a43" : "#d1173a", cardBd: pays ? "#157a43" : "#dcd6cc",
       cheapNote: sz ? `Cheapest to run: N = ${sz.lowest_break_even_n}, paid work must fetch ${chf(sz.lowest_break_even_chf_per_server_h)} CHF/server-h (incl. hardware, net of filler income). ${sz.lowest_break_even_reason || ""}` : "",

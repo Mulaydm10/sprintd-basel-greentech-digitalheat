@@ -3,17 +3,25 @@
 Pure: no I/O, no clocks, no process control; randomness only from the passed seed.
 One function, three policies (merit / thermostat / always_on) over the same types, so an A/B
 comparison runs one job stream. The simulator (#7) and the live agent (#8) both call decide().
+
+#21 hardening: decide() validates its input (raises InvalidInput) and runs in O(U log U + U·B_c + S),
+where B_c is the number of capacity blocks eligible for a unit's access class: sites and blocks are
+indexed once per tick per access class, exhausted blocks are skipped by a moving pointer, and once a
+class has no capacity left its remaining units are held in O(1) each (one aggregated trace line).
 """
 from __future__ import annotations
 
+import gc
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .actions import Action, Assign, Decision, Hold, Refuse, Route, SetPower
 from .types import Params, SiteState, Unit
+from .validate import validate_params, validate_queue, validate_sites
 
 STEP_H = 1.0  # decide() is one tick = one hour (definition of the tick, not an assumption)
 EPS = 1e-9  # float tolerance
+GC_PAUSE_MIN_UNITS = 10_000  # performance knob (not a physical assumption)
 
 USED, DUMP = 0, 1  # block kinds; used heat sorts before dump at equal MC
 
@@ -72,7 +80,7 @@ def route(s: SiteState, servers_on: float) -> Route:
     return Route(s.site_id, space, dhw, tank, max(0.0, dump))
 
 
-# ---------------------------------------------------------------- helpers
+# ---------------------------------------------------------------- per-tick indices
 @dataclass
 class _Block:
     mc: float
@@ -85,19 +93,45 @@ class _Block:
         return (self.mc, self.kind, self.site_id, self.tie)
 
 
+@dataclass
+class _ClassIndex:
+    """Everything one access class needs, built once per tick on first use."""
+    elig: list[SiteState]
+    inelig: list[SiteState]
+    blocks: list  # merit: _Block in merit order; baselines: [site_id, remaining_kwh] in site order
+    slowest_kw: float = 0.0
+    start: int = 0  # first block that may still have capacity
+    exhausted: bool = False
+    held_no_cap: int = field(default=0)
+
+
+def _class_index(c: str, sites: list[SiteState], blocks: list) -> _ClassIndex:
+    elig = [s for s in sites if c in s.eligible_classes]
+    ids = {s.site_id for s in elig}
+    return _ClassIndex(
+        elig=elig,
+        inelig=[s for s in sites if c not in s.eligible_classes],
+        blocks=[b for b in blocks if (b.site_id if isinstance(b, _Block) else b[0]) in ids],
+        slowest_kw=min((s.server_kw_el for s in elig), default=0.0),
+    )
+
+
 def _order_units(queue: list[Unit]) -> list[Unit]:
+    # unit_ids are unique (validated), so this key is a total order: input order never matters.
     return sorted(queue, key=lambda u: (u.deadline_hour, -u.bid_chf_per_server_h, u.unit_id))
 
 
-def _eligibility(u: Unit, sites: list[SiteState], actions: list[Action], trace: list[str]) -> list[SiteState]:
-    elig = []
-    for s in sites:
-        if u.access_class in s.eligible_classes:
-            elig.append(s)
-        else:
-            actions.append(Refuse(u.unit_id, s.site_id, R_NOT_ELIGIBLE))
-            trace.append(f"refuse {u.unit_id} at {s.site_id}: {u.access_class} not in {sorted(s.eligible_classes)}")
-    return elig
+def _refuse(u: Unit, ci: _ClassIndex, actions: list[Action], trace: list[str]) -> None:
+    for s in ci.inelig:
+        actions.append(Refuse(u.unit_id, s.site_id, R_NOT_ELIGIBLE))
+        trace.append(f"refuse {u.unit_id} at {s.site_id}: {u.access_class} not in {sorted(s.eligible_classes)}")
+
+
+def _aggregate_no_cap(index: dict[str, _ClassIndex], trace: list[str]) -> None:
+    for c in sorted(index):
+        n = index[c].held_no_cap
+        if n:
+            trace.append(f"hold {n} unit(s) of class {c}: {R_NO_CAP} (all eligible capacity used)")
 
 
 def _finish(
@@ -138,47 +172,86 @@ def _decide_merit(sites: list[SiteState], queue: list[Unit], hour: int, p: Param
         blocks.append(_Block(mc_dump(s), DUMP, s.site_id, rng.random(), max(0.0, max_el - used)))
     blocks.sort(key=_Block.key)
 
-    job_kwh: dict[str, float] = {}
-    for u in queue:
-        job_kwh[u.job_id] = job_kwh.get(u.job_id, 0.0) + u.kwh_el
+    job_kwh: dict[str, float] | None = None  # built lazily: only deadline forcing needs it
 
+    def is_forced(u: Unit, ci: _ClassIndex) -> bool:
+        nonlocal job_kwh
+        if job_kwh is None:
+            job_kwh = {}
+            for q in queue:
+                job_kwh[q.job_id] = job_kwh.get(q.job_id, 0.0) + q.kwh_el
+        return hour + job_kwh[u.job_id] / ci.slowest_kw >= u.deadline_hour - p.deadline_safety_h
+
+    index: dict[str, _ClassIndex] = {}
     site_el = {s.site_id: 0.0 for s in sites}
     unit_actions: list[Action] = []
+    append = unit_actions.append
     for u in _order_units(queue):
-        elig = _eligibility(u, sites, unit_actions, trace)
-        if not elig:
-            unit_actions.append(Hold(u.unit_id, R_NO_ELIGIBLE))
+        ci = index.get(u.access_class)
+        if ci is None:
+            ci = index[u.access_class] = _class_index(u.access_class, sites, blocks)
+        if ci.exhausted:  # not considered against any site any more: no Refuse, O(1)
+            append(Hold(u.unit_id, R_NO_CAP))
+            ci.held_no_cap += 1
+            continue
+        if ci.inelig:
+            _refuse(u, ci, unit_actions, trace)
+        if not ci.elig:
+            append(Hold(u.unit_id, R_NO_ELIGIBLE))
             trace.append(f"hold {u.unit_id}: {R_NO_ELIGIBLE}")
             continue
-        elig_ids = {s.site_id for s in elig}
-        slowest_kw = min(s.server_kw_el for s in elig)
-        remaining_h = job_kwh[u.job_id] / slowest_kw
-        forced = hour + remaining_h >= u.deadline_hour - p.deadline_safety_h
 
-        fits = [b for b in blocks if b.site_id in elig_ids and b.rem_kwh_el >= u.kwh_el - EPS]
-        cands = [b for b in fits if next_mode[b.site_id] or forced]
-        if not cands:
-            reason = R_IDLE if fits else R_NO_CAP
-            unit_actions.append(Hold(u.unit_id, reason))
+        bl = ci.blocks
+        while ci.start < len(bl) and bl[ci.start].rem_kwh_el <= EPS:
+            ci.start += 1
+        if ci.start >= len(bl):
+            ci.exhausted = True
+            append(Hold(u.unit_id, R_NO_CAP))
+            ci.held_no_cap += 1
+            continue
+
+        need = u.kwh_el - EPS
+        forced: bool | None = None
+        best = None
+        fits_any = False
+        for i in range(ci.start, len(bl)):
+            b = bl[i]
+            if b.rem_kwh_el < need:
+                continue
+            fits_any = True
+            if next_mode[b.site_id]:
+                best = b
+                break
+            if forced is None:
+                forced = is_forced(u, ci)
+            if forced:
+                best = b
+                break
+        if best is None:
+            reason = R_IDLE if fits_any else R_NO_CAP
+            append(Hold(u.unit_id, reason))
             trace.append(f"hold {u.unit_id}: {reason}")
             continue
-        best = cands[0]
         if u.bid_chf_per_server_h < best.mc - EPS:
-            unit_actions.append(Hold(u.unit_id, R_BID))
+            append(Hold(u.unit_id, R_BID))
             trace.append(f"hold {u.unit_id}: bid {u.bid_chf_per_server_h:.4f} < MC {best.mc:.4f} at {best.site_id}")
             continue
-        if p.slack_enabled and u.slack_h > 0 and best.kind == DUMP and not forced:
-            unit_actions.append(Hold(u.unit_id, R_WAIT_HEAT))
-            trace.append(f"hold {u.unit_id}: {R_WAIT_HEAT} (slack {u.slack_h} h, deadline h{u.deadline_hour})")
-            continue
+        if p.slack_enabled and u.slack_h > 0 and best.kind == DUMP:
+            if forced is None:
+                forced = is_forced(u, ci)
+            if not forced:
+                append(Hold(u.unit_id, R_WAIT_HEAT))
+                trace.append(f"hold {u.unit_id}: {R_WAIT_HEAT} (slack {u.slack_h} h, deadline h{u.deadline_hour})")
+                continue
         best.rem_kwh_el -= u.kwh_el
         site_el[best.site_id] += u.kwh_el
-        unit_actions.append(Assign(u.unit_id, best.site_id))
+        append(Assign(u.unit_id, best.site_id))
         why = "heat used" if best.kind == USED else "heat dumped"
         if forced and (best.kind == DUMP or not next_mode[best.site_id]):
             why += ", deadline forces run"
         trace.append(f"assign {u.unit_id} -> {best.site_id} ({why}, MC {best.mc:.4f} <= bid {u.bid_chf_per_server_h:.4f})")
 
+    _aggregate_no_cap(index, trace)
     servers_on = {s.site_id: site_el[s.site_id] / (s.server_kw_el * STEP_H) for s in sites}
     return _finish(sites, servers_on, unit_actions, next_mode, trace)
 
@@ -188,22 +261,44 @@ def _decide_fixed_capacity(
 ) -> tuple[list[Action], list[str]]:
     """Baselines: fill given electric capacity in deadline order, ignoring bids and slack."""
     trace: list[str] = []
-    rem = dict(capacity_el)
+    cells = [[s.site_id, capacity_el[s.site_id]] for s in sites]  # shared, mutable remaining capacity
+    index: dict[str, _ClassIndex] = {}
     unit_actions: list[Action] = []
+    append = unit_actions.append
     for u in _order_units(queue):
-        elig = _eligibility(u, sites, unit_actions, trace)
-        if not elig:
-            unit_actions.append(Hold(u.unit_id, R_NO_ELIGIBLE))
+        ci = index.get(u.access_class)
+        if ci is None:
+            ci = index[u.access_class] = _class_index(u.access_class, sites, cells)
+        if ci.exhausted:  # not considered against any site any more: no Refuse, O(1)
+            append(Hold(u.unit_id, hold_reason))
+            ci.held_no_cap += 1
+            continue
+        if ci.inelig:
+            _refuse(u, ci, unit_actions, trace)
+        if not ci.elig:
+            append(Hold(u.unit_id, R_NO_ELIGIBLE))
             trace.append(f"hold {u.unit_id}: {R_NO_ELIGIBLE}")
             continue
-        site = next((s for s in elig if rem[s.site_id] >= u.kwh_el - EPS), None)
-        if site is None:
-            unit_actions.append(Hold(u.unit_id, hold_reason))
+        cl = ci.blocks
+        while ci.start < len(cl) and cl[ci.start][1] <= EPS:
+            ci.start += 1
+        if ci.start >= len(cl):
+            ci.exhausted = True
+            append(Hold(u.unit_id, hold_reason))
+            ci.held_no_cap += 1
+            continue
+        need = u.kwh_el - EPS
+        cell = next((c for c in cl[ci.start:] if c[1] >= need), None)
+        if cell is None:
+            append(Hold(u.unit_id, hold_reason))
             trace.append(f"hold {u.unit_id}: {hold_reason}")
             continue
-        rem[site.site_id] -= u.kwh_el
-        unit_actions.append(Assign(u.unit_id, site.site_id))
-        trace.append(f"assign {u.unit_id} -> {site.site_id}")
+        cell[1] -= u.kwh_el
+        append(Assign(u.unit_id, cell[0]))
+        trace.append(f"assign {u.unit_id} -> {cell[0]}")
+    for c in sorted(index):
+        if index[c].held_no_cap:
+            trace.append(f"hold {index[c].held_no_cap} unit(s) of class {c}: {hold_reason} (all eligible capacity used)")
     return unit_actions, trace
 
 
@@ -226,11 +321,24 @@ def _decide_always_on(sites: list[SiteState], queue: list[Unit]) -> Decision:
 
 
 def decide(sites: list[SiteState], queue: list[Unit], hour: int, params: Params, seed: int = 0) -> Decision:
-    """One tick. Same inputs + seed -> identical Decision, independent of input list order."""
+    """One tick. Raises InvalidInput on bad input. Same inputs + seed -> identical Decision,
+    independent of input list order."""
+    validate_params(params)
+    validate_sites(sites)
+    validate_queue(queue)
     sites = sorted(sites, key=lambda s: s.site_id)
-    queue = sorted(queue, key=lambda u: u.unit_id)
-    if params.policy == "thermostat":
-        return _decide_thermostat(sites, queue)
-    if params.policy == "always_on":
-        return _decide_always_on(sites, queue)
-    return _decide_merit(sites, queue, hour, params, random.Random(seed))
+    # A big tick allocates ~1 action per unit; cyclic-GC passes over those fresh objects cost ~1/3 of
+    # the time at 100k units (F7). Defer the cycle collector for the tick only (refcounting still frees
+    # memory) and restore its previous state; no effect on results.
+    pause = len(queue) >= GC_PAUSE_MIN_UNITS and gc.isenabled()
+    if pause:
+        gc.disable()
+    try:
+        if params.policy == "thermostat":
+            return _decide_thermostat(sites, queue)
+        if params.policy == "always_on":
+            return _decide_always_on(sites, queue)
+        return _decide_merit(sites, queue, hour, params, random.Random(seed))
+    finally:
+        if pause:
+            gc.enable()

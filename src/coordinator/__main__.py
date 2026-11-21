@@ -1,5 +1,5 @@
 """python -m coordinator [--state runs/coordinator] [--host 127.0.0.1] [--port 8710] [--make-tokens node-a,node-b] [--make-site-tokens site-a]
-       python -m coordinator --register-node ID [--certified] [--classes public,swiss-only,certified] [--region CH-BS]
+       python -m coordinator --register-node ID [--certified] [--classes public,swiss-only,certified] [--region CH-BS] [--site ID]
 
 Binds 127.0.0.1 by default (Tailscale Funnel forwards to it). For direct tailnet access pass the tailnet
 address with --host. `--make-tokens` writes runs/coordinator/tokens.json (admin, observer, one per node, one `site:<id>` per
@@ -62,12 +62,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--certified", action="store_true", help="with --register-node: the node is certified")
     ap.add_argument("--classes", default="public", help="with --register-node: max classes, comma-separated")
     ap.add_argument("--region", default="CH-BS", help="with --register-node: region")
+    ap.add_argument("--site", default=None, help="with --register-node: the only site_id it may register (default: ID)")
     ns = ap.parse_args(argv)
     if ns.register_node is not None:
         from .registry import register_node
         classes = [c for c in ns.classes.split(",") if c]
         try:
-            e = register_node(ns.state / "nodes.json", ns.register_node, ns.certified, classes, ns.region)
+            e = register_node(ns.state / "nodes.json", ns.register_node, ns.certified, classes, ns.region, ns.site)
         except ValueError as err:
             raise SystemExit(str(err))
         print(f"registered {ns.register_node} {e} in {ns.state / 'nodes.json'} (mode 600); restart the coordinator")

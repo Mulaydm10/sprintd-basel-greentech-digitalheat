@@ -189,10 +189,12 @@ class Coordinator:
 
     @staticmethod
     def _with_signal(db, n) -> dict | None:
-        """The node row with its site's latest signal (if any) overriding the legacy heartbeat fields."""
+        """The node row with its site's latest signal. F33: heartbeat heat fields never drive scheduling; a site
+        without a signal row has no heat data (degraded: persistence/no-dump rules)."""
         if n is None:
             return None
         d = dict(n)
+        d.update(demand_kw=None, tank_level_kwh=None, signal_at=None)
         s = db.execute("SELECT * FROM sites WHERE site_id=?", (d["site_id"],)).fetchone()
         if s is not None:
             d.update(demand_kw=s["demand_kw"], tank_level_kwh=s["tank_level_kwh"], signal_at=s["received_at"])
@@ -261,6 +263,9 @@ class Coordinator:
             if reg is None:
                 self._audit(db, {"type": "register_denied", "node": node_id, "reason": "not_in_registry"})
                 raise CoordError(403, "node not in registry")
+            if site_id != reg["site_id"]:
+                self._audit(db, {"type": "register_denied", "node": node_id, "reason": "site_not_in_registry"})
+                raise CoordError(403, "site not in registry for this node")
             if not ok:
                 self._audit(db, {"type": "register_denied", "node": node_id, "attestation": "mock"})
                 raise CoordError(403, "attestation rejected")

@@ -31,7 +31,7 @@ def client(tmp_path, registry=None, clock=None):
 def reg_body(node, classes=ALL, certified=False, region="CH-BS"):
     ev = {"measurement": "digitalheat-node-image-v1", "region": region, "certified": certified}
     a = trust.attest(node, ev)
-    return {"node_id": node, "site_id": f"site-{node[-1]}", "eligible_classes": list(classes), "server_kw_el": 1.0,
+    return {"node_id": node, "site_id": node, "eligible_classes": list(classes), "server_kw_el": 1.0,
             "attestation": {"node_id": node, "evidence": ev, "signature_b64": base64.b64encode(a.signature).decode(),
                             "mock": True}}
 
@@ -102,15 +102,33 @@ def test_registry_file_never_served(tmp_path):
 
 def test_cli_register_node_additive_atomic_mode600(tmp_path):
     assert main(["--state", str(tmp_path), "--register-node", "node-a", "--certified", "--classes", ",".join(ALL)]) == 0
-    assert main(["--state", str(tmp_path), "--register-node", "node-b", "--classes", "public", "--region", "CH-BL"]) == 0
+    assert main(["--state", str(tmp_path), "--register-node", "node-b", "--classes", "public", "--region", "CH-BL", "--site", "site-x"]) == 0
     p = tmp_path / "nodes.json"
     assert stat.S_IMODE(os.stat(p).st_mode) == 0o600
     reg = load_registry(p)
-    assert reg["node-a"] == {"certified": True, "max_classes": sorted(ALL), "region": "CH-BS"}
-    assert reg["node-b"] == {"certified": False, "max_classes": ["public"], "region": "CH-BL"}
+    assert reg["node-a"] == {"certified": True, "max_classes": sorted(ALL), "region": "CH-BS", "site_id": "node-a"}
+    assert reg["node-b"] == {"certified": False, "max_classes": ["public"], "region": "CH-BL", "site_id": "site-x"}
     assert not [x for x in os.listdir(tmp_path) if ".tmp" in x]
     with pytest.raises(SystemExit):
         main(["--state", str(tmp_path), "--register-node", "node-c", "--classes", "secret"])
     with pytest.raises(SystemExit):
         main(["--state", str(tmp_path), "--register-node", "../x"])
     assert set(json.loads(p.read_text())) == {"node-a", "node-b"}
+
+
+def test_registry_binds_site(tmp_path):
+    c, app = client(tmp_path, {"node-a": {"certified": False, "max_classes": ALL, "region": "CH-BS", "site_id": "site-a"}})
+    body = reg_body("node-a")
+    body["site_id"] = "elsewhere"
+    r = c.post("/v1/nodes/register", headers=H("node-a"), json=body)
+    assert r.status_code == 403 and r.json()["detail"] == "site not in registry for this node"
+    body["site_id"] = "site-a"
+    assert c.post("/v1/nodes/register", headers=H("node-a"), json=body).status_code == 200
+
+
+def test_heartbeat_heat_is_ignored(tmp_path):
+    c, app = client(tmp_path, {"node-a": {"certified": False, "max_classes": ALL, "region": "CH-BS"}})
+    assert c.post("/v1/nodes/register", headers=H("node-a"), json=reg_body("node-a")).status_code == 200
+    hb(c, "node-a", demand=9999.0, tank=0.0)
+    st = c.get("/v1/status", headers=H("observer")).json()
+    assert "node-a" in st["degraded"]

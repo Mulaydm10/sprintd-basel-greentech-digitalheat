@@ -31,9 +31,9 @@ T0 = 1_764_000_000.0  # 2025-11-24, a winter hour (same anchor as test_coordinat
 TOK = {"admin": "A" * 40, "observer": "O" * 40, "node-a": "a" * 40, "node-b": "b" * 40}
 ROLES = {TOK["admin"]: "admin", TOK["observer"]: "observer",
          TOK["node-a"]: "node:node-a", TOK["node-b"]: "node:node-b"}
-# v1.2 operator registry: every test node registered, uncertified, all classes as ceiling
-REGISTRY = {n: {"certified": False, "max_classes": ["public", "swiss-only", "certified"], "region": "CH-BS"}
-            for n in TOK if n.startswith("node-")}
+# v1.2 operator registry for the test nodes
+REGISTRY = {n: {"certified": False, "max_classes": ["public", "swiss-only", "certified"], "region": "CH-BS",
+                "site_id": f"site-{n[-1]}"} for n in TOK if n.startswith("node-")}
 
 
 class Clock:

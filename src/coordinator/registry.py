@@ -1,6 +1,6 @@
 """Operator node registry (contract v1.2, red team R4 A08).
 
-`runs/coordinator/nodes.json` = {node_id: {certified: bool, max_classes: [...], region: "CH-BS"}}, mode 600,
+`runs/coordinator/nodes.json` = {node_id: {certified, max_classes, region, site_id}}, mode 600,
 written only by `python -m coordinator --register-node`. It -- never the node's self-reported evidence -- decides
 whether a node is certified and which access classes it may ever receive. A missing file means an empty
 registry: every registration is denied (never allow-all). The file is never served over HTTP.
@@ -28,9 +28,12 @@ def validate(data: object) -> dict[str, dict]:
         if not isinstance(cert, bool) or not isinstance(classes, list) or not classes \
                 or any(c not in CLASSES for c in classes) or not isinstance(region, str) or not REGION_RE.match(region):
             raise ValueError(f"bad registry entry {nid!r}")
-        if set(e) - {"certified", "max_classes", "region"}:
+        site = e.get("site_id", nid)  # F33: the registry binds the node to one site (default: its own id)
+        if not isinstance(site, str) or not ID_RE.match(site):
+            raise ValueError(f"bad registry entry {nid!r}: site_id")
+        if set(e) - {"certified", "max_classes", "region", "site_id"}:
             raise ValueError(f"bad registry entry {nid!r}: unknown fields")
-        out[nid] = {"certified": cert, "max_classes": sorted(set(classes)), "region": region}
+        out[nid] = {"certified": cert, "max_classes": sorted(set(classes)), "region": region, "site_id": site}
     return out
 
 
@@ -41,11 +44,13 @@ def load_registry(path: Path) -> dict[str, dict]:
     return validate(json.loads(path.read_text()))
 
 
-def register_node(path: Path, node_id: str, certified: bool, classes: list[str], region: str) -> dict:
+def register_node(path: Path, node_id: str, certified: bool, classes: list[str], region: str,
+                  site_id: str | None = None) -> dict:
     """Add or replace one entry (other entries untouched); atomic write, mode 600."""
     path = Path(path)
     data = load_registry(path)
-    entry = validate({node_id: {"certified": certified, "max_classes": classes, "region": region}})[node_id]
+    entry = validate({node_id: {"certified": certified, "max_classes": classes, "region": region,
+                               "site_id": site_id or node_id}})[node_id]
     data[node_id] = entry
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + f".tmp{os.getpid()}")

@@ -74,7 +74,7 @@ def make_agent(env, node, sleeps=None, **cfg):
         time.sleep(min(s, 0.02))
 
     a = Agent(Config(node_id=node, site_id=f"site-{node[-1]}", eligible_classes=["public", "swiss-only"],
-                     root=env.tmp / "agent", default_rounds=ROUNDS, **{**FAST, **cfg}), http, hb_http=hb, sleep=sleep)
+                     root=env.tmp / "agent", **{"default_rounds": ROUNDS, **FAST, **cfg}), http, hb_http=hb, sleep=sleep)
     a.register()
     heat(env, node)
     return a

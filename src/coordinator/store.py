@@ -35,6 +35,9 @@ CREATE TABLE IF NOT EXISTS leases (
 CREATE TABLE IF NOT EXISTS checkpoints (
   unit_id TEXT NOT NULL, seq INTEGER NOT NULL, next_chunk INTEGER NOT NULL, out_bytes INTEGER NOT NULL,
   sha256 TEXT NOT NULL, path TEXT NOT NULL, node_id TEXT NOT NULL, at REAL NOT NULL, PRIMARY KEY (unit_id, seq));
+CREATE TABLE IF NOT EXISTS sites (
+  site_id TEXT PRIMARY KEY, demand_kw REAL NOT NULL, tank_level_kwh REAL NOT NULL, ts REAL NOT NULL,
+  received_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS audit (idx INTEGER PRIMARY KEY, event TEXT NOT NULL, prev_hash TEXT NOT NULL,
   hash TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS units_state ON units(state);
@@ -56,6 +59,9 @@ class Store:
         cols = {r[1] for r in self.db.execute("PRAGMA table_info(nodes)")}
         if "last_error" not in cols:  # forward migration for state.db files created before #57 review
             self.db.execute("ALTER TABLE nodes ADD COLUMN last_error TEXT")
+        ucols = {r[1] for r in self.db.execute("PRAGMA table_info(units)")}
+        if "rounds" not in ucols:  # v1.1: per-unit runner rounds (NULL = the agent's default)
+            self.db.execute("ALTER TABLE units ADD COLUMN rounds INTEGER")
 
     @contextmanager
     def tx(self, commit_on: tuple[type[BaseException], ...] = ()) -> Iterator[sqlite3.Connection]:

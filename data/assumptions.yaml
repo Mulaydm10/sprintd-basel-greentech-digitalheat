@@ -19,7 +19,25 @@ price:
   chf_per_kwh: 0.3325  # ElCom 2026, IWB Basel, H4 total (33.25 Rp/kWh), via energietarife.ch
   heat_value_divisor: 2.5
 expected_checks: {annual_heating_kwh: 27000, heating_days: 206, verified_annual_heating_kwh: 26851}  # 27000 is rounded; 26851 verified per brief
-jobs: []            # TODO: runtime/energy/interruptible/deadline/access_class per job type
+jobs:
+  - name: whisper_transcription
+    runtime_h: 1.0
+    interruptible: true          # checkpoint per audio segment
+    deadline_h: 24
+    access_class: swiss-only
+    price_chf_per_h: 1.70        # teammate sovereign price CHF 1.70/GPU-h (design/PLAN §0 [T])
+    jobs_per_day: 4
+    measured: false
+    source: "ASSUMED: runtime/jobs_per_day placeholders pending Mac measurement; price from design/PLAN-scheduler-deploy.md §0 [T]"
+  - name: image_tagging
+    runtime_h: 0.25
+    interruptible: true
+    deadline_h: 168              # ballast: a week of patience (Run B 7 d slack)
+    access_class: public
+    price_chf_per_h: 0.50        # = bid used in research/scheduler/year_replay.py (validated golden run)
+    jobs_per_day: 40
+    measured: false
+    source: "ASSUMED: public ballast; price = year_replay bid; runtime/jobs_per_day placeholders"
 scheduler:  # contract v2 (contracts/src/scheduler.md)
   eta_heat_used: 0.8          # = server.heat_recovery_fraction
   tank_band_low_kwh: 10.0     # hysteresis band (tunable; report sensitivity)

@@ -280,18 +280,24 @@ def test_jobtype_rejects_unknown_class_and_negative_values():
         _jobtype(runtime_h=-1.0)
 
 
-@pytest.mark.xfail(strict=True, reason="F11 → #10")
 # ============================================================ 5. trust
 def test_finding_audit_log_tail_truncation_not_detected():
-    """trust/__init__.py AuditLog.verify(): the chain head is not anchored anywhere, so dropping the newest
-    entries (e.g. the 'deny' that proves a refusal) still verifies."""
-    from trust import AuditLog
+    """F11 (fixed in #23): dropping the newest entries (e.g. the 'deny' that proves a refusal) must fail
+    verification against the broker's signed published head. A bare hash chain cannot see this by itself."""
+    from trust import AuditLog, KeyBroker, attest
+    b = KeyBroker()
+    b.register_job("j1", "c1", "swiss-only")
+    ev = {"measurement": "digitalheat-node-image-v1", "certified": False, "region": "DE-BW"}
+    b.release("j1", "N1", attest("N1", ev), "DE-BW")  # deny: region_not_allowed
+    anchor = b.published_head()
+    del b.audit.entries[-1]
+    assert not b.verify_audit(anchor), "truncated log still verifies"
     log = AuditLog()
     for i in range(5):
         log.append({"i": i})
-    head = log.head
+    n, head = len(log.entries), log.head
     del log.entries[-2:]
-    assert not log.verify() or log.head == head, "truncated log still verifies"
+    assert not log.verify(expected_head=head, expected_len=n), "truncated log still verifies"
 
 
 def test_trust_replay_modify_reorder_shred_reuse():

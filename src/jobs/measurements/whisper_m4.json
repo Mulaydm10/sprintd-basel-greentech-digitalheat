@@ -1,0 +1,45 @@
+{
+  "measured": true,
+  "workload": "whisper_transcription",
+  "backend": "mlx",
+  "model": "mlx-community/whisper-small-mlx",
+  "device": "arm64 macOS-26.7.1-arm64-arm-64bit-Mach-O",
+  "clip_sha256": "11b7269a34a2c6613ea6fc737513d83c4c346b5c2d979440042197e185f285b4",
+  "clip_audio_s": 104.441,
+  "runs": 3,
+  "per_run": [
+    {
+      "run": 0,
+      "wall_s": 3.575453281402588,
+      "energy_j": 33.72556047082894,
+      "net_energy_j": 33.37695377589218,
+      "mean_w": 9.432527239622885
+    },
+    {
+      "run": 1,
+      "wall_s": 2.9645259380340576,
+      "energy_j": 27.353086948768137,
+      "net_energy_j": 27.064045669809815,
+      "mean_w": 9.226799670677698
+    },
+    {
+      "run": 2,
+      "wall_s": 2.9253687858581543,
+      "energy_j": 19.608185510073618,
+      "net_energy_j": 19.322962053452446,
+      "mean_w": 6.702808071537406
+    }
+  ],
+  "idle_w_median": 0.0975,
+  "wall_s_median": 2.9645259380340576,
+  "rtf_median": 0.028384695072184846,
+  "mean_w_median": 9.226799670677698,
+  "energy_kwh_per_audio_h": 0.000261899895144322,
+  "m4_wall_h_per_audio_h": 0.028384695072184846,
+  "scaling_method": "energy-equivalence: ref runtime_h = energy_kwh / server.electric_kw",
+  "ref_server_kw": 1.0,
+  "ref_runtime_h_per_audio_h": 0.000261899895144322,
+  "power_scope": "powermetrics package power (CPU+GPU+ANE); excludes DRAM, SSD, PSU losses",
+  "source": "powermetrics --samplers cpu_power,gpu_power -i 1000 (run by Dhruv) + python -m jobs.measure",
+  "first_run_epoch": 1795246441.5700428
+}

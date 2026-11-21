@@ -117,12 +117,17 @@ def main(argv: list[str] | None = None) -> int:
         if ns.band_sweep:
             rows = an.band_sweep(ns.seed, ns.workers)
             print(f"wrote {an.write_csv(rows, out / 'band_sweep.csv')}; chosen: {an.choose_band(rows)}")
+        detail = None
+        if ns.sensitivity or ns.decision_card:
+            detail = an.sensitivity_detail(ns.seed, ns.workers)
         if ns.sensitivity:
-            rows = an.sensitivity(ns.seed, ns.workers)
+            print(f"wrote {an.write_csv(detail, out / 'sensitivity_detail.csv')}")
+            rows = an.sensitivity(detail=detail)
             print(f"wrote {an.write_csv(rows, out / 'sensitivity.csv')}")
             print("wrote tornado.png" if an.tornado_png(rows, out / "tornado.png") else "matplotlib missing: no png")
         if ns.decision_card:
-            print(f"wrote {an.write_json(an.decision_card(ns.seed, ns.workers), out / 'decision_card.json')}")
+            card = an.decision_card(ns.seed, ns.workers, detail=detail)
+            print(f"wrote {an.write_json(card, out / 'decision_card.json')}")
         return 0
     if ns.sweep:
         out = ns.out or ROOT / "runs" / f"sweep-seed{ns.seed}"

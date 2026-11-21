@@ -5,12 +5,12 @@ import json
 
 from fastapi.testclient import TestClient
 
-from dashboard import fleet
+from common.config import ROOT
 from dashboard.app import SITE, app
 
 
-def test_api_fleet_serves_the_fixture_when_no_run(monkeypatch, tmp_path):
-    monkeypatch.setenv("DH_FLEETVIEW_DIR", str(fleet.FIXTURE))
+def test_api_fleet_serves_a_fleetview_dir(monkeypatch, tmp_path):
+    monkeypatch.setenv("DH_FLEETVIEW_DIR", str(ROOT / "tests" / "src" / "simulate_year" / "fixtures" / "fleetview"))
     c = TestClient(app)
     ix = c.get("/api/fleet/index")
     assert ix.status_code == 200 and ix.json()["schema"] == "fleetview-v1" and ix.json()["fixture"] is True

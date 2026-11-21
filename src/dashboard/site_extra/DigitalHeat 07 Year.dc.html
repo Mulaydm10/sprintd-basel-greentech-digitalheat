@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="./vendor/fonts/fonts.css">
 <script src="./year3d.js"></script>
 <script type="module" src="./basel3d.js"></script>
+<script src="./fleet-telemetry.js" defer></script>
 <style>
 html,body{margin:0;background:#f2efe9;color:#141414}
 html{scroll-behavior:smooth}
@@ -157,6 +158,8 @@ input[type=range]{accent-color:#c93c05}
         <span style="font-family:'Geist Mono',monospace;font-size:12px;color:#6e6a63;line-height:1.5">{{ cheapNote }}</span>
       </div>
     </div>
+    <div data-dh-fleet-telemetry></div>  <!-- #118: city-fleet job telemetry below the map (fleet-telemetry.js) -->
+
     <p data-dh-note style="margin:14px 0 170px;font-family:'Geist Mono',monospace;font-size:12px;color:#6e6a63;line-height:1.5">{{ srcNote }}</p>
   </section>
   <dc-import name="Nav" active="{{ navActive }}" hint-size="100%,60px"></dc-import>

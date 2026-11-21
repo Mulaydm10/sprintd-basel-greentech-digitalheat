@@ -166,7 +166,7 @@ class ReleasedKey:
 
 @dataclass(frozen=True)
 class Denied:
-    reason: str  # bad_attestation | region_not_allowed | node_tampered | unknown_job | shredded
+    reason: str  # bad_attestation | region_mismatch | region_not_allowed | node_tampered | unknown_job | shredded
     job_id: str
     node_id: str
     mock: bool = True
@@ -216,10 +216,14 @@ class KeyBroker:
         elif (attestation.node_id != node_id or not attestation.is_valid()
               or attestation.evidence.get("measurement") not in self.expected_measurements):
             reason = "bad_attestation"
-        elif not region_allowed(job.access_class, region, bool(attestation.evidence.get("certified"))):
+        elif attestation.evidence.get("region") != region:
+            reason = "region_mismatch"  # the request's region must equal the attested region
+        elif not region_allowed(job.access_class, attestation.evidence["region"],
+                                bool(attestation.evidence.get("certified"))):
             reason = "region_not_allowed"
         event = {"type": "release" if reason is None else "deny", "job": job_id, "node": node_id,
-                 "region": region, "attestation": "mock"}
+                 "region": region, "attestation": "mock",
+                 "evidence_sha256": hashlib.sha256(attestation.payload()).hexdigest()}
         if reason is not None:
             event["reason"] = reason
             self.audit.append(event)

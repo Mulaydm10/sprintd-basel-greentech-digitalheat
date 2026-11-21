@@ -8,8 +8,8 @@ from trust import (
     region_allowed, seal,
 )
 
-GOOD = {"measurement": "digitalheat-node-image-v1", "certified": False}
-CERT = {"measurement": "digitalheat-node-image-v1", "certified": True}
+GOOD = {"measurement": "digitalheat-node-image-v1", "certified": False, "region": "CH-BL"}
+CERT = {"measurement": "digitalheat-node-image-v1", "certified": True, "region": "CH-BL"}
 
 
 def test_seal_open_roundtrip_and_aad():
@@ -73,7 +73,7 @@ def test_deny_bad_attestation():
 ])
 def test_region_rule_per_access_class(access_class, region, evidence, ok):
     b, _ = _broker_with_job(access_class)
-    r = b.release("job-1", "N1", attest("N1", evidence), region)
+    r = b.release("job-1", "N1", attest("N1", {**evidence, "region": region}), region)
     assert isinstance(r, ReleasedKey) is ok
     if not ok:
         assert isinstance(r, Denied) and r.reason == "region_not_allowed"
@@ -103,7 +103,7 @@ def test_shred_makes_old_envelopes_unopenable():
 
 
 def test_unknown_job_denied():
-    assert KeyBroker().release("nope", "N1", attest("N1", GOOD), "CH-BS").reason == "unknown_job"
+    assert KeyBroker().release("nope", "N1", attest("N1", GOOD), "CH-BL").reason == "unknown_job"
 
 
 def test_audit_log_chain_and_single_edit_detected():
@@ -127,13 +127,25 @@ def test_audit_log_detects_deletion():
 def test_broker_audits_every_decision_with_mock_label():
     b, _ = _broker_with_job()
     b.release("job-1", "BL-01", attest("BL-01", GOOD), "CH-BL")
-    b.release("job-1", "BL-01", attest("BL-01", GOOD), "DE-BW")
+    b.release("job-1", "BL-01", attest("BL-01", {**GOOD, "region": "DE-BW"}), "DE-BW")
     b.tamper("BL-01")
     b.shred("canton-bs")
     types = [e.event["type"] for e in b.audit.entries]
     assert types == ["register", "release", "deny", "tamper", "shred"]
     assert all(e.event.get("attestation") == "mock" for e in b.audit.entries if e.event["type"] in ("release", "deny"))
+    assert all(len(e.event["evidence_sha256"]) == 64 for e in b.audit.entries if e.event["type"] in ("release", "deny"))
     assert b.audit.verify()
+
+
+def test_deny_region_mismatch_frankfurt_node_claiming_basel():
+    b, _ = _broker_with_job("swiss-only")
+    honest_de = attest("FRA-1", {**GOOD, "region": "DE-HE"})
+    r = b.release("job-1", "FRA-1", honest_de, "CH-BS")
+    assert isinstance(r, Denied) and r.reason == "region_mismatch"
+    r2 = b.release("job-1", "FRA-1", honest_de, "DE-HE")
+    assert isinstance(r2, Denied) and r2.reason == "region_not_allowed"
+    missing = attest("N2", {"measurement": "digitalheat-node-image-v1"})
+    assert b.release("job-1", "N2", missing, "CH-BL").reason == "region_mismatch"
 
 
 def test_unknown_access_class_rejected():

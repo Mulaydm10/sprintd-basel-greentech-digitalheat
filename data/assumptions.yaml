@@ -38,6 +38,9 @@ jobs:
     jobs_per_day: 40
     measured: false
     source: "ASSUMED: public ballast; price = year_replay bid; runtime/jobs_per_day placeholders"
+ballast:  # unlimited heat-backed filler work (contract v2 rule: runs only where MC_used <= bid < MC_dump)
+  bid_chf_per_server_h: 0.25   # ASSUMED; must lie between MC_used (~0.226) and MC_dump (0.3325) at IWB prices
+  access_class: public
 scheduler:  # contract v2 (contracts/src/scheduler.md)
   eta_heat_used: 0.8          # = server.heat_recovery_fraction
   tank_band_low_kwh: 10.0     # hysteresis band (tunable; report sensitivity)

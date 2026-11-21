@@ -1,0 +1,125 @@
+"""Resumable real-workload entrypoint (contracts/src/jobs.md):
+
+    python -m jobs.runner <type> --checkpoint <path> [--out <path>] [--chunks N] [--rounds R]
+
+The work is a sequence of chunks with stable ids 0..N-1. Each finished chunk appends one line
+`<chunk_id> <sha256>` to the output log. Exactly-once comes from the commit order:
+
+1. compute chunk i;
+2. append its line to the output log and fsync;
+3. atomically write the checkpoint {next_chunk: i+1, out_bytes: <log size>}.
+
+On start the runner loads the checkpoint (if any), truncates the output log to `out_bytes`
+(dropping any line written after the last commit) and continues at `next_chunk`. A crash
+anywhere, including halfway through writing the checkpoint, therefore repeats no committed chunk
+and loses none: the final log is byte-identical to an uninterrupted run.
+
+SIGTERM sets a flag; the runner finishes and commits the current chunk, then exits 0.
+SIGSTOP/SIGCONT need no handling: nothing depends on wall-clock time.
+
+The default workload is a CPU-only stand-in (repeated SHA-256 over deterministic per-chunk data)
+so CI needs no models. Real backends (Whisper, image tagging) plug in behind `Workload`.
+The stand-in's sizes are test knobs, not pitch numbers; the catalogue numbers stay in
+data/assumptions.yaml.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import signal
+import sys
+from pathlib import Path
+from typing import Callable, Protocol
+
+from jobs import checkpoint
+from jobs.catalogue import load_catalogue
+
+CHUNK_BYTES = 64 * 1024  # stand-in input per chunk (test knob)
+DEFAULT_CHUNKS = 200  # stand-in work units per job (test knob)
+DEFAULT_ROUNDS = 50  # SHA-256 passes per chunk; sets the stand-in's duration (test knob)
+CRASH_ENV = "JOBS_RUNNER_CRASH"  # test-only: "mid-checkpoint:<k>" or "after-append:<k>"
+
+
+class Workload(Protocol):
+    def run_chunk(self, chunk_id: int) -> str: ...
+
+
+class HashWorkload:
+    """CPU stand-in: deterministic input per chunk id, `rounds` chained SHA-256 passes."""
+
+    def __init__(self, job_type: str, rounds: int) -> None:
+        self.seed = job_type.encode()
+        self.rounds = rounds
+
+    def run_chunk(self, chunk_id: int) -> str:
+        block = hashlib.sha256(self.seed + chunk_id.to_bytes(8, "big")).digest()
+        data = (block * (CHUNK_BYTES // len(block) + 1))[:CHUNK_BYTES]
+        h = data
+        for _ in range(self.rounds):
+            h = hashlib.sha256(h + data).digest()
+        return h.hex()
+
+
+def _crash_hook(stage: str) -> Callable[[int], bool]:
+    """Return f(chunk_id) -> True when the test asked to die at `stage` for this chunk."""
+    spec = os.environ.get(CRASH_ENV, "")
+    if not spec.startswith(stage + ":"):
+        return lambda _cid: False
+    k = int(spec.split(":", 1)[1])
+    return lambda cid: cid == k
+
+
+def run(job_type: str, ckpt: Path, out: Path, chunks: int, workload: Workload) -> dict:
+    stop = {"flag": False}
+    signal.signal(signal.SIGTERM, lambda *_: stop.__setitem__("flag", True))
+
+    state = checkpoint.load(ckpt)
+    if state is None:
+        state = {"job_type": job_type, "chunks": chunks, "next_chunk": 0, "out_bytes": 0, "done": False}
+    elif state["job_type"] != job_type or state["chunks"] != chunks:
+        raise SystemExit(f"checkpoint {ckpt} belongs to {state['job_type']}/{state['chunks']} chunks, "
+                         f"not {job_type}/{chunks}")
+
+    crash_after_append = _crash_hook("after-append")
+    crash_mid_ckpt = _crash_hook("mid-checkpoint")
+
+    with open(out, "ab+") as f:
+        f.truncate(state["out_bytes"])  # drop anything written after the last commit
+        f.seek(0, os.SEEK_END)
+        while state["next_chunk"] < chunks and not stop["flag"]:
+            cid = state["next_chunk"]
+            digest = workload.run_chunk(cid)
+            f.write(f"{cid} {digest}\n".encode())
+            f.flush()
+            os.fsync(f.fileno())
+            if crash_after_append(cid):
+                os._exit(97)
+            state = {**state, "next_chunk": cid + 1, "out_bytes": f.tell(), "done": cid + 1 == chunks}
+            checkpoint._before_rename = (lambda: os._exit(98)) if crash_mid_ckpt(cid) else None
+            checkpoint.save(ckpt, state)
+            checkpoint._before_rename = None
+    return state
+
+
+def main(argv: list[str] | None = None) -> int:
+    names = [j.name for j in load_catalogue()]
+    p = argparse.ArgumentParser(prog="python -m jobs.runner", description=__doc__.splitlines()[0])
+    p.add_argument("type", choices=names, help="job type from the catalogue")
+    p.add_argument("--checkpoint", required=True, type=Path)
+    p.add_argument("--out", type=Path, help="output log (default: <checkpoint>.out)")
+    p.add_argument("--chunks", type=int, default=DEFAULT_CHUNKS)
+    p.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS)
+    a = p.parse_args(argv)
+    if a.chunks <= 0 or a.rounds <= 0:
+        p.error("--chunks and --rounds must be positive")
+    out = a.out or a.checkpoint.with_name(a.checkpoint.name + ".out")
+    state = run(a.type, a.checkpoint, out, a.chunks, HashWorkload(a.type, a.rounds))
+    print(json.dumps({"job_type": a.type, "next_chunk": state["next_chunk"], "chunks": a.chunks,
+                      "done": state["done"], "out": str(out), "workload": "stand-in sha256"}))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -229,7 +229,75 @@ export async function create(host, opts = {}) {
   // servers in the basements: N racks per house, LED colour = state
   const racks = new THREE.InstancedMesh(new THREE.BoxGeometry(5, 9, 5), new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }), sims.length * RACK_MAX);
   racks.instanceMatrix.setUsage(THREE.DynamicDrawUsage); scene.add(racks);
-  const tmpM = new THREE.Matrix4(), tmpC = new THREE.Color();
+  const tmpM = new THREE.Matrix4(), tmpC = new THREE.Color(), tmpHex = new THREE.Matrix4();
+
+  // districts (#112): hex heat layer (delivered vs unmet per Wohnviertel and hour), outlines, labels
+  const D = map.districts || [], DMAX = 32, DS = new Float32Array(DMAX * 4);
+  const distTex = new THREE.DataTexture(DS, DMAX, 1, THREE.RGBAFormat, THREE.FloatType); distTex.needsUpdate = true;
+  const hexU = { uDist: { value: distTex }, uTime: { value: 0 } };
+  const hexes = map.hexes || [];
+  const hexMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry((map.hex_m || 120) * 0.93, (map.hex_m || 120) * 0.93, 1.5, 6),
+    new THREE.ShaderMaterial({ uniforms: hexU, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      vertexShader: `attribute float aDist; uniform sampler2D uDist; uniform float uTime; varying vec4 vS; varying float vEdge;
+        void main(){ vS = texture2D(uDist, vec2((aDist + 0.5) / ${DMAX}.0, 0.5)); vEdge = length(position.xz) / ${((map.hex_m || 120) * 0.93).toFixed(1)};
+          vec4 w = instanceMatrix * vec4(position, 1.0); w.y += 0.5 + 0.5 * sin(uTime * 0.8 + w.x * 0.01 + w.z * 0.013);
+          gl_Position = projectionMatrix * modelViewMatrix * w; }`,
+      fragmentShader: `varying vec4 vS; varying float vEdge;
+        void main(){ float tot = vS.r + vS.g; if (tot < 0.002) discard;
+          vec3 c = mix(vec3(0.15, 0.40, 0.95), vec3(1.0, 0.42, 0.06), vS.r / max(tot, 1e-4));
+          float a = clamp(tot, 0.0, 1.0) * (0.16 + 0.14 * smoothstep(0.8, 1.0, vEdge)) * (1.0 - 0.8 * vS.a);
+          gl_FragColor = vec4(c * a, a); }` }), Math.max(1, hexes.length));
+  const hexDist = new Float32Array(Math.max(1, hexes.length));
+  hexes.forEach((h, i) => { tmpHex.makeTranslation(h[0] * map.q, 1, -h[1] * map.q); hexMesh.setMatrixAt(i, tmpHex); hexDist[i] = h[2]; });
+  hexMesh.geometry.setAttribute("aDist", new THREE.InstancedBufferAttribute(hexDist, 1));
+  hexMesh.count = hexes.length; hexMesh.frustumCulled = false; scene.add(hexMesh);
+  const dl = [];
+  for (const d of D) { const pts = ringPts(d.ring, 0, map.q); for (let k = 0; k < pts.length; k++) { const a = pts[k], b = pts[(k + 1) % pts.length]; dl.push(a[0], 2.5, -a[1], b[0], 2.5, -b[1]); } }
+  const dg = new THREE.BufferGeometry(); dg.setAttribute("position", new THREE.Float32BufferAttribute(dl, 3));
+  scene.add(new THREE.LineSegments(dg, new THREE.LineBasicMaterial({ color: 0xf2efe9, transparent: true, opacity: 0.16 })));
+  const labels = D.map((d) => { const pts = ringPts(d.ring, 0, map.q); let x = 0, y = 0; for (const p of pts) { x += p[0]; y += p[1]; }
+    const el = document.createElement("div"); el.textContent = d.name;
+    el.style.cssText = "position:absolute;pointer-events:none;transform:translate(-50%,-50%);font:10px 'Geist Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:rgba(242,239,233,0.42);white-space:nowrap;z-index:3";
+    host.appendChild(el); return { el, p: new THREE.Vector3(x / pts.length, 30, -y / pts.length) }; });
+
+  // live nodes (#112): node-mac / node-omen2 as named houses: beacon + always-on card; real state when the page feeds
+  // /api/nodes, otherwise a clearly marked REPLAY of the reference house's simulated hour
+  const live = Object.entries(map.live || {}).map(([id, b]) => { const c = geo.centroids[b];
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 6, 220, 16, 1, true), new THREE.MeshBasicMaterial({ color: 0x7fd18b, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false }));
+    beam.position.set(c[0], c[2] + 110, -c[1]); scene.add(beam);
+    const el = document.createElement("div");
+    el.style.cssText = "position:absolute;pointer-events:none;transform:translate(-50%,-120%);padding:7px 10px;border-radius:10px;background:rgba(14,13,12,0.72);border:1px solid rgba(127,209,139,0.55);font:11px/1.45 'Geist Mono',monospace;color:#f2efe9;white-space:nowrap;z-index:4";
+    host.appendChild(el);
+    return { id, b, x: c[0], z: -c[1], h: c[2], beam, el, p: new THREE.Vector3(c[0], c[2] + 230, -c[1]), st: null }; });
+  const liveTrail = new THREE.Group(); scene.add(liveTrail);
+  let liveFeed = null;
+  function liveState(L) {  // -> {mode, state, watts, unit, progress, lease}
+    const n = liveFeed && liveFeed.ok ? (liveFeed.nodes || []).find((x) => x.node_id === L.id) : null;
+    if (n) { const lease = (liveFeed.leases || []).find((x) => x.node_id === L.id);
+      const state = n.tampered ? "tampered" : n.suspect ? "suspect" : n.running_unit ? "running" : "idle";
+      return { mode: "LIVE", state, watts: n.watts, unit: n.running_unit, progress: n.progress, lease: !!lease }; }
+    const i = S.info; if (!i) return { mode: "REPLAY", state: "–" };
+    return { mode: "REPLAY", state: i.paused ? "held" : i.on > 0 ? "running" : "idle", watts: null, unit: null, progress: null, lease: i.on > 0 };
+  }
+  const STC = { running: 0xff8c1f, idle: 0x7fd18b, held: 0x8fa3bf, suspect: 0xf0a500, tampered: 0xd1173a, "–": 0x55524c };
+  function updateLive() {
+    while (liveTrail.children.length) { const o = liveTrail.children.pop(); o.geometry.dispose(); }
+    for (const L of live) {
+      const st = liveState(L); L.st = st; const col = STC[st.state] ?? 0x7fd18b;
+      L.beam.material.color.setHex(col); L.beam.material.opacity = 0.35 + 0.25 * Math.sin(performance.now() / 260);
+      L.el.style.borderColor = "#" + col.toString(16).padStart(6, "0");
+      L.el.innerHTML = `<span style="color:#${col.toString(16).padStart(6, "0")};font-weight:700">${L.id}</span> · ${st.mode === "LIVE" ? "<b style='color:#7fd18b'>LIVE</b>" : "<span style='color:#a8a298'>REPLAY</span>"} · ${st.state}`
+        + (st.unit ? `<br>${st.unit}${st.progress != null ? " · " + Math.round(st.progress * 100) + " %" : ""}` : "")
+        + (st.watts != null ? ` · ${Math.round(st.watts)} W` : "");
+      if (st.lease) { const a = new THREE.Vector3(hub.x, 170, hub.z), c = new THREE.Vector3(L.x, L.h + 8, L.z);
+        const m = a.clone().lerp(c, 0.5).setY(300 + 0.15 * a.distanceTo(c));
+        const g = new THREE.BufferGeometry().setFromPoints(new THREE.QuadraticBezierCurve3(a, m, c).getPoints(48));
+        liveTrail.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending }))); }
+    }
+  }
+  const proj = new THREE.Vector3();
+  function place(el, p) { proj.copy(p).project(camera); const vis = proj.z < 1 && Math.abs(proj.x) < 1.1 && Math.abs(proj.y) < 1.1;
+    el.style.display = vis ? "block" : "none"; if (vis) { el.style.left = ((proj.x + 1) / 2 * host.clientWidth) + "px"; el.style.top = ((1 - proj.y) / 2 * host.clientHeight) + "px"; } }
 
   // post: bloom + grain/vignette in the site palette
   const composer = new EffectComposer(renderer);
@@ -260,6 +328,11 @@ export async function create(host, opts = {}) {
       H[k + 2] = dump > 1e-3 ? 0.35 + 0.65 * Math.min(1, dump / Math.max(1e-6, used + dump) + dump * s / (N * 0.8)) : 0;
       H[k + 3] = paused ? 1 : 0; });
     houseTex.needsUpdate = true;
+    DS.fill(0);
+    D.forEach((d, di) => { if (di >= DMAX || !d.houses.length) return; let del = 0, un = 0;
+      for (const k of d.houses) { const sc = houses[k].scale; del += used * sc; un += back * sc; }
+      const m = d.houses.length * norm; DS[di * 4] = Math.min(1, 1.4 * del / m); DS[di * 4 + 1] = Math.min(1, 1.4 * un / m); DS[di * 4 + 3] = paused ? 1 : 0; });
+    distTex.needsUpdate = true;
     // racks: N per house, lit = running share
     let idx = 0;
     houses.forEach((hs, i) => { for (let r = 0; r < RACK_MAX; r++) {
@@ -304,8 +377,12 @@ export async function create(host, opts = {}) {
   function frame(now) {
     if (S.dead) return; S.raf = requestAnimationFrame(frame);
     const dt = Math.min(0.05, (now - S.last) / 1000); S.last = now; resize();
-    const t = now / 1000; for (const u of [groundU, simU, waterU, trailU, flowU, sparkU]) u.uTime.value = t; grain.uniforms.uTime.value = t;
-    update(dt); controls.update(); composer.render();
+    const t = now / 1000; for (const u of [groundU, simU, waterU, trailU, flowU, sparkU, hexU]) u.uTime.value = t; grain.uniforms.uTime.value = t;
+    update(dt); controls.update();
+    if (now - (S.liveAt || 0) > 500) { S.liveAt = now; updateLive(); }
+    for (const l of labels) place(l.el, l.p);
+    for (const L of live) place(L.el, L.p);
+    composer.render();
   }
   S.raf = requestAnimationFrame(frame);
   const presets = { city: [[-1900, 1500, 1700], [0, 0, 0]], district: () => { const r = houses[0]; return [[r.x - 520, 420, r.z + 520], [r.x, 0, r.z]]; },
@@ -317,7 +394,9 @@ export async function create(host, opts = {}) {
     focus(name) { const p = typeof presets[name] === "function" ? presets[name]() : presets[name]; if (!p) return;
       controls.autoRotate = false; camera.position.set(...p[0]); controls.target.set(...p[1]); },
     info() { return S.info || null; },
-    stats() { return { buildings: map.buildings.length, houses: houses.length, tris: (geo.city.getAttribute("position").count + geo.sim.getAttribute("position").count) / 3 }; },
+    setLive(feed) { liveFeed = feed; },  // the dashboard's /api/nodes payload (#78); null/not ok -> REPLAY
+    live() { return live.map((L) => ({ id: L.id, ...(L.st || {}) })); },
+    stats() { return { buildings: map.buildings.length, houses: houses.length, districts: D.length, hexes: hexes.length, live: live.length, tris: (geo.city.getAttribute("position").count + geo.sim.getAttribute("position").count) / 3 }; },
     attribution: map.attribution, fleetNote: map.fleet_note,
     destroy() { S.dead = true; cancelAnimationFrame(S.raf); renderer.dispose(); },
   };

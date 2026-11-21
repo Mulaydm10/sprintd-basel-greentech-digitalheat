@@ -70,3 +70,27 @@ def test_baker_on_a_tiny_synthetic_extract():
         b = d["buildings"][i]
         pts.append((b[2] * d["q"], b[3] * d["q"]))
     assert all(math.dist(a, b) >= bb.FLEET_MIN_SPACING_M - 30 for k, a in enumerate(pts) for b in pts[k + 1:])
+
+
+def test_districts_hexes_and_live_nodes_are_baked():  # #112
+    d = json.loads((SITE / "data" / "basel3d.json").read_text())
+    names = {x["name"] for x in d["districts"]}
+    assert len(d["districts"]) == 19 and {"Gundeldingen", "St. Johann", "Altstadt Grossbasel"} <= names
+    assert len(d["hexes"]) > 300 and all(0 <= h[2] < 19 for h in d["hexes"])
+    sims = 1 + len(d["fleet"])
+    assert all(0 <= k < sims for x in d["districts"] for k in x["houses"])
+    assert set(d["live"]) == {"node-mac", "node-omen2"}
+    assert not ({*d["live"].values()} & {d["reference"], *d["fleet"]})  # live houses are separate from the fleet
+
+
+def test_live_overlay_is_wired_and_falls_back_to_replay():
+    js = (SITE / "basel3d.js").read_text()
+    assert "setLive(feed)" in js and '"REPLAY"' in js and '"LIVE"' in js
+    html = (SITE / PAGE).read_text()
+    assert '"/api/nodes"' in html and "setLive(" in html and "placed for illustration" in html
+
+
+def test_stitch_joins_segments_in_any_direction():
+    ring = bb.stitch([[(0, 0), (1, 0)], [(1, 1), (1, 0)], [(1, 1), (0, 1)], [(0, 1), (0, 0)]])
+    assert len(ring) == 1 and sorted(ring[0]) == [(0, 0), (0, 1), (1, 0), (1, 1)]
+    assert bb.inside(0.5, 0.5, ring[0]) and not bb.inside(2, 2, ring[0])

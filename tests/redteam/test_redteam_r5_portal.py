@@ -141,7 +141,6 @@ def test_concurrent_same_key_submits_create_one_job(w):
     assert sorted(r.status_code for r in out) == [200] * 11 + [201]
 
 
-@pytest.mark.xfail(strict=True, reason="#86 R5 F37: same idempotency key + different body silently returns the old job")
 def test_finding_idempotency_key_reused_with_different_body():
     """Stripe-style idempotency: a replay with the SAME key but different parameters is a client bug and must be
     refused (409/422), not answered with the first job as if it matched. Today: 200 {created: false} with the old
@@ -155,7 +154,6 @@ def test_finding_idempotency_key_reused_with_different_body():
 
 
 # ============================================================ node trust boundary
-@pytest.mark.xfail(strict=True, reason="#86 R5 F38: heartbeat running_unit is not bound to the node's lease")
 def test_finding_node_can_spoof_progress_of_a_unit_it_does_not_hold(w):
     """node-b heartbeats {running_unit: <node-a's unit of c1's job>, progress: 0.99}. Accepted: c1's event stream gets
     a unit.progress from node-b, /v1/ops/nodes shows node-b running c1's unit, and the event carries node-b's site_id,
@@ -174,7 +172,6 @@ def test_finding_node_can_spoof_progress_of_a_unit_it_does_not_hold(w):
 
 
 # ============================================================ event ring
-@pytest.mark.xfail(strict=True, reason="#86 R5 F39: one node can flush the event ring; gaps are silent")
 def test_finding_event_ring_gap_is_silent(w, monkeypatch):
     """unit.progress is emitted on every heartbeat whose progress changes. At the per-token rate limit one node writes
     ~12 events/s (measured in-process), so the 10 000-event ring turns over in ~14 min: a client that resumes with

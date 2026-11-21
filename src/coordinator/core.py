@@ -324,8 +324,9 @@ class Coordinator:
             self._touch(db, now)
             self._expire(db, now)
             before = self._node(db, node_id)
-            sets = {"last_hb": now, "watts": hb.get("watts"), "running_unit": hb.get("running_unit"),
-                    "progress": hb.get("progress"), "last_error": hb.get("last_error")}
+            unit, progress = ps.bound_running_unit(db, self, node_id, hb.get("running_unit"), hb.get("progress"))
+            sets = {"last_hb": now, "watts": hb.get("watts"), "running_unit": unit,
+                    "progress": progress, "last_error": hb.get("last_error")}
             if hb.get("tank_level_kwh") is not None or hb.get("demand_kw") is not None:
                 sets.update(tank_level_kwh=hb.get("tank_level_kwh"), demand_kw=hb.get("demand_kw"), signal_at=now)
             db.execute(f"UPDATE nodes SET {', '.join(k + '=?' for k in sets)} WHERE node_id=?",
@@ -552,7 +553,7 @@ class Coordinator:
     # ------------------------------------------------------------------ admin / observer
     def submit_job(self, job_type: str, customer_id: str, access_class: str | None, deadline_h: float | None,
                    force: bool, rounds: int | None = None, chunks: int | None = None, client_id: str | None = None,
-                   idempotency_key: str | None = None) -> dict:
+                   idempotency_key: str | None = None, idem_params: str | None = None) -> dict:
         now = self.clock()
         if chunks is not None and not 1 <= chunks <= MAX_CHUNKS:
             raise CoordError(422, f"chunks must be in [1, {MAX_CHUNKS}]")
@@ -594,9 +595,9 @@ class Coordinator:
             else:
                 priv = None
             db.execute("""INSERT INTO jobs(job_id, job_type, access_class, customer_id, deadline_hour, priv_key,
-                          created_at, admitted, reason, client_id, idempotency_key) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                          created_at, admitted, reason, client_id, idempotency_key, idem_params) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
                        (job_id, job_type, jt.access_class, customer_id, units[0].deadline_hour, priv, now, int(ok),
-                        reason, client_id, idempotency_key))
+                        reason, client_id, idempotency_key, idem_params))
             if ok:
                 for i, u in enumerate(units):
                     db.execute("""INSERT INTO units(unit_id, job_id, seq, job_class, access_class, kwh_el, bid,

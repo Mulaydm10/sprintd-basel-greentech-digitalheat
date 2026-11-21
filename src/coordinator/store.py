@@ -42,7 +42,31 @@ CREATE TABLE IF NOT EXISTS audit (idx INTEGER PRIMARY KEY, event TEXT NOT NULL, 
   hash TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS units_state ON units(state);
 CREATE INDEX IF NOT EXISTS leases_state ON leases(state);
+-- portal v1 (#83): live events (ring of 10 000; AUTOINCREMENT so an id is never reused after trimming)
+CREATE TABLE IF NOT EXISTS events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, type TEXT NOT NULL, client_id TEXT, site_id TEXT,
+  node_id TEXT, job_id TEXT, data TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS events_client ON events(client_id, id);
+CREATE INDEX IF NOT EXISTS events_site ON events(site_id, id);
+CREATE TABLE IF NOT EXISTS site_override (site_id TEXT PRIMARY KEY, paused INTEGER NOT NULL, until_ts REAL,
+  at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS site_hourly (site_id TEXT NOT NULL, hour_ts INTEGER NOT NULL, heat_kwh REAL NOT NULL,
+  dumped_kwh REAL NOT NULL, demand_kwh REAL NOT NULL, PRIMARY KEY (site_id, hour_ts));
+CREATE TABLE IF NOT EXISTS results (unit_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, sha256 TEXT NOT NULL,
+  path TEXT NOT NULL, bytes INTEGER NOT NULL);
 """
+
+# forward migrations: (table, column, DDL) added to state.db files created before the column existed
+MIGRATIONS = (
+    ("nodes", "last_error", "ALTER TABLE nodes ADD COLUMN last_error TEXT"),  # #57 review
+    ("units", "rounds", "ALTER TABLE units ADD COLUMN rounds INTEGER"),  # v1.1: per-unit runner rounds
+    ("nodes", "drained", "ALTER TABLE nodes ADD COLUMN drained INTEGER NOT NULL DEFAULT 0"),  # portal v1
+    ("jobs", "client_id", "ALTER TABLE jobs ADD COLUMN client_id TEXT"),  # portal v1: NULL = admin-submitted
+    ("jobs", "idempotency_key", "ALTER TABLE jobs ADD COLUMN idempotency_key TEXT"),
+    ("jobs", "cancelled_at", "ALTER TABLE jobs ADD COLUMN cancelled_at REAL"),
+    ("jobs", "status", "ALTER TABLE jobs ADD COLUMN status TEXT"),  # last job.state emitted
+    ("jobs", "idem_params", "ALTER TABLE jobs ADD COLUMN idem_params TEXT"),  # F37: the request a key was used for
+)
 
 
 class Store:
@@ -56,12 +80,12 @@ class Store:
         self.db.execute("PRAGMA synchronous=FULL")
         self.db.execute("PRAGMA foreign_keys=ON")
         self.db.executescript(SCHEMA)
-        cols = {r[1] for r in self.db.execute("PRAGMA table_info(nodes)")}
-        if "last_error" not in cols:  # forward migration for state.db files created before #57 review
-            self.db.execute("ALTER TABLE nodes ADD COLUMN last_error TEXT")
-        ucols = {r[1] for r in self.db.execute("PRAGMA table_info(units)")}
-        if "rounds" not in ucols:  # v1.1: per-unit runner rounds (NULL = the agent's default)
-            self.db.execute("ALTER TABLE units ADD COLUMN rounds INTEGER")
+        for table, col, ddl in MIGRATIONS:
+            if col not in {r[1] for r in self.db.execute(f"PRAGMA table_info({table})")}:
+                self.db.execute(ddl)
+        self.db.execute("""CREATE UNIQUE INDEX IF NOT EXISTS jobs_idem ON jobs(client_id, idempotency_key)
+                           WHERE client_id IS NOT NULL AND idempotency_key IS NOT NULL""")
+        self.db.execute("CREATE INDEX IF NOT EXISTS jobs_client ON jobs(client_id, created_at)")
 
     @contextmanager
     def tx(self, commit_on: tuple[type[BaseException], ...] = ()) -> Iterator[sqlite3.Connection]:

@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono:wght@400..700&display=swap">
+<style>
+html,body{margin:0;background:#f2efe9;color:#141414}
+html{scroll-behavior:smooth}
+body{font-family:'Geist',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#c93c05}a:hover{color:#a86400}
+::selection{background:#c93c05;color:#ffffff}
+input[type=range]{accent-color:#c93c05}
+</style>
+</helmet>
+<div style="min-height:100vh;background:#f2efe9;overflow-x:hidden">
+  <header style="position:fixed;top:0;left:0;right:0;z-index:40;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:16px clamp(16px,4vw,40px);font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.1em;text-transform:uppercase;color:#55524c;background:linear-gradient(#f2efe9 35%,rgba(242,239,233,0))">
+    <div style="display:flex;align-items:center;gap:10px;color:#141414"><span style="width:9px;height:9px;border-radius:50%;background:#c93c05;box-shadow:0 0 14px #c93c05"></span>DigitalHeat</div>
+    <div>05 · Economics · 05 / 06</div>
+  </header>
+
+  <section style="padding:150px clamp(16px,4vw,40px) 60px;max-width:1400px;margin:0 auto;display:flex;flex-direction:column;gap:28px">
+    <div style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#a86400">01 · Does it pay off?</div>
+    <h1 style="margin:0;font-weight:760;font-stretch:118%;font-size:clamp(48px,8.4vw,132px);line-height:0.88;letter-spacing:-0.055em;text-wrap:balance">Not yet. <span style="color:#c93c05">Here's exactly when.</span></h1>
+    <p style="margin:0;max-width:760px;font-size:clamp(18px,2vw,24px);line-height:1.4;color:#2e2b27;text-wrap:pretty">At the assumed 0.50 CHF per server-hour it doesn't pay. Paid work has to sell for at least 0.53 incl. hardware. Our way of scheduling gets it 28 % closer than the thermostat's 0.74.</p>
+  </section>
+
+  <section ref="{{ gapRef }}" style="padding:20px clamp(16px,4vw,40px) 120px;max-width:1400px;margin:0 auto">
+    <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;padding:28px clamp(16px,3vw,36px);display:flex;flex-direction:column;gap:22px">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c"><span>Paid price needed to pay off, incl. hardware · 4 servers</span><span>CHF / server-hour</span></div>
+      <div style="position:relative;display:flex;flex-direction:column;gap:18px;padding-top:28px">
+        <div style="position:absolute;top:0;bottom:0;left:{{ todayX }}%;width:2px;background:#141414;z-index:2"></div>
+        <div style="position:absolute;top:0;left:{{ todayX }}%;transform:translateX(8px);font-family:'Geist Mono',monospace;font-size:11px;color:#141414;white-space:nowrap">today's assumed price 0.50</div>
+        <sc-for list="{{ gap }}" as="g" hint-placeholder-count="3">
+          <div style="display:grid;grid-template-columns:minmax(110px,180px) minmax(0,1fr);gap:16px;align-items:center">
+            <span style="font-size:16px;font-weight:600;color:{{ g.lc }}">{{ g.name }}</span>
+            <div style="height:44px;position:relative">
+              <div style="height:100%;width:{{ g.w }}%;background:{{ g.c }};border-radius:8px;display:flex;align-items:center;justify-content:flex-end;padding-right:12px;box-sizing:border-box;font-family:'Geist Mono',monospace;font-weight:700;font-size:15px;color:#ffffff;transition:width .1s">{{ g.v }}</div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+      <span style="font-family:'Geist Mono',monospace;font-size:12px;color:#6e6a63">design/PITCH_DECK.md rows 11, 22, 44 · capex CHF 8k / 5 y ASSUMED</span>
+    </div>
+  </section>
+
+  <section style="padding:20px clamp(16px,4vw,40px) 120px;max-width:1400px;margin:0 auto">
+    <div style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c;margin-bottom:20px">02 · The case formula, live</div>
+    <h2 style="margin:0 0 36px;font-weight:660;font-stretch:112%;font-size:clamp(34px,5vw,72px);line-height:0.95;letter-spacing:-0.045em;text-wrap:balance">Break-even, in one line.</h2>
+    <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;padding:clamp(18px,3vw,36px);display:flex;flex-direction:column;gap:28px">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:clamp(10px,1.6vw,22px);font-weight:660;font-stretch:110%;font-size:clamp(22px,3vw,42px);letter-spacing:-0.02em;line-height:1.1">
+        <span style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'Geist Mono',monospace;font-size:11px;font-weight:400;letter-spacing:0.1em;color:#d1173a">ELECTRICITY</span><span style="font-variant-numeric:tabular-nums">{{ fElec }}</span></span>
+        <span style="color:#6e6a63">−</span>
+        <span style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'Geist Mono',monospace;font-size:11px;font-weight:400;letter-spacing:0.1em;color:#157a43">HEAT USED × 0.133</span><span style="font-variant-numeric:tabular-nums">{{ fHeat }}</span></span>
+        <span style="color:#6e6a63">÷</span>
+        <span style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'Geist Mono',monospace;font-size:11px;font-weight:400;letter-spacing:0.1em;color:#1d6bb3">SERVER-HOURS</span><span style="font-variant-numeric:tabular-nums">{{ fHours }}</span></span>
+        <span style="color:#6e6a63">+</span>
+        <span style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'Geist Mono',monospace;font-size:11px;font-weight:400;letter-spacing:0.1em;color:#a86400">HARDWARE / H</span><span style="font-variant-numeric:tabular-nums">{{ fCapex }}</span></span>
+        <span style="color:#6e6a63">=</span>
+        <span style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'Geist Mono',monospace;font-size:11px;font-weight:400;letter-spacing:0.1em;color:#c93c05">CHF / SERVER-H</span><span style="color:#c93c05;font-size:clamp(34px,4.4vw,64px);font-variant-numeric:tabular-nums">{{ fTotal }}</span></span>
+      </div>
+      <div style="display:flex;height:16px;border-radius:8px;overflow:hidden;background:#ebe6dd">
+        <div style="width:{{ wOp }}%;background:#d1173a;transition:width .3s"></div>
+        <div style="width:{{ wCap }}%;background:#e3a008;transition:width .3s"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:24px">
+        <label style="display:flex;flex-direction:column;gap:10px"><span style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:12px;color:#55524c"><span>servers per house</span><span style="color:#141414">{{ nVal }}</span></span><input type="range" min="1" max="13" step="1" value="{{ nVal }}" onInput="{{ setN }}"></label>
+        <label style="display:flex;flex-direction:column;gap:10px"><span style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:12px;color:#55524c"><span>capex per server</span><span style="color:#141414">CHF {{ capexVal }}</span></span><input type="range" min="3000" max="15000" step="500" value="{{ capexVal }}" onInput="{{ setCapex }}"></label>
+        <label style="display:flex;flex-direction:column;gap:10px"><span style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:12px;color:#55524c"><span>hardware life</span><span style="color:#141414">{{ lifeVal }} years</span></span><input type="range" min="2" max="8" step="1" value="{{ lifeVal }}" onInput="{{ setLife }}"></label>
+        <label style="display:flex;flex-direction:column;gap:10px"><span style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:12px;color:#55524c"><span>electricity price</span><span style="color:#141414">{{ priceVal }} CHF/kWh</span></span><input type="range" min="0.2" max="0.45" step="0.005" value="{{ priceVal }}" onInput="{{ setPrice }}"></label>
+      </div>
+      <div style="display:flex;gap:6px;padding:5px;border:1px solid #dcd6cc;border-radius:999px;width:max-content;max-width:100%;flex-wrap:wrap;font-family:'Geist Mono',monospace;font-size:12px">
+        <sc-for list="{{ pols }}" as="p" hint-placeholder-count="2">
+          <button onClick="{{ p.on }}" style="border:0;cursor:pointer;padding:10px 16px;border-radius:999px;font:inherit;color:{{ p.c }};background:{{ p.bg }};transition:all .3s">{{ p.label }}</button>
+        </sc-for>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));gap:1px;background:#dcd6cc;border:1px solid #dcd6cc;border-radius:14px;overflow:hidden">
+        <sc-for list="{{ kpis }}" as="k" hint-placeholder-count="4">
+          <div style="background:#ffffff;padding:16px 18px;display:flex;flex-direction:column;gap:6px"><span style="font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:0.1em;color:#6e6a63;text-transform:uppercase">{{ k.l }}</span><span style="font-weight:660;font-size:26px;font-variant-numeric:tabular-nums;color:{{ k.c }}">{{ k.v }}</span></div>
+        </sc-for>
+      </div>
+      <span style="font-family:'Geist Mono',monospace;font-size:12px;color:#6e6a63">Inputs from the briefing sweep in research/briefing/numbers.json: heat-led vs always-on, with no deadlines. Hardware = capex × N ÷ life ÷ server-hours. The merit scheduler's paid-price figure (0.53) comes from the full simulation.</span>
+    </div>
+  </section>
+
+  <section style="padding:20px clamp(16px,4vw,40px) 120px;max-width:1400px;margin:0 auto">
+    <div style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c;margin-bottom:20px">03 · How many servers?</div>
+    <h2 style="margin:0 0 14px;font-weight:660;font-stretch:112%;font-size:clamp(34px,5vw,72px);line-height:0.95;letter-spacing:-0.045em;text-wrap:balance">More servers, more heat, dearer hours.</h2>
+    <p style="margin:0 0 32px;max-width:760px;font-size:17px;line-height:1.5;color:#55524c">Each extra server covers more of the winter but sits idle more of the year. The operator picks N by trading heat coverage against the price per server-hour.</p>
+    <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;padding:20px clamp(8px,2vw,24px)">
+      <svg viewBox="0 0 1000 380" style="width:100%;height:auto;display:block">
+        <g style="font-family:'Geist Mono',monospace;font-size:12px;fill:#6e6a63">
+          <line x1="70" y1="330" x2="960" y2="330" stroke="#dcd6cc"></line>
+          <text x="62" y="334" text-anchor="end">0 %</text><text x="62" y="34" text-anchor="end">100 %</text>
+          <text x="968" y="334">0.40</text><text x="968" y="34">0.80</text>
+          <text x="515" y="364" text-anchor="middle">servers per house (1–13)</text>
+        </g>
+        <path d="{{ covPath }}" fill="none" stroke="#1d6bb3" stroke-width="3"></path>
+        <path d="{{ bePath }}" fill="none" stroke="#c93c05" stroke-width="3" stroke-dasharray="{{ beDash }}"></path>
+        <line x1="{{ curX }}" x2="{{ curX }}" y1="30" y2="330" stroke="#141414" stroke-dasharray="3 5"></line>
+        <circle cx="{{ curX }}" cy="{{ curCovY }}" r="7" fill="#1d6bb3"></circle>
+        <circle cx="{{ curX }}" cy="{{ curBeY }}" r="7" fill="#c93c05"></circle>
+        <text x="{{ curLabelX }}" y="{{ curCovYl }}" style="font-family:'Geist Mono',monospace;font-size:13px;fill:#1d6bb3">{{ curCov }}</text>
+        <text x="{{ curLabelX }}" y="{{ curBeYl }}" style="font-family:'Geist Mono',monospace;font-size:13px;fill:#c93c05">{{ curBe }}</text>
+      </svg>
+      <div style="display:flex;gap:18px;flex-wrap:wrap;font-family:'Geist Mono',monospace;font-size:11px;color:#55524c;padding:6px 12px 0">
+        <span style="display:flex;gap:6px;align-items:center"><span style="width:14px;height:3px;background:#1d6bb3"></span>heat covered (left)</span>
+        <span style="display:flex;gap:6px;align-items:center"><span style="width:14px;height:3px;background:#c93c05"></span>CHF / server-h incl. hardware (right)</span>
+      </div>
+    </div>
+  </section>
+
+  <section style="padding:20px clamp(16px,4vw,40px) 120px;max-width:1400px;margin:0 auto">
+    <div style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c;margin-bottom:20px">04 · Measured, not invented</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));gap:32px;align-items:center">
+      <div style="display:flex;flex-direction:column;gap:18px">
+        <h2 style="margin:0;font-weight:660;font-stretch:112%;font-size:clamp(34px,5vw,72px);line-height:0.95;letter-spacing:-0.045em;text-wrap:balance">Whisper on a Mac mini, on a power meter.</h2>
+        <p style="margin:0;font-size:17px;line-height:1.5;color:#55524c">EXP-0001: Whisper-small (MLX, Metal) on a 104 s clip, three runs after warm-up, power measured with powermetrics. We scale to the 1 kW reference server at equal efficiency per joule, and label that as an assumption.</p>
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;color:#6e6a63">runs/experiment_tracker.md · src/jobs/measurements/whisper_m4.json</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:#dcd6cc;border:1px solid #dcd6cc;border-radius:20px;overflow:hidden">
+        <sc-for list="{{ exp }}" as="e" hint-placeholder-count="4">
+          <div style="background:#ffffff;padding:24px;display:flex;flex-direction:column;gap:8px"><span style="font-weight:660;font-stretch:112%;font-size:clamp(32px,3.6vw,48px);letter-spacing:-0.03em;color:{{ e.c }}">{{ e.v }}</span><span style="font-size:14px;color:#55524c;line-height:1.4">{{ e.l }}</span></div>
+        </sc-for>
+      </div>
+    </div>
+  </section>
+
+  <section style="padding:20px clamp(16px,4vw,40px) 180px;max-width:1400px;margin:0 auto">
+    <div style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c;margin-bottom:20px">05 · Decision card</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,400px),1fr));gap:16px">
+      <div style="border:1px solid #a7d3b8;border-radius:20px;padding:28px;background:rgba(21,122,67,0.04);display:flex;flex-direction:column;gap:16px">
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.12em;color:#157a43">✓ IT PAYS OFF WHEN</span>
+        <sc-for list="{{ pays }}" as="p" hint-placeholder-count="3"><span style="font-size:19px;line-height:1.4;border-top:1px solid #cfe6d7;padding-top:14px">{{ p }}</span></sc-for>
+      </div>
+      <div style="border:1px solid #eab0bb;border-radius:20px;padding:28px;background:rgba(209,23,58,0.04);display:flex;flex-direction:column;gap:16px">
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.12em;color:#d1173a">✕ IT DOES NOT PAY OFF WHEN</span>
+        <sc-for list="{{ nopay }}" as="p" hint-placeholder-count="2"><span style="font-size:19px;line-height:1.4;border-top:1px solid #f3d0d6;padding-top:14px">{{ p }}</span></sc-for>
+      </div>
+    </div>
+    <p style="margin:24px 0 0;font-size:17px;line-height:1.5;color:#2e2b27;max-width:900px">The cheapest price per hour is 1 server per house (0.52 CHF/h), but it covers only about 20 % of the heat. The first pilot question is whether customers accept 24 h of slack.</p>
+  </section>
+
+  <dc-import name="Nav" active="{{ navActive }}" hint-size="100%,60px"></dc-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { t: 0, seen: null, n: 4, capex: 8000, life: 5, price: 0.3325, pol: "follow" };
+  gapRef = React.createRef();
+  static SW = {
+    follow: [[0.1955, 6105, 0, 7631.25], [0.3276, 10230.4, 0, 12788], [0.4554, 14223.1, 0, 17778.8], [0.5805, 18128.8, 0, 22661.0], [0.6987, 21820.1, 0, 27275.1], [0.7959, 24856.8, 0, 31070.9], [0.871, 27202.2, 0, 34002.8], [0.9295, 29027.5, 0, 36284.3], [0.9693, 30271.1, 0, 37838.9], [0.9926, 31000.3, 0, 38750.4], [0.9997, 31222.0, 0, 39044.5], [0.9999, 31228.4, 0, 39076.4], [1, 31230.5, 0, 39081.8]],
+    always: [[0.1955, 6105, 903, 8760], [0.3276, 10230.4, 3785.6, 17520], [0.4554, 14223.1, 6800.9, 26280], [0.5805, 18128.8, 9903.2, 35040], [0.6987, 21820.1, 13219.9, 43800], [0.7959, 24856.8, 17191.2, 52560], [0.871, 27202.2, 21853.8, 61320], [0.9295, 29027.5, 27036.5, 70080], [0.9693, 30271.1, 32800.9, 78840], [0.9926, 31000.3, 39079.7, 87600], [0.9997, 31222.0, 45852.4, 96360], [0.9999, 31228.4, 52834.9, 105120], [1, 31230.5, 59838.6, 113880]]
+  };
+  componentDidMount() {
+    this.start = performance.now(); let last = 0;
+    const loop = (now) => { this.raf = requestAnimationFrame(loop); if (now - last > 33) { last = now; this.setState({ t: (now - this.start) / 1000 }); } };
+    this.raf = requestAnimationFrame(loop);
+    this.io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting && this.state.seen == null) this.setState({ seen: this.state.t }); }), { threshold: 0.3 });
+    this.gapRef.current && this.io.observe(this.gapRef.current);
+  }
+  componentWillUnmount() { cancelAnimationFrame(this.raf); this.io && this.io.disconnect(); }
+  calc(pol, n, capex, life, price) {
+    const [cov, used, dump, runh] = Component.SW[pol][n - 1];
+    const elec = runh * price, heat = used * price / 2.5;
+    const op = (elec - heat) / runh, hw = capex * n / life / runh;
+    return { cov, used, dump, runh, elec, heat, op, hw, total: op + hw, util: runh / (n * 8760) };
+  }
+  renderVals() {
+    const { t, seen, n, capex, life, price, pol } = this.state;
+    const gp = seen == null ? 0 : 1 - Math.pow(1 - Math.max(0, Math.min(1, (t - seen) / 1.6)), 3);
+    const S = 0.8;
+    const G = [["DigitalHeat merit", 0.53, "#c93c05", "#141414"], ["Always on", 0.69, "#7d8088", "#55524c"], ["Thermostat", 0.74, "#7d8088", "#55524c"]];
+    const gap = G.map(([name, v, c, lc]) => ({ name, v: (v * gp).toFixed(2), w: ((v / S) * 100 * gp).toFixed(2), c, lc }));
+    const rt = this.calc(pol, n, capex, life, price);
+    const r = this.tw || (this.tw = { ...rt });
+    for (const k of ["cov", "used", "dump", "runh", "elec", "heat", "op", "hw", "total", "util"]) { r[k] += (rt[k] - r[k]) * 0.2; if (Math.abs(rt[k] - r[k]) < 1e-4) r[k] = rt[k]; }
+    const chf = (x) => Math.round(x).toLocaleString("en-CH");
+    const X = (i) => 70 + (i / 12) * 890;
+    const Yc = (c) => 330 - c * 300;
+    const Yb = (b) => 330 - ((b - 0.4) / 0.4) * 300;
+    const all = Array.from({ length: 13 }, (_, i) => this.calc(pol, i + 1, capex, life, price));
+    const covPath = all.map((x, i) => `${i ? "L" : "M"}${X(i).toFixed(1)},${Yc(x.cov).toFixed(1)}`).join(" ");
+    const bePath = all.map((x, i) => `${i ? "L" : "M"}${X(i).toFixed(1)},${Math.max(10, Math.min(345, Yb(x.total))).toFixed(1)}`).join(" ");
+    const cx = X(n - 1), cyc = Yc(r.cov), cyb = Math.max(10, Math.min(345, Yb(r.total)));
+    const tot = r.total, mx = Math.max(tot, 0.01);
+    const mkPol = (id, label) => ({ label, on: () => this.setState({ pol: id }), c: pol === id ? "#ffffff" : "#55524c", bg: pol === id ? "#c93c05" : "transparent" });
+    return {
+      navActive: 5, gapRef: this.gapRef, gap, todayX: ((0.5 / S) * 100).toFixed(2),
+      fElec: "CHF " + chf(r.elec), fHeat: "CHF " + chf(r.heat), fHours: chf(r.runh) + " h", fCapex: r.hw.toFixed(3), fTotal: r.total.toFixed(3),
+      wOp: ((r.op / mx) * 100).toFixed(1), wCap: ((r.hw / mx) * 100).toFixed(1),
+      nVal: n, capexVal: capex, lifeVal: life, priceVal: price.toFixed(4).replace(/0$/, ""),
+      setN: (e) => this.setState({ n: Number(e.target.value) }), setCapex: (e) => this.setState({ capex: Number(e.target.value) }),
+      setLife: (e) => this.setState({ life: Number(e.target.value) }), setPrice: (e) => this.setState({ price: Number(e.target.value) }),
+      pols: [mkPol("follow", "Heat-led"), mkPol("always", "Always on")],
+      kpis: [
+        { l: "heat covered", v: (r.cov * 100).toFixed(1) + " %", c: "#1d6bb3" },
+        { l: "heat dumped", v: chf(r.dump) + " kWh", c: r.dump > 0 ? "#d1173a" : "#157a43" },
+        { l: "utilisation", v: (r.util * 100).toFixed(0) + " %", c: "#141414" },
+        { l: "operating only", v: r.op.toFixed(3), c: "#d1173a" },
+        { l: "vs 0.50 paid", v: r.total <= 0.5 ? "pays off" : "does NOT pay", c: r.total <= 0.5 ? "#157a43" : "#d1173a" }
+      ],
+      covPath, bePath, beDash: pol === "always" ? "8 6" : "0", curX: cx.toFixed(1), curCovY: cyc.toFixed(1), curBeY: cyb.toFixed(1),
+      curLabelX: (n > 10 ? cx - 150 : cx + 14).toFixed(1), curCovYl: (cyc - 12).toFixed(1), curBeYl: (cyb + 22).toFixed(1),
+      curCov: `${(r.cov * 100).toFixed(1)} % covered`, curBe: `${r.total.toFixed(3)} CHF/h`,
+      exp: [
+        { v: "35×", l: "faster than real time (RTF 0.028)", c: "#c93c05" },
+        { v: "9.2 W", l: "package power while transcribing", c: "#a86400" },
+        { v: "0.26 Wh", l: "per hour of audio transcribed", c: "#157a43" },
+        { v: "95 %", l: "word recall on the test clip", c: "#1d6bb3" }
+      ],
+      pays: ["Paid work sells for at least 0.53 CHF per server-hour at 4 servers", "Hardware costs about CHF 5k per server", "Load reaches about 80 %"],
+      nopay: ["Hardware is CHF 15k with a 3-year life", "Paid work sells at today's assumed 0.50"]
+    };
+  }
+}
+</script>
+</body>
+</html>

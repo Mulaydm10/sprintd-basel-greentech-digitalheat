@@ -1,5 +1,6 @@
 """python -m coordinator [--state runs/coordinator] [--host 127.0.0.1] [--port 8710] [--make-tokens node-a,node-b] [--make-site-tokens site-a]
        python -m coordinator --register-node ID [--certified] [--classes public,swiss-only,certified] [--region CH-BS] [--site ID]
+       python -m coordinator --make-client-token ID | --make-host-token SITE      (portal v1, #83)
 
 Binds 127.0.0.1 by default (Tailscale Funnel forwards to it). For direct tailnet access pass the tailnet
 address with --host. `--make-tokens` writes runs/coordinator/tokens.json (admin, observer, one per node, one `site:<id>` per
@@ -20,12 +21,15 @@ from pathlib import Path
 from common.config import ROOT
 
 
-def make_tokens(path: Path, nodes: list[str], sites: list[str] | None = None) -> bool:
-    from .auth import ID_RE, load_tokens
+def make_tokens(path: Path, nodes: list[str], sites: list[str] | None = None, extra_roles: list[str] = ()) -> bool:
+    from .auth import ID_RE, ROLE_RE, load_tokens
     for i in [*nodes, *(sites or [])]:
         if not ID_RE.match(i):
             raise SystemExit(f"bad id {i!r}: must match {ID_RE.pattern}")
-    roles = ["admin", "observer"] + [f"node:{n}" for n in nodes] + [f"site:{s}" for s in sites or []]
+    for r in extra_roles:
+        if not ROLE_RE.match(r):
+            raise SystemExit(f"bad role {r!r}")
+    roles = ["admin", "observer"] + [f"node:{n}" for n in nodes] + [f"site:{s}" for s in sites or []] + list(extra_roles)
     data: dict[str, str] = {}
     if path.exists():
         data = dict(load_tokens(path))  # validates; refuses to rewrite a malformed file
@@ -49,6 +53,23 @@ def make_tokens(path: Path, nodes: list[str], sites: list[str] | None = None) ->
         raise
     return True
 
+
+def make_role_token_file(state: Path, role: str) -> Path:
+    """Portal v1: ensure `role` (client:<id> / host:<site>) has a token in tokens.json (additive) and write that
+    token, once, to <state>/tok/<kind>_<id> (mode 600). Never printed. Returns the file path."""
+    from .auth import load_tokens
+    make_tokens(state / "tokens.json", [], [], [role])
+    tok = next(t for t, r in load_tokens(state / "tokens.json").items() if r == role)
+    kind, ident = role.split(":", 1)
+    out = state / "tok" / f"{kind}_{ident}"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(tok + "\n")
+    os.chmod(out, 0o600)
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m coordinator")
     ap.add_argument("--state", type=Path, default=ROOT / "runs" / "coordinator")
@@ -57,6 +78,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--make-tokens", default=None, help="comma-separated node ids; adds missing roles to tokens.json")
     ap.add_argument("--make-site-tokens", default=None,
                     help="comma-separated site ids (role site:<id>, for POST /v1/sites/<id>/signal)")
+    ap.add_argument("--make-client-token", default=None, metavar="ID",
+                    help="portal: add role client:ID; its token goes to <state>/tok/client_ID (mode 600, not printed)")
+    ap.add_argument("--make-host-token", default=None, metavar="SITE",
+                    help="portal: add role host:SITE; its token goes to <state>/tok/host_SITE (mode 600, not printed)")
     ap.add_argument("--register-node", default=None, metavar="ID",
                     help="add/replace one node in the operator registry nodes.json (v1.2; mode 600)")
     ap.add_argument("--certified", action="store_true", help="with --register-node: the node is certified")
@@ -64,6 +89,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--region", default="CH-BS", help="with --register-node: region")
     ap.add_argument("--site", default=None, help="with --register-node: the only site_id it may register (default: ID)")
     ns = ap.parse_args(argv)
+    if ns.make_client_token is not None or ns.make_host_token is not None:
+        role = f"client:{ns.make_client_token}" if ns.make_client_token is not None else f"host:{ns.make_host_token}"
+        out = make_role_token_file(ns.state, role)
+        print(f"{role}: token in {out} (mode 600; not printed); restart the coordinator to load it")
+        return 0
     if ns.register_node is not None:
         from .registry import register_node
         classes = [c for c in ns.classes.split(",") if c]

@@ -12,3 +12,8 @@ Setup: coordinator on the Mac mini (127.0.0.1:8710 behind `tailscale serve` HTTP
 | 6 | Tamper `node-omen` | ✅ key denied: node_tampered; no work runs there; `audit_verifies: true` |
 
 Findings: (a) runner orphan survives an agent crash (issue filed, correctness unaffected); (b) the Mac can't resolve its own MagicDNS name (local agent uses 127.0.0.1); (c) `--make-site-tokens` is a no-op when tokens.json already exists (sitesim uses the admin token for now).
+
+## Re-run after #67 (2026-11-21 08:33–08:36 CET)
+| 7 | **Orphan fix:** `kill -9` the Omen agent while its runner computes | ✅ the runner exits **1 s** later; the stale unit dir is removed on the next agent start; the Mac picks up and completes the unit |
+| 8 | **Tamper is permanent per node id:** a restarted `node-omen` is still refused ("key denied: node_tampered") | ✅ by design; the Omen rejoined as a new identity `node-omen2` |
+| 9 | Site signals via per-site tokens (`site:<id>`), no admin token in sitesim | ✅ |

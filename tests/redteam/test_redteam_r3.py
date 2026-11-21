@@ -265,7 +265,6 @@ def test_finding_dashboard_decision_uses_pre_50_break_even(run, client):
 
 
 # ============================================================ tools/pitch ASSUMED detection (#48)
-@pytest.mark.xfail(strict=True, reason="#17 r3 F31: ASSUMED comment on the line above a key is not attributed")
 def test_finding_pitch_misses_assumed_comment_above_key():
     """Under-flagging is the dangerous direction: the number is quoted on stage as 'not ASSUMED'. A full-line comment
     directly above a key is the common YAML style for a caveat, and assumed_paths() drops it."""
@@ -273,7 +272,6 @@ def test_finding_pitch_misses_assumed_comment_above_key():
     assert "server.electric_kw" in assumed_paths("server:\n  # ASSUMED: placeholder until measured\n  electric_kw: 1.0\n")
 
 
-@pytest.mark.xfail(strict=True, reason="#17 r3 F32: 'NOT ASSUMED' is flagged as ASSUMED")
 def test_finding_pitch_flags_not_assumed():
     from tools.pitch.numbers import assumed_paths
     assert assumed_paths("price:\n  chf_per_kwh: 0.33  # verified (ElCom), NOT ASSUMED\n") == set()

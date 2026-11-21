@@ -12,8 +12,9 @@ Every change applied to the export is listed in ``WIRING`` below, so the shipped
 3. Same-origin backend: the ``apiBase`` default on 04 Live and 06 Simulator goes from ``""`` (replay only) to ``"."``.
    The site is served at the dashboard root, so ``./api/...`` is same-origin; the replay fallback stays when the
    backend is unreachable.
-4. 04 Live only: a LIVE controls row (see ``LIVE_PATCH``) that calls the dashboard's local-only proxy
-   ``/api/live/*``. Scripted scenes stay as the fallback.
+4. 04 Live only: a LIVE controls row (see ``LIVE_ROW``) that calls the dashboard's local-only proxy
+   ``/api/live/*`` (pull the plug = drain + kill; "Restore" appears while the killed node is drained, #97).
+   Scripted scenes stay as the fallback.
 """
 from __future__ import annotations
 
@@ -95,6 +96,7 @@ RET_NEW = '''    const ctl = this.state.liveCtl;
       { label: "Pull the plug · " + ctl.kill_node, on: () => this.liveAct("kill") },
       { label: heatTo === "july" ? "Heat pause · July" : "Heat back · coldest", on: () => this.liveAct("heat", { replay: heatTo }) },
       { label: "Tamper · " + ctl.tamper_node, on: () => this.liveAct("tamper") },
+      ...((ctl.drained || []).includes(ctl.kill_node) ? [{ label: "Restore · " + ctl.kill_node, on: () => this.liveAct("restore") }] : []),
     ] : [];
     const liveActMsg = this.state.liveActMsg || (liveOn ? "LIVE · actions go to " + ctl.coordinator : "");
     const liveActC = this.state.liveActC || "#55524c";

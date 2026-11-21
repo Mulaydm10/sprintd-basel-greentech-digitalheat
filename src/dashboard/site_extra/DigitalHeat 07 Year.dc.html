@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./vendor/resources.js"></script>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="./vendor/fonts/fonts.css">
+<style>
+html,body{margin:0;background:#f2efe9;color:#141414}
+html{scroll-behavior:smooth}
+body{font-family:'Geist',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#c93c05}a:hover{color:#a86400}
+::selection{background:#c93c05;color:#ffffff}
+input[type=range]{accent-color:#c93c05}
+@keyframes dhPulse{0%,100%{opacity:1}50%{opacity:.3}}
+</style>
+</helmet>
+<div style="min-height:100vh;background:#f2efe9;overflow-x:hidden">
+  <header style="position:fixed;top:0;left:0;right:0;z-index:40;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:16px clamp(16px,4vw,40px);font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.1em;text-transform:uppercase;color:#55524c;background:linear-gradient(#f2efe9,rgba(242,239,233,0))">
+    <div style="display:flex;align-items:center;gap:10px;color:#141414"><span style="width:9px;height:9px;border-radius:50%;background:#c93c05;box-shadow:0 0 14px #c93c05"></span>DigitalHeat</div>
+    <div style="display:flex;gap:14px;align-items:center"><span data-dh-src style="display:flex;gap:6px;align-items:center;color:{{ srcC }}"><span style="width:6px;height:6px;border-radius:50%;background:{{ srcC }};animation:dhPulse 1.2s infinite"></span>{{ srcLabel }}</span><span>07 · Year · 07 / 07</span></div>
+  </header>
+
+  <section style="padding:110px clamp(12px,3vw,32px) 20px;max-width:1560px;margin:0 auto">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:16px;margin-bottom:18px">
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#a86400">Reference house · Basel 2025 · 8,760 hours · {{ nLabel }}</span>
+        <h1 style="margin:0;font-weight:760;font-stretch:118%;font-size:clamp(36px,5vw,72px);line-height:0.9;letter-spacing:-0.04em">One year, <span style="color:#c93c05">every hour.</span></h1>
+      </div>
+      <div style="display:flex;gap:4px;padding:5px;border:1px solid #dcd6cc;border-radius:999px;flex-wrap:wrap;font-family:'Geist Mono',monospace;font-size:12px">
+        <sc-for list="{{ pols }}" as="p" hint-placeholder-count="2">
+          <button onClick="{{ p.on }}" style="border:0;cursor:pointer;padding:10px 14px;border-radius:999px;font:inherit;color:{{ p.c }};background:{{ p.bg }};transition:all .3s">{{ p.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:#dcd6cc;border:1px solid #dcd6cc;border-radius:18px;overflow:hidden;margin-bottom:14px">
+      <sc-for list="{{ tiles }}" as="k" hint-placeholder-count="8">
+        <div style="background:#ffffff;padding:12px 14px 10px;display:flex;flex-direction:column;gap:4px;min-width:0">
+          <span style="font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:#6e6a63;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ k.l }}</span>
+          <span style="font-weight:660;font-stretch:108%;font-size:24px;font-variant-numeric:tabular-nums;color:{{ k.c }};line-height:1.1;white-space:nowrap">{{ k.v }}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;padding:16px 18px 12px;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c;margin-bottom:10px"><span>where every kWh went · {{ polLabel }}</span><span style="color:#141414">{{ clock }}</span></div>
+      <canvas id="dh-year-canvas" data-dh-year style="width:100%;height:300px;display:block;cursor:pointer" onClick="{{ seek }}"></canvas>
+      <div style="display:grid;grid-template-columns:repeat(12,minmax(0,1fr));font-family:'Geist Mono',monospace;font-size:10px;color:#6e6a63;margin-top:6px">
+        <sc-for list="{{ months }}" as="m" hint-placeholder-count="12"><span>{{ m }}</span></sc-for>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;font-family:'Geist Mono',monospace;font-size:11px;color:#55524c;margin-top:10px">
+        <sc-for list="{{ legend }}" as="l" hint-placeholder-count="6">
+          <span style="display:flex;gap:6px;align-items:center"><span style="width:10px;height:10px;border-radius:3px;background:{{ l.c }}"></span>{{ l.t }}</span>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:auto minmax(0,1fr);gap:14px;align-items:center;border:1px solid #dcd6cc;border-radius:20px;background:#f8f6f1;padding:14px 18px;margin-bottom:14px">
+      <button onClick="{{ toggle }}" style="cursor:pointer;padding:10px 16px;border-radius:999px;border:0;background:#c93c05;color:#ffffff;font-family:'Geist Mono',monospace;font-size:12px;font-weight:700;min-width:96px">{{ playLabel }}</button>
+      <input type="range" min="0" max="{{ hMax }}" step="1" value="{{ hNow }}" onInput="{{ scrub }}" style="width:100%;min-width:0">
+      <label style="display:flex;flex-direction:column;gap:6px;grid-column:1 / -1"><span style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:11px;color:#55524c"><span>servers in the basement</span><span style="color:#141414">N = {{ nVal }}</span></span><input type="range" min="1" max="8" step="1" value="{{ nVal }}" onInput="{{ setN }}"></label>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;grid-column:1 / -1;font-family:'Geist Mono',monospace;font-size:12px">
+        <sc-for list="{{ speeds }}" as="s" hint-placeholder-count="3">
+          <button onClick="{{ s.on }}" style="border:1px solid #dcd6cc;cursor:pointer;padding:8px 12px;border-radius:999px;font:inherit;color:{{ s.c }};background:{{ s.bg }};transition:all .3s">{{ s.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:14px">
+      <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;padding:20px;display:grid;grid-template-columns:110px minmax(0,1fr);gap:20px;align-items:stretch">
+        <div style="border:1px solid #c4bcae;border-radius:14px;position:relative;overflow:hidden;min-height:220px">
+          <div style="position:absolute;left:0;right:0;bottom:0;height:{{ tankPct }}%;background:linear-gradient(#f0a500,#c93c05);transition:height .15s"></div>
+          <span style="position:absolute;top:8px;left:0;right:0;text-align:center;font-family:'Geist Mono',monospace;font-size:10px;color:#141414">TANK</span>
+          <span style="position:absolute;bottom:8px;left:0;right:0;text-align:center;font-family:'Geist Mono',monospace;font-size:12px;color:#141414">{{ tankLabel }}</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <span style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c">servers right now</span>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <sc-for list="{{ racks }}" as="r" hint-placeholder-count="8">
+              <span style="width:26px;height:44px;border-radius:6px;border:1px solid {{ r.bd }};background:{{ r.bg }};transition:background .2s"></span>
+            </sc-for>
+          </div>
+          <span style="font-size:16px;line-height:1.45;color:#2e2b27">{{ nowNote }}</span>
+        </div>
+      </div>
+      <div style="border:1px solid {{ cardBd }};border-radius:20px;background:#ffffff;padding:20px;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;justify-content:space-between;gap:10px;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c"><span>sizing · how many servers?</span><span style="color:{{ paysC }}">{{ paysLabel }}</span></div>
+        <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap"><span style="font-weight:760;font-stretch:118%;font-size:56px;line-height:0.9;letter-spacing:-0.04em;color:#c93c05">N = {{ recN }}</span><span style="font-size:16px;color:#2e2b27">recommended</span></div>
+        <span style="font-size:16px;line-height:1.5;color:#2e2b27">{{ recWhy }}</span>
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px 16px;font-family:'Geist Mono',monospace;font-size:12.5px;border-top:1px solid #dcd6cc;padding-top:12px">
+          <span style="color:#6e6a63">at N = {{ nVal }}</span><span style="color:#c93c05">ours</span><span style="color:#55524c">thermostat</span>
+          <sc-for list="{{ cmp }}" as="c" hint-placeholder-count="5">
+            <span style="color:#55524c">{{ c.l }}</span><span style="color:#141414;text-align:right">{{ c.a }}</span><span style="color:#55524c;text-align:right">{{ c.b }}</span>
+          </sc-for>
+        </div>
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;color:#6e6a63;line-height:1.5">{{ cheapNote }}</span>
+      </div>
+    </div>
+    <p data-dh-note style="margin:14px 0 120px;font-family:'Geist Mono',monospace;font-size:12px;color:#6e6a63;line-height:1.5">{{ srcNote }}</p>
+  </section>
+  <dc-import name="Nav" active="{{ navActive }}" hint-size="100%,60px"></dc-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;apiBase&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;.&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  state = { n: 4, pol: "ours", h: 0, playing: false, speed: 240, idx: null, run: null, err: null, loading: true };
+  static MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  static C = { temp: "#1d6bb3", tempHot: "#c93c05", used: "#c93c05", dump: "#d1173a", backup: "#c4bcae", demand: "#141414", srv: "#c93c05", grid: "#ebe6dd" };
+  componentDidMount() {
+    this.runs = {};
+    this.load(this.state.n);
+    let last = performance.now(), lastUi = 0;
+    const loop = (now) => {
+      this.raf = requestAnimationFrame(loop);
+      const dt = Math.min(0.1, (now - last) / 1000); last = now;
+      const run = this.state.run;
+      if (!run) return;
+      if (this.state.playing) {
+        this.hf = Math.min(run.hours - 1, (this.hf ?? this.state.h) + dt * this.state.speed);
+        if (this.hf >= run.hours - 1) this.setState({ playing: false });
+      } else this.hf = this.state.h;
+      this.draw(this.hf);
+      if (now - lastUi > 80 && Math.floor(this.hf) !== this.state.h) { lastUi = now; this.setState({ h: Math.floor(this.hf) }); }
+    };
+    this.raf = requestAnimationFrame(loop);
+    this.onResize = () => { this.bg = null; };
+    addEventListener("resize", this.onResize);
+  }
+  componentWillUnmount() { cancelAnimationFrame(this.raf); removeEventListener("resize", this.onResize); }
+  base() { return (this.props.apiBase ?? ".").trim().replace(/\/$/, "") || "."; }
+  async load(n) {
+    this.setState({ loading: true });
+    try {
+      if (!this.state.idx) {
+        const r = await fetch(this.base() + "/api/year/sizing");
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || ("HTTP " + r.status));
+        this.setState({ idx: await r.json() });
+      }
+      if (!this.runs[n]) {
+        const r = await fetch(this.base() + "/api/year?n=" + n);
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || ("HTTP " + r.status));
+        this.runs[n] = this.prep(await r.json());
+      }
+      this.bg = null;
+      this.setState({ run: this.runs[n], n, err: null, loading: false });
+    } catch (e) { this.setState({ err: String(e.message || e), loading: false }); }
+  }
+  prep(d) {
+    const cum = (a) => { const o = new Float64Array(a.length); let s = 0; for (let i = 0; i < a.length; i++) { s += a[i]; o[i] = s; } return o; };
+    for (const k of ["ours", "baseline"]) { d[k].dumped_cum = cum(d[k].dumped_kwh); d[k].backup_cum = cum(d[k].backup_kwh); }
+    d.weather.demand_cum = cum(d.weather.demand_kwh);
+    return d;
+  }
+  series() { const r = this.state.run; return r ? r[this.state.pol === "ours" ? "ours" : "baseline"] : null; }
+  background(cv, W, H) {
+    const r = this.state.run, s = this.series(), w = r.weather, C = Component.C, n = r.n, hours = r.hours;
+    const off = document.createElement("canvas"); off.width = W; off.height = H;
+    const g = off.getContext("2d");
+    const top = Math.round(H * 0.22), mid0 = top + Math.round(H * 0.04), mid1 = Math.round(H * 0.86), strip0 = mid1 + Math.round(H * 0.03);
+    let tmin = Infinity, tmax = -Infinity, emax = 0;
+    for (let i = 0; i < hours; i++) { const t = w.temp_c[i]; if (t < tmin) tmin = t; if (t > tmax) tmax = t; emax = Math.max(emax, w.demand_kwh[i], s.heat_used_kwh[i] + s.dumped_kwh[i]); }
+    emax = Math.max(emax, 1) * 1.05;
+    const ty = (t) => top - 2 - ((t - tmin) / Math.max(1e-6, tmax - tmin)) * (top - 6);
+    const ey = (e) => mid1 - (e / emax) * (mid1 - mid0);
+    g.fillStyle = C.grid; g.fillRect(0, mid1, W, 1);
+    for (let x = 0; x < W; x++) {
+      const a = Math.floor((x / W) * hours), b = Math.max(a + 1, Math.floor(((x + 1) / W) * hours));
+      let lo = Infinity, hi = -Infinity, dem = 0, used = 0, dump = 0, back = 0, on = 0, paused = 0;
+      for (let i = a; i < b; i++) {
+        const t = w.temp_c[i]; if (t < lo) lo = t; if (t > hi) hi = t;
+        dem += w.demand_kwh[i]; used += s.heat_used_kwh[i]; dump += s.dumped_kwh[i]; back += s.backup_kwh[i]; on += s.servers_on[i]; paused += s.paused[i];
+      }
+      const k = b - a; dem /= k; used /= k; dump /= k; back /= k; on /= k; paused /= k;
+      const mean = (lo + hi) / 2, f = Math.max(0, Math.min(1, (mean - tmin) / Math.max(1e-6, tmax - tmin)));
+      g.fillStyle = f > 0.55 ? C.tempHot : C.temp; g.globalAlpha = 0.35 + 0.5 * Math.abs(f - 0.55);
+      g.fillRect(x, ty(hi), 1, Math.max(1, ty(lo) - ty(hi))); g.globalAlpha = 1;
+      g.fillStyle = C.backup; g.fillRect(x, ey(used + back), 1, ey(used) - ey(used + back));
+      g.fillStyle = C.used; g.fillRect(x, ey(used), 1, mid1 - ey(used));
+      if (dump > 0) { g.fillStyle = C.dump; g.fillRect(x, ey(used + back + dump), 1, ey(used + back) - ey(used + back + dump)); }
+      g.fillStyle = C.demand; g.fillRect(x, ey(dem) - 1, 1, 2);
+      g.fillStyle = C.srv; g.globalAlpha = n > 0 ? Math.min(1, on / n) : 0; g.fillRect(x, strip0, 1, H - strip0); g.globalAlpha = 1;
+      if (paused > 0.5) { g.fillStyle = "#dcd6cc"; g.fillRect(x, strip0, 1, Math.round((H - strip0) / 3)); }
+    }
+    g.fillStyle = "#6e6a63"; g.font = `${Math.round(10 * (devicePixelRatio || 1))}px 'Geist Mono', monospace`;
+    g.fillStyle = "rgba(255,255,255,0.85)"; g.fillRect(0, 0, 54 * (devicePixelRatio || 1), top); g.fillStyle = "#6e6a63";
+    g.fillText(`${tmax.toFixed(0)} °C`, 4, 12 * (devicePixelRatio || 1)); g.fillText(`${tmin.toFixed(0)} °C`, 4, top - 4);
+    g.fillText(`${(emax / 1.05).toFixed(1)} kW`, 4, mid0 + 12 * (devicePixelRatio || 1));
+    return off;
+  }
+  draw(hf) {
+    const cv = document.getElementById("dh-year-canvas");
+    const r = this.state.run;
+    if (!cv || !r) return;
+    const dpr = devicePixelRatio || 1, W = Math.max(1, Math.round(cv.clientWidth * dpr)), H = Math.max(1, Math.round(cv.clientHeight * dpr));
+    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; this.bg = null; }
+    const key = r.n + "|" + this.state.pol + "|" + W + "x" + H;
+    if (!this.bg || this.bgKey !== key) { this.bg = this.background(cv, W, H); this.bgKey = key; }
+    const g = cv.getContext("2d");
+    g.clearRect(0, 0, W, H); g.drawImage(this.bg, 0, 0);
+    const x = Math.round((hf / (r.hours - 1)) * (W - 1));
+    g.fillStyle = "rgba(255,255,255,0.62)"; g.fillRect(x + 1, 0, W - x - 1, H);
+    g.fillStyle = "#141414"; g.fillRect(x, 0, Math.max(1, Math.round(dpr)), H);
+  }
+  when(h) {
+    const t = new Date(Date.UTC(2024, 11, 31, 23) + h * 3600e3);
+    return t.toLocaleString("en-CH", { timeZone: "Europe/Zurich", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  }
+  renderVals() {
+    const { n, pol, h, playing, speed, idx, run, err, loading } = this.state;
+    const s = this.series(), w = run && run.weather, hours = run ? run.hours : 8760, i = Math.min(h, hours - 1);
+    const st = idx && idx.settings, k = st && st.constants, price = st ? st.paid_price_chf_per_server_h : null;
+    const f1 = (x, u) => (x == null || !isFinite(x) ? "–" : x.toFixed(1) + (u || ""));
+    const fx = (x, d) => (x == null || !isFinite(x) ? "–" : Number(x).toLocaleString("en-CH", { maximumFractionDigits: d ?? 0 }));
+    const tiles = s ? [
+      { l: "when", v: this.when(i), c: "#141414" },
+      { l: "outside", v: f1(w.temp_c[i], " °C"), c: w.temp_c[i] < 5 ? "#1d6bb3" : "#141414" },
+      { l: "heat demand kW", v: f1(w.demand_kwh[i]), c: "#141414" },
+      { l: "server heat used kW", v: f1(s.heat_used_kwh[i]), c: "#c93c05" },
+      { l: "servers on", v: `${Math.round(s.servers_on[i])}/${run.n}`, c: "#c93c05" },
+      { l: "tank kWh", v: f1(s.tank_kwh[i]), c: "#a86400" },
+      { l: "dumped so far kWh", v: fx(s.dumped_cum[i]), c: s.dumped_cum[i] > 0 ? "#d1173a" : "#55524c" },
+      { l: "net CHF so far (excl. hw)", v: fx(s.net_chf_cum[i]), c: "#141414" },
+    ] : Array.from({ length: 8 }, (_, j) => ({ l: ["when", "outside", "heat demand kW", "server heat used kW", "servers on", "tank kWh", "dumped so far kWh", "net CHF so far (excl. hw)"][j], v: "–", c: "#6e6a63" }));
+    const row = idx && idx.by_n ? idx.by_n.find((r) => r.n === n) : null;
+    const A = row && row.ours, B = row && row.baseline;
+    const pct = (x) => (x == null ? "–" : Number(x).toFixed(1) + " %");
+    const chf = (x) => (x == null ? "–" : Number(x).toFixed(3));
+    const dumpShare = (S) => (S && S.heat_demand_kwh ? (100 * S.dumped_kwh) / S.heat_demand_kwh : null);
+    const cmp = [
+      { l: "heat covered", a: pct(A && A.coverage_pct), b: pct(B && B.coverage_pct) },
+      { l: "paid deadlines missed", a: pct(A && A.missed_pct), b: pct(B && B.missed_pct) },
+      { l: "heat dumped (of demand)", a: pct(dumpShare(A)), b: pct(dumpShare(B)) },
+      { l: "paid price to pay off, CHF/server-h", a: chf(A && A.pays_off_above_chf_per_server_h), b: chf(B && B.pays_off_above_chf_per_server_h) },
+      { l: "net CHF / year excl. hardware", a: fx(A && A.net_chf_excl_hardware), b: fx(B && B.net_chf_excl_hardware) },
+    ];
+    const pays = A ? !!A.pays_off : null;
+    const sz = idx && idx.sizing;
+    const tankCap = k ? k.tank_kwh : 35;
+    const on = s ? Math.round(s.servers_on[i]) : 0;
+    const racks = Array.from({ length: run ? run.n : n }, (_, j) => ({ bg: j < on ? "#c93c05" : "#f8f6f1", bd: j < on ? "#c93c05" : "#c4bcae" }));
+    const dem = w ? w.demand_kwh[i] : 0, used = s ? s.heat_used_kwh[i] : 0, dump = s ? s.dumped_kwh[i] : 0;
+    const nowNote = !s ? (err ? "No year data loaded." : "Loading the year…")
+      : on === 0 ? (dem > 0 ? "Servers idle: the tank still covers the house." : "No heat wanted and no paid deadline: servers stay off.")
+      : dump > 0.001 ? `${on} running for a paid deadline; ${dump.toFixed(2)} kWh of heat goes to the dump this hour.`
+      : `${on} running; their ${used.toFixed(2)} kWh of heat goes into the house and the tank.`;
+    const mk = (id, label) => ({ label, on: () => { this.bg = null; this.setState({ pol: id }); }, c: pol === id ? "#ffffff" : "#55524c", bg: pol === id ? "#c93c05" : "transparent" });
+    const sp = (v, label) => ({ label, on: () => this.setState({ speed: v }), c: speed === v ? "#ffffff" : "#55524c", bg: speed === v ? "#141414" : "#ffffff" });
+    const prov = (run && run.provenance) || (idx && idx.provenance) || {};
+    const srcLabel = err ? "NO YEAR DATA" : loading && !run ? "LOADING" : "SIMULATED YEAR · " + String(prov.key || "").slice(0, 10);
+    const srcNote = err
+      ? `Could not load the year simulation (${err}). Run python -m simulate_year.yearview --out runs/yearview, then reload. Nothing on this page is invented: without data it stays empty.`
+      : `Simulated with our scheduler on the real Basel 2025 weather (${prov.profile || "data/raw/basel_2025_hourly.csv"}), reference house, ${st ? `slack ${st.ours.slack_h} h, paid load ${st.ours.load}` : "…"}; thermostat baseline on the same paid work. Key ${prov.key || "–"} · assumptions ${String(prov.assumptions_hash || "–").slice(0, 12)} · ${prov.generated_at || ""}. Hardware is ASSUMED (${st ? st.capex_chf_per_server + " CHF over " + st.life_years + " y" : "–"}).`;
+    return {
+      navActive: 7, srcLabel, srcC: err ? "#a86400" : "#157a43", srcNote,
+      nLabel: `N = ${n} servers`, polLabel: pol === "ours" ? "DigitalHeat merit + heat-backed filler" : "thermostat baseline",
+      pols: [mk("ours", "Ours (merit)"), mk("thermostat", "Thermostat")],
+      tiles, clock: s ? this.when(i) : "–",
+      months: Component.MONTHS,
+      legend: [{ c: Component.C.used, t: "server heat used" }, { c: Component.C.dump, t: "dumped" }, { c: Component.C.backup, t: "backup heater" }, { c: Component.C.demand, t: "heat demand" }, { c: Component.C.temp, t: "outside temperature" }, { c: Component.C.srv, t: "servers on (strip)" }],
+      toggle: () => { if (!run) return; if (!playing && i >= hours - 1) this.hf = 0; this.setState({ playing: !playing, h: !playing && i >= hours - 1 ? 0 : h }); },
+      playLabel: playing ? "❚❚ Pause" : "▶ Play",
+      scrub: (e) => { this.hf = Number(e.target.value); this.setState({ h: Number(e.target.value), playing: false }); },
+      seek: (e) => { const cv = e.currentTarget, r = cv.getBoundingClientRect(); const v = Math.round(((e.clientX - r.left) / r.width) * (hours - 1)); this.hf = v; this.setState({ h: v, playing: false }); },
+      hMax: hours - 1, hNow: i,
+      nVal: n, setN: (e) => this.load(Number(e.target.value)),
+      speeds: [sp(120, "½ day / 0.1 s"), sp(240, "1 day / 0.1 s"), sp(720, "3 days / 0.1 s")],
+      tankPct: s ? Math.max(0, Math.min(100, (100 * s.tank_kwh[i]) / tankCap)) : 0, tankLabel: s ? s.tank_kwh[i].toFixed(1) + " kWh" : "–",
+      racks, nowNote,
+      recN: sz ? sz.recommended_n : "–", recWhy: sz ? sz.reason + (sz.rule ? " Rule: " + sz.rule : "") : (err ? "No sizing without the year simulation." : "…"),
+      cmp, paysLabel: pays == null ? "" : pays ? `pays off at ${price} CHF/server-h` : `does not pay off at ${price} CHF/server-h`,
+      paysC: pays ? "#157a43" : "#d1173a", cardBd: pays ? "#157a43" : "#dcd6cc",
+      cheapNote: sz ? `Cheapest to run: N = ${sz.lowest_break_even_n}, paid work must fetch ${chf(sz.lowest_break_even_chf_per_server_h)} CHF/server-h (incl. hardware, net of filler income). ${sz.lowest_break_even_reason || ""}` : "",
+    };
+  }
+}
+</script>
+</body>
+</html>

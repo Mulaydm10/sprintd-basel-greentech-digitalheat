@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<script src="./vendor/resources.js"></script>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="./vendor/fonts/fonts.css">
+<style>
+html,body{margin:0;background:#f2efe9;color:#141414}
+html{scroll-behavior:smooth}
+body{font-family:'Geist',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#c93c05}a:hover{color:#a86400}
+::selection{background:#c93c05;color:#ffffff}
+input[type=text],input[type=password]{font-family:'Geist Mono',monospace;font-size:13px;padding:10px 12px;border:1px solid #c4bcae;border-radius:12px;background:#ffffff;color:#141414;min-width:0}
+button:disabled{cursor:not-allowed}
+@keyframes dhPulse{0%,100%{opacity:1}50%{opacity:.3}}
+</style>
+</helmet>
+<div style="min-height:100vh;background:#f2efe9;overflow-x:hidden">
+  <header style="position:fixed;top:0;left:0;right:0;z-index:40;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:16px clamp(16px,4vw,40px);font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.1em;text-transform:uppercase;color:#55524c;background:linear-gradient(#f2efe9,rgba(242,239,233,0))">
+    <div style="display:flex;align-items:center;gap:10px;color:#141414"><span style="width:9px;height:9px;border-radius:50%;background:#c93c05;box-shadow:0 0 14px #c93c05"></span>DigitalHeat</div>
+    <div style="display:flex;gap:14px;align-items:center"><span data-dh-src style="display:flex;gap:6px;align-items:center;color:{{ srcC }}"><span style="width:6px;height:6px;border-radius:50%;background:{{ srcC }};animation:dhPulse 1.2s infinite"></span>{{ srcLabel }}</span><span>09 · GPU Server · {{ navPos }} / __NAV_TOTAL__</span></div>
+  </header>
+
+  <section style="padding:110px clamp(12px,3vw,32px) 20px;max-width:1560px;margin:0 auto">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:16px;margin-bottom:18px">
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#a86400">GPU Server · house owner · {{ roleLabel }}</span>
+        <h1 style="margin:0;font-weight:760;font-stretch:118%;font-size:clamp(36px,5vw,72px);line-height:0.9;letter-spacing:-0.04em">Your basement, <span style="color:#c93c05">heating your home.</span></h1>
+      </div>
+      <sc-if value="{{ signedIn }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;gap:8px;align-items:center;font-family:'Geist Mono',monospace;font-size:12px;color:#55524c">
+          <span>{{ whoLabel }}</span>
+          <button data-dh-signout onClick="{{ signOut }}" style="cursor:pointer;padding:10px 16px;border-radius:999px;border:1px solid #c4bcae;background:#f8f6f1;color:#141414;font:inherit">Sign out</button>
+        </div>
+      </sc-if>
+    </div>
+
+    <sc-if value="{{ showSignIn }}" hint-placeholder-val="{{ true }}">
+      <form data-dh-signin onSubmit="{{ signIn }}" style="border:1px solid #c93c05;border-radius:20px;background:#ffffff;padding:20px;margin-bottom:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px;align-items:end">
+        <label style="display:flex;flex-direction:column;gap:6px;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#55524c">coordinator<input name="url" type="text" value="{{ urlDraft }}" onInput="{{ setUrl }}" autocomplete="off" spellcheck="false"></label>
+        <label style="display:flex;flex-direction:column;gap:6px;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#55524c">host token<input name="token" type="password" value="{{ tokDraft }}" onInput="{{ setTok }}" autocomplete="off" spellcheck="false"></label>
+        <button type="submit" style="cursor:pointer;padding:11px 18px;border-radius:999px;border:0;background:#c93c05;color:#ffffff;font-family:'Geist Mono',monospace;font-size:12px;font-weight:700">Sign in</button>
+        <span style="grid-column:1 / -1;font-size:15px;line-height:1.5;color:#2e2b27">{{ signInNote }}</span>
+      </form>
+    </sc-if>
+
+    <div data-dh-override style="border:1px solid {{ ovBd }};border-radius:20px;background:{{ ovBg }};padding:16px 20px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between">
+      <div style="display:flex;flex-direction:column;gap:4px;max-width:760px">
+        <span style="font-weight:660;font-stretch:108%;font-size:clamp(18px,1.8vw,24px);color:{{ ovC }}">{{ ovTitle }}</span>
+        <span style="font-size:15px;line-height:1.5;color:#2e2b27">{{ ovNote }}</span>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;font-family:'Geist Mono',monospace;font-size:12px">
+        <sc-for list="{{ ovActions }}" as="a" hint-placeholder-count="4">
+          <button onClick="{{ a.on }}" disabled="{{ a.off }}" title="{{ a.tip }}" style="cursor:pointer;padding:10px 16px;border-radius:999px;border:1px solid {{ a.bd }};background:{{ a.bg }};color:{{ a.c }};font:inherit;font-weight:{{ a.w }};opacity:{{ a.op }}">{{ a.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+    <sc-if value="{{ hasMsg }}" hint-placeholder-val="{{ false }}">
+      <div data-dh-msg style="font-family:'Geist Mono',monospace;font-size:12px;color:{{ msgC }};margin:-4px 0 12px">{{ msg }}</div>
+    </sc-if>
+
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:#dcd6cc;border:1px solid #dcd6cc;border-radius:18px;overflow:hidden;margin-bottom:14px">
+      <sc-for list="{{ tiles }}" as="k" hint-placeholder-count="8">
+        <div style="background:#ffffff;padding:12px 14px 10px;display:flex;flex-direction:column;gap:4px;min-width:0">
+          <span style="font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:#6e6a63;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ k.l }}</span>
+          <span style="font-weight:660;font-stretch:108%;font-size:24px;font-variant-numeric:tabular-nums;color:{{ k.c }};line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ k.v }}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,520px),1fr));gap:14px;margin-bottom:14px">
+      <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;padding:20px;display:grid;grid-template-columns:110px minmax(0,1fr);gap:20px;align-items:stretch">
+        <div data-dh-tank style="border:1px solid #c4bcae;border-radius:14px;position:relative;overflow:hidden;min-height:240px">
+          <div style="position:absolute;left:0;right:0;bottom:0;height:{{ tankPct }}%;background:linear-gradient(#f0a500,#c93c05);transition:height .6s"></div>
+          <span style="position:absolute;top:8px;left:0;right:0;text-align:center;font-family:'Geist Mono',monospace;font-size:10px;color:#141414">TANK</span>
+          <span style="position:absolute;bottom:8px;left:0;right:0;text-align:center;font-family:'Geist Mono',monospace;font-size:12px;color:#141414">{{ tankLabel }}</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <span style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c">my house right now · {{ siteId }}</span>
+          <span style="font-size:clamp(18px,1.7vw,22px);line-height:1.4;color:#141414">{{ nowNote }}</span>
+          <div style="display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 14px;font-family:'Geist Mono',monospace;font-size:12.5px">
+            <sc-for list="{{ facts }}" as="f" hint-placeholder-count="4">
+              <span style="color:#6e6a63">{{ f.l }}</span><span style="color:{{ f.c }}">{{ f.v }}</span>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+
+      <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;overflow:hidden">
+        <div style="display:flex;justify-content:space-between;padding:14px 20px;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c;background:#f8f6f1"><span>my servers</span><span>{{ nodesNote }}</span></div>
+        <sc-for list="{{ nodes }}" as="n" hint-placeholder-count="2">
+          <div data-dh-node style="display:grid;grid-template-columns:minmax(120px,1fr) minmax(90px,.7fr) minmax(60px,.5fr) minmax(170px,1.6fr) minmax(70px,.5fr);gap:10px;align-items:center;padding:12px 20px;border-top:1px solid #ebe6dd;font-family:'Geist Mono',monospace;font-size:12.5px">
+            <span style="color:#141414;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ n.id }}</span>
+            <span style="color:{{ n.sc }}">{{ n.state }}</span>
+            <span style="color:#55524c">{{ n.watts }}</span>
+            <span style="display:flex;align-items:center;gap:8px;min-width:0"><span style="color:#55524c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%">{{ n.unit }}</span><span style="flex:1;height:6px;border-radius:3px;background:#ebe6dd;overflow:hidden"><span style="display:block;height:100%;width:{{ n.pct }}%;background:#c93c05;transition:width .6s"></span></span></span>
+            <span style="color:#6e6a63;text-align:right">{{ n.hb }}</span>
+          </div>
+        </sc-for>
+        <span style="display:block;padding:12px 20px;font-size:15px;line-height:1.5;color:#55524c;border-top:1px solid #ebe6dd">{{ nodesFoot }}</span>
+      </div>
+    </div>
+
+    <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;padding:16px 18px 12px;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c;margin-bottom:10px"><span>last 24 hours · heat from my servers, hour by hour</span><span style="color:#141414">{{ histNote }}</span></div>
+      <canvas id="dh-host-history" data-dh-history style="width:100%;height:240px;display:block"></canvas>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;font-family:'Geist Mono',monospace;font-size:11px;color:#55524c;margin-top:10px">
+        <sc-for list="{{ legend }}" as="l" hint-placeholder-count="3">
+          <span style="display:flex;gap:6px;align-items:center"><span style="width:10px;height:10px;border-radius:3px;background:{{ l.c }}"></span>{{ l.t }}</span>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;padding:18px 20px;display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c"><span>live events · my site</span><span style="display:flex;gap:6px;align-items:center;color:{{ streamC }}"><span style="width:6px;height:6px;border-radius:50%;background:{{ streamC }};animation:dhPulse 1.2s infinite"></span>{{ streamLabel }}</span></div>
+      <div data-dh-events style="display:flex;flex-direction:column;gap:6px;font-family:'Geist Mono',monospace;font-size:12.5px;line-height:1.45">
+        <sc-for list="{{ events }}" as="e" hint-placeholder-count="6">
+          <div style="display:grid;grid-template-columns:64px minmax(0,1fr);gap:10px"><span style="color:#6e6a63">{{ e.ts }}</span><span style="color:{{ e.c }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ e.t }}</span></div>
+        </sc-for>
+      </div>
+    </div>
+    <p style="margin:14px 0 140px;font-family:'Geist Mono',monospace;font-size:12px;color:#6e6a63;line-height:1.5">{{ footNote }}</p>
+  </section>
+  <dc-import name="Nav" active="{{ navActive }}" hint-size="100%,60px"></dc-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;coordinator&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;https://dhruvs-mac-mini.tailaf7ebe.ts.net&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;apiBase&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;.&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  // The token lives ONLY in sessionStorage (this tab) and in memory. Never in a URL, persistent storage or a cookie.
+  static TOK = "dh.host.token";
+  static URL = "dh.host.url";
+  static C = { used: "#c93c05", dump: "#d1173a", demand: "#141414", grid: "#ebe6dd", none: "#f2efe9" };
+  state = { tok: null, url: null, urlDraft: "", tokDraft: "", site: null, hist: null, events: [], stream: "off", msg: "", msgC: "#55524c", busy: false, tankKwh: null };
+  componentDidMount() {
+    let tok = null, url = null;
+    try { tok = sessionStorage.getItem(Component.TOK); url = sessionStorage.getItem(Component.URL); } catch (e) {}
+    const def = (this.props.coordinator || "").trim();
+    this.setState({ urlDraft: url || def, url: url || def });
+    this.loadTank();
+    if (tok) this.start(url || def, tok);
+    this.iv = setInterval(() => { if (this.state.tok) this.refresh(); }, 10000);
+    const loop = () => { this.raf = requestAnimationFrame(loop); this.draw(); };
+    this.raf = requestAnimationFrame(loop);
+  }
+  componentWillUnmount() { clearInterval(this.iv); cancelAnimationFrame(this.raf); this.stopStream(); }
+  // Tank size from the dashboard's own year model (data/assumptions.yaml via /api/year/sizing), never hard-coded here.
+  async loadTank() {
+    try {
+      const base = (this.props.apiBase ?? ".").trim().replace(/\/$/, "") || ".";
+      const r = await fetch(base + "/api/year/sizing", { cache: "no-store" });
+      if (!r.ok) return;
+      const j = await r.json(), k = j && j.settings && j.settings.constants;
+      if (k && k.tank_kwh > 0) this.setState({ tankKwh: Number(k.tank_kwh) });
+    } catch (e) {}
+  }
+  api(path, opt = {}) {
+    const { url, tok } = this.state;
+    return fetch(url.replace(/\/$/, "") + path, { ...opt, cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer",
+      headers: { ...(opt.headers || {}), Authorization: "Bearer " + tok, ...(opt.body ? { "Content-Type": "application/json" } : {}) } });
+  }
+  async start(url, tok) {
+    this.setState({ url, tok, msg: "Signing in…", msgC: "#a86400" });
+    try {
+      const r = await fetch(url.replace(/\/$/, "") + "/v1/host/site", { headers: { Authorization: "Bearer " + tok }, cache: "no-store", credentials: "omit" });
+      if (r.status === 401 || r.status === 403) { this.signOut(r.status === 401 ? "Token rejected (401)." : "This is not a host token (403). Customers sign in on 08 Client."); return; }
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      try { sessionStorage.setItem(Component.TOK, tok); sessionStorage.setItem(Component.URL, url); } catch (e) {}
+      this.setState({ site: await r.json(), tokDraft: "", msg: "" });
+      await this.refresh();
+      this.startStream();
+    } catch (e) { this.setState({ tok: null, msg: `Could not reach ${url}: ${e.message || e}. Check the URL and that the coordinator allows this origin (DH_CORS_ORIGINS).`, msgC: "#d1173a" }); }
+  }
+  signOut(why) {
+    this.stopStream();
+    try { sessionStorage.removeItem(Component.TOK); sessionStorage.removeItem(Component.URL); } catch (e) {}
+    this.setState({ tok: null, site: null, hist: null, events: [], tokDraft: "", stream: "off",
+                    msg: typeof why === "string" ? why : "Signed out. The token was removed from this tab.", msgC: typeof why === "string" ? "#d1173a" : "#55524c" });
+  }
+  async refresh() {
+    if (!this.state.tok) return;
+    try {
+      const get = async (p) => { const r = await this.api(p); if (r.status === 401) throw Object.assign(new Error("401"), { auth: true }); return r.ok ? r.json() : null; };
+      const [site, hist] = await Promise.all([get("/v1/host/site"), get("/v1/host/history?hours=24")]);
+      this.setState((s) => ({ site: site || s.site, hist: hist || s.hist }));
+    } catch (e) { if (e.auth) this.signOut("Token rejected (401)."); }
+  }
+  async override(paused, hours) {
+    if (this.state.busy) return;
+    this.setState({ busy: true, msg: paused ? "Pausing…" : "Resuming…", msgC: "#a86400" });
+    try {
+      const body = paused && hours ? JSON.stringify({ until: new Date(Date.now() + hours * 3600e3).toISOString() }) : paused ? "{}" : undefined;
+      const r = await this.api(paused ? "/v1/host/site/pause" : "/v1/host/site/resume", { method: "POST", body });
+      const j = await r.json().catch(() => ({}));
+      if (r.status === 401) { this.signOut("Token rejected (401)."); return; }
+      if (r.ok) this.setState({ site: j, msg: paused ? `✓ paused${hours ? " for " + hours + " h" : " until you resume"}: your servers stop taking heat-led work` : "✓ resumed: your servers follow the heat signal again", msgC: "#157a43" });
+      else this.setState({ msg: `✗ ${r.status}: ${typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail || j).slice(0, 160)}`, msgC: "#d1173a" });
+    } catch (e) { this.setState({ msg: "✗ " + String(e.message || e), msgC: "#d1173a" }); }
+    this.setState({ busy: false });
+  }
+  addEvents(evs) {
+    if (!evs.length) return;
+    this.lastId = Math.max(this.lastId || 0, ...evs.map((e) => e.id));
+    this.setState((s) => ({ events: [...evs.slice().reverse(), ...s.events].slice(0, 60) }));
+    clearTimeout(this.rt); this.rt = setTimeout(() => this.refresh(), 800);  // coalesce bursts
+  }
+  stopStream() { this.streamGen = (this.streamGen || 0) + 1; if (this.abort) this.abort.abort(); clearTimeout(this.pollT); }
+  async startStream() {
+    this.stopStream();
+    const gen = this.streamGen;
+    // EventSource cannot send an Authorization header, so read the SSE stream with fetch.
+    try {
+      this.abort = new AbortController();
+      const r = await this.api("/v1/events", { signal: this.abort.signal, headers: this.lastId ? { "Last-Event-ID": String(this.lastId) } : {} });
+      if (!r.ok || !r.body) throw new Error("HTTP " + r.status);
+      this.setState({ stream: "sse" });
+      const rd = r.body.getReader(), dec = new TextDecoder();
+      let buf = "";
+      while (gen === this.streamGen) {
+        const { value, done } = await rd.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let k;
+        while ((k = buf.indexOf("\n\n")) >= 0) {
+          const block = buf.slice(0, k); buf = buf.slice(k + 2);
+          const f = {}; for (const line of block.split("\n")) { const m = line.match(/^(id|event|data): (.*)$/); if (m) f[m[1]] = m[2]; }
+          if (f.data) { try { const d = JSON.parse(f.data); this.addEvents([{ id: Number(f.id), type: f.event, ...d }]); } catch (e) {} }
+        }
+      }
+    } catch (e) { if (gen !== this.streamGen) return; }
+    if (gen === this.streamGen && this.state.tok) this.poll(gen);  // stream ended or refused (e.g. 429): poll instead
+  }
+  async poll(gen) {
+    this.setState({ stream: "poll" });
+    try {
+      const r = await this.api("/v1/events/poll?after=" + (this.lastId || 0));
+      if (r.ok) this.addEvents((await r.json()).events || []);
+    } catch (e) {}
+    if (gen === this.streamGen && this.state.tok) this.pollT = setTimeout(() => this.poll(gen), 2000);
+  }
+  // 24 hourly slots ending with the current hour; hours the coordinator has no data for stay empty (never invented)
+  slots() {
+    const H = this.state.tok ? this.state.hist : Component.SAMPLE.hist;
+    const end = Math.floor(Date.now() / 3600e3) * 3600e3, by = new Map();
+    for (const r of H || []) by.set(Math.floor(new Date(r.ts).getTime() / 3600e3) * 3600e3, r);
+    return Array.from({ length: 24 }, (_, i) => { const t = end - (23 - i) * 3600e3; return { t, r: by.get(t) || null }; });
+  }
+  draw() {
+    const cv = document.getElementById("dh-host-history");
+    if (!cv) return;
+    const dpr = devicePixelRatio || 1, W = Math.max(1, Math.round(cv.clientWidth * dpr)), Hh = Math.max(1, Math.round(cv.clientHeight * dpr));
+    const s = this.slots(), key = W + "x" + Hh + "|" + JSON.stringify(s.map((x) => x.r && [x.r.heat_kwh, x.r.dumped_kwh, x.r.demand_kwh]));
+    if (key === this.drawKey) return;
+    this.drawKey = key;
+    cv.width = W; cv.height = Hh;
+    const g = cv.getContext("2d"), C = Component.C, pad = Math.round(22 * dpr), top = Math.round(8 * dpr), base = Hh - pad;
+    const max = Math.max(0.1, ...s.map((x) => (x.r ? Math.max(x.r.heat_kwh + x.r.dumped_kwh, x.r.demand_kwh) : 0))) * 1.1;
+    const y = (v) => base - (v / max) * (base - top), bw = W / 24;
+    g.clearRect(0, 0, W, Hh);
+    g.fillStyle = C.grid; g.fillRect(0, base, W, Math.max(1, dpr));
+    g.font = `${Math.round(10 * dpr)}px 'Geist Mono', monospace`; g.textBaseline = "top";
+    s.forEach((x, i) => {
+      const x0 = Math.round(i * bw + bw * 0.15), w = Math.max(1, Math.round(bw * 0.7));
+      if (!x.r) { g.fillStyle = C.none; g.fillRect(x0, base - Math.round(3 * dpr), w, Math.round(3 * dpr)); }
+      else {
+        g.fillStyle = C.used; g.fillRect(x0, y(x.r.heat_kwh), w, base - y(x.r.heat_kwh));
+        if (x.r.dumped_kwh > 0) { g.fillStyle = C.dump; g.fillRect(x0, y(x.r.heat_kwh + x.r.dumped_kwh), w, y(x.r.heat_kwh) - y(x.r.heat_kwh + x.r.dumped_kwh)); }
+        g.fillStyle = C.demand; g.fillRect(Math.round(i * bw), y(x.r.demand_kwh) - Math.round(dpr), Math.round(bw), Math.max(2, Math.round(2 * dpr)));
+      }
+      if (i % 3 === 0) { g.fillStyle = "#6e6a63"; g.fillText(new Date(x.t).toLocaleTimeString("en-CH", { timeZone: "Europe/Zurich", hour: "2-digit", minute: "2-digit" }), x0, base + Math.round(5 * dpr)); }
+    });
+    g.fillStyle = "#6e6a63"; g.fillText(`${(max / 1.1).toFixed(2)} kWh`, Math.round(4 * dpr), top);
+  }
+  static evText(e) {
+    const d = e.data || {}, u = (x) => (x ? String(x).replace(/^job-([0-9a-f]{4})[0-9a-f]*-(u\d+)$/, "job-$1…-$2") : "");
+    switch (e.type) {
+      case "lease.granted": return { t: `▶ ${d.node} took ${u(d.unit)}`, c: "#157a43" };
+      case "lease.renewed": return null;
+      case "lease.lapsed": return { t: `⚠ lease lapsed on ${d.node || e.node_id}`, c: "#d1173a" };
+      case "lease.released": return { t: `❚❚ ${d.node || e.node_id} released ${u(d.unit)}${d.reason ? " · " + d.reason : ""}`, c: "#1d6bb3" };
+      case "unit.migrated": return { t: `⇄ ${u(d.unit)} moved ${d.from} → ${d.to}`, c: "#1d6bb3" };
+      case "unit.progress": return d.checkpoint ? { t: `✓ checkpoint ${u(d.unit)} · chunk ${d.next_chunk}/${d.chunks}`, c: "#141414" } : null;
+      case "site.signal": return null;
+      case "site.paused": return { t: d.paused ? `❚❚ site paused by owner${d.until ? " until " + d.until : ""}` : "▶ site resumed by owner", c: "#1d6bb3" };
+      case "node.state": return { t: `${d.node || e.node_id}: ${d.state || d.status || "state change"}`, c: /tamper|offline/.test(JSON.stringify(d)) ? "#d1173a" : "#141414" };
+      case "audit.appended": return d.type === "complete" ? { t: `✓ ${u(d.unit)} completed on ${d.node}`, c: "#157a43" } : null;
+      case "stream.gap": return { t: "events were trimmed while away · state refetched", c: "#a86400" };
+      default: return { t: e.type, c: "#55524c" };
+    }
+  }
+  static SAMPLE = {  // shown only signed out, labelled SAMPLE: the shape of the view, not live numbers
+    site: { site_id: "site-sample", demand_kw: null, tank_level_kwh: null, degraded: false, paused: false, paused_until: null, heat_used_kw: null, signal_age_s: null,
+            nodes: [{ node_id: "node-sample-1", state: "online", watts: null, running_unit: "job-…-u000", progress: 0.4, last_heartbeat_s: null },
+                    { node_id: "node-sample-2", state: "paused", watts: null, running_unit: null, progress: 0, last_heartbeat_s: null }],
+            heat_today_kwh: null, heat_month_kwh: null, dumped_today_kwh: null, chf_heat_value_today: null },
+    hist: [] };
+  renderVals() {
+    const { tok, site, hist, events, stream, msg, msgC, busy, tankKwh, urlDraft, tokDraft, url } = this.state;
+    const live = !!(tok && site), S = live ? site : Component.SAMPLE.site;
+    const v = (x, f) => (x == null ? "–" : f ? f(x) : String(x));
+    const kw = (x) => Number(x).toFixed(2), kwh = (x) => Number(x).toFixed(2);
+    const tiles = [
+      { l: "heat demand now kW", v: v(S.demand_kw, kw), c: "#141414" },
+      { l: "server heat into house kW", v: v(S.heat_used_kw, kw), c: "#c93c05" },
+      { l: "tank kWh", v: v(S.tank_level_kwh, (x) => Number(x).toFixed(1)), c: "#a86400" },
+      { l: "heat signal", v: !live ? "–" : S.degraded ? "degraded" : "ok", c: S.degraded ? "#a86400" : "#157a43" },
+      { l: "heat today kWh", v: v(S.heat_today_kwh, kwh), c: "#c93c05" },
+      { l: "heat this month kWh", v: v(S.heat_month_kwh, kwh), c: "#c93c05" },
+      { l: "dumped today kWh", v: v(S.dumped_today_kwh, kwh), c: S.dumped_today_kwh > 0 ? "#d1173a" : "#55524c" },
+      { l: "heat value today CHF", v: v(S.chf_heat_value_today, (x) => Number(x).toFixed(2)), c: "#157a43" },
+    ];
+    const tankPct = live && tankKwh && S.tank_level_kwh != null ? Math.max(0, Math.min(100, (100 * S.tank_level_kwh) / tankKwh)) : 0;
+    const tankLabel = S.tank_level_kwh == null ? "–" : `${Number(S.tank_level_kwh).toFixed(1)}${tankKwh ? " / " + tankKwh : ""} kWh`;
+    const running = (S.nodes || []).filter((n) => n.running_unit).length;
+    const nowNote = !live ? "Sign in to see your house: heat demand, tank and what your servers are doing."
+      : S.paused ? "Paused by you: the coordinator treats your house as wanting no heat, so your servers take no heat-led work."
+      : S.degraded ? "The heat signal from your house is stale: the scheduler holds back until it is fresh again."
+      : running ? `${running} of ${(S.nodes || []).length} servers running; their heat goes into your house and the tank.`
+      : S.demand_kw > 0 ? "Servers idle right now: the tank still covers the house." : "No heat wanted right now: servers stay off.";
+    const facts = [
+      { l: "signal age", v: S.signal_age_s == null ? "–" : S.signal_age_s.toFixed(1) + " s", c: S.degraded ? "#a86400" : "#141414" },
+      { l: "owner override", v: !live ? "–" : S.paused ? "paused" + (S.paused_until ? " until " + this.when(S.paused_until) : " until resumed") : "none", c: S.paused ? "#1d6bb3" : "#141414" },
+      { l: "tank size", v: tankKwh ? tankKwh + " kWh (reference house)" : "unknown on this dashboard", c: "#141414" },
+      { l: "servers", v: String((S.nodes || []).length), c: "#141414" },
+    ];
+    const stC = { online: "#157a43", suspect: "#a86400", offline: "#6e6a63", paused: "#1d6bb3", tampered: "#d1173a" };
+    const nodes = (S.nodes || []).map((n) => ({ id: n.node_id, state: (n.tampered ? "tampered" : n.state || "–") + (n.drained ? " · drained" : ""), sc: stC[n.tampered ? "tampered" : n.state] || "#55524c",
+      watts: n.watts == null ? "– W" : Math.round(n.watts) + " W", unit: n.running_unit ? n.running_unit.replace(/^job-([0-9a-f]{4})[0-9a-f]*-/, "job-$1…-") : "idle",
+      pct: n.running_unit ? Math.round((n.progress || 0) * 100) : 0, hb: n.last_heartbeat_s == null ? "" : n.last_heartbeat_s < 60 ? Math.round(n.last_heartbeat_s) + " s ago" : Math.round(n.last_heartbeat_s / 60) + " min ago" }));
+    const btn = (label, on, ok, tip, primary) => ({ label, on: ok ? on : () => {}, off: !ok, tip: ok ? tip : (live ? "" : "sign in with a host token"), op: ok ? 1 : 0.4,
+      bg: primary ? "#1d6bb3" : "#ffffff", c: primary ? "#ffffff" : "#141414", bd: primary ? "#1d6bb3" : "#c4bcae", w: primary ? 700 : 400 });
+    const ok = live && !busy;
+    const ovActions = live && S.paused
+      ? [btn("Resume now", () => this.override(false), ok, "follow the heat signal again", true)]
+      : [btn("Pause 2 h", () => this.override(true, 2), ok, "too warm right now"), btn("Pause 24 h", () => this.override(true, 24), ok, "away today"),
+         btn("Pause 7 days", () => this.override(true, 168), ok, "away on holiday"), btn("Pause until I resume", () => this.override(true, 0), ok, "until you press Resume")];
+    const s = this.slots(), have = s.filter((x) => x.r), sum = (k) => have.reduce((a, x) => a + x.r[k], 0);
+    const evs = live ? events.map((e) => { const x = Component.evText(e); return x && { ts: e.ts ? this.when(e.ts).split(", ").pop() : "", ...x }; }).filter(Boolean).slice(0, 14) : [];
+    const short = (u) => (u || "").replace(/^https?:\/\//, "");
+    const pos = __NAV_INDEX__;
+    return {
+      navActive: pos, navPos: String(pos).padStart(2, "0"),
+      signedIn: !!tok, showSignIn: !tok, roleLabel: live ? "SIGNED IN · " + S.site_id : "SIGN IN FOR YOUR HOUSE",
+      whoLabel: live ? `${S.site_id} @ ${short(url)}` : "",
+      srcLabel: live ? (stream === "sse" ? "LIVE · SSE" : stream === "poll" ? "LIVE · POLL" : "LIVE") : "SAMPLE · NOT LIVE", srcC: live ? "#157a43" : "#a86400",
+      urlDraft, tokDraft,
+      setUrl: (e) => this.setState({ urlDraft: e.target.value }), setTok: (e) => this.setState({ tokDraft: e.target.value }),
+      signIn: (e) => { e.preventDefault(); const u = (this.state.urlDraft || "").trim(), t = (this.state.tokDraft || "").trim(); if (u && t) this.start(u, t); },
+      signOut: () => this.signOut(),
+      signInNote: "Paste the host token for your house. It stays in this browser tab only (sessionStorage) and is sent only to the coordinator above; sign out removes it. Until then everything below is a labelled SAMPLE, not live data.",
+      ovTitle: live && S.paused ? "Paused · " + (S.paused_until ? "until " + this.when(S.paused_until) : "until you resume") : "I'm away / too warm",
+      ovNote: live && S.paused ? "Your servers take no heat-led work while paused. Resume any time."
+        : "Pause tells the coordinator your house wants no heat. Running work stops at its next renew and goes back to the queue with its checkpoint, so another house with heat demand can carry on; nothing is lost.",
+      ovBd: live && S.paused ? "#1d6bb3" : "#dcd6cc", ovBg: live && S.paused ? "#eef4fb" : "#ffffff", ovC: live && S.paused ? "#1d6bb3" : "#141414", ovActions,
+      hasMsg: !!msg, msg, msgC,
+      tiles, tankPct, tankLabel, siteId: S.site_id, nowNote, facts,
+      nodes, nodesNote: live ? `${nodes.length} on this site` : "sample", nodesFoot: live ? (nodes.length ? "Only servers registered at your house are shown." : "No servers registered at this house yet.") : "Sample rows: sign in to see your servers.",
+      histNote: !live ? "sample: sign in" : have.length ? `${have.length} h with data · heat ${sum("heat_kwh").toFixed(2)} kWh · dumped ${sum("dumped_kwh").toFixed(2)} kWh` : "no data in the last 24 h",
+      legend: [{ c: Component.C.used, t: "server heat into the house" }, { c: Component.C.dump, t: "dumped" }, { c: Component.C.demand, t: "heat demand" }],
+      events: evs.length ? evs : [{ ts: "", t: live ? "waiting for events from your site…" : "sample: your site's events appear here live", c: "#6e6a63" }],
+      streamLabel: live ? (stream === "sse" ? "SSE stream" : stream === "poll" ? "polling every 2 s" : "connecting") : "sign in", streamC: live ? (stream === "sse" ? "#157a43" : "#a86400") : "#6e6a63",
+      footNote: live ? `Coordinator ${short(url)} · times in Europe/Zurich · heat value = heat used × electricity price ÷ heat_value_divisor (data/assumptions.yaml), computed by the coordinator.` : "Host view of the coordinator's host API (contract portal v1). Sign in with your house's host token.",
+    };
+  }
+  when(iso) {
+    if (!iso) return "–";
+    const t = new Date(iso); if (isNaN(t)) return "–";
+    return t.toLocaleString("en-CH", { timeZone: "Europe/Zurich", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  }
+}
+</script>
+</body>
+</html>

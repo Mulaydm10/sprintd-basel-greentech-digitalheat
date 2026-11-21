@@ -33,6 +33,8 @@ RUNTIME = ("support.js", "deck-stage.js")
 NAV_PAGE = "Nav.dc.html"
 NAV_EXTRA = [
     ("07", "Year", "DigitalHeat 07 Year.dc.html"),
+    ("08", "Client", "DigitalHeat 08 Client.dc.html"),  # #102: compute customer (portal client API)
+    ("09", "GPU Server", "DigitalHeat 09 GPU Server.dc.html"),  # #102: host / server owner (portal host API)
     ("10", "Coordinator", "DigitalHeat 10 Coordinator.dc.html"),
 ]
 NAV_OLD = '    ["06", "Simulator", "DigitalHeat%2006%20Simulator.dc.html"]\n  ];'

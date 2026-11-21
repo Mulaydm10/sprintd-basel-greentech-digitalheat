@@ -75,8 +75,8 @@ async function main(){
   $("source").textContent = "run: " + src.run_dir; $("fixture").hidden = !src.fixture;
   const b = await get("api/balance");
   const figs = [["share_covered","pct","of the house's heat comes from the servers"],["backup_heat_kwh","kwh","still needed from the backup heater"],
-    ["heat_dumped_kwh","kwh","server heat thrown away"],["break_even_chf_per_server_h","chf","break-even per server-hour (case formula)"],
-    ["break_even_incl_hardware_chf_per_server_h","chf","break-even incl. hardware (ASSUMED capex)"],["utilisation","pct","server utilisation"],
+    ["heat_dumped_kwh","kwh","server heat thrown away"],["break_even_chf_per_server_h","chf","cost per server-hour run (case formula)"],
+    ["pays_off_above_chf_per_server_h","chf","paid price needed to pay off incl. hardware (ASSUMED capex)"],["utilisation","pct","server utilisation"],
     ["missed_deadline_pct","pct100","jobs past deadline"]];
   $("figs").innerHTML = figs.map(([k,kind,l]) => `<div class="fig"><div class="v">${val(b,k,kind)}</div><div class="l">${l}</div></div>`).join("")
     + `<div class="fig"><div class="v">${val(b,"servers_per_house")}</div><div class="l">servers in the house, policy ${val(b,"policy")}</div></div>`;
@@ -86,13 +86,14 @@ async function main(){
   $("decision").innerHTML = `<p><span class="pill ${d.pays_off ? "yes" : "no"}" data-key="balance.json: pays_off" title="balance.json: pays_off">${d.pays_off ? "pays off" : "does NOT pay off"}</span>
     <span data-key="balance.json: pays_off_conditions" title="balance.json: pays_off_conditions">${esc(d.pays_off_conditions)}</span></p>`
     + (c ? `<p>Best server count for the merit policy: <b title="sweep.csv: servers_per_house" data-key="sweep.csv: servers_per_house">${esc(c.servers_per_house)}</b> servers,
-      covering <span title="sweep.csv: share_covered" data-key="sweep.csv: share_covered">${fmt(c.share_covered,"pct")}</span> of the heat at
-      <span title="sweep.csv: break_even_incl_hardware_chf_per_server_h" data-key="sweep.csv: break_even_incl_hardware_chf_per_server_h">${fmt(c.break_even_incl_hardware_chf_per_server_h,"chf")}</span> per server-hour incl. hardware.</p>
+      covering <span title="sweep.csv: share_covered" data-key="sweep.csv: share_covered">${fmt(c.share_covered,"pct")}</span> of the heat; paid work must sell for at least
+      <span title="sweep.csv: pays_off_above_chf_per_server_h" data-key="sweep.csv: pays_off_above_chf_per_server_h">${fmt(c.pays_off_above_chf_per_server_h,"chf")}</span> per server-hour incl. hardware
+      (<span title="sweep.csv: pays_off" data-key="sweep.csv: pays_off">${String(c.pays_off) === "true" || c.pays_off === true ? "pays off" : "does NOT pay off"}</span> at the paid price).</p>
       <p class="sub">Rule: ${esc(d.rule)}.</p>` : `<p class="sub">No sweep.csv yet.</p>`);
 
   const ab = await get("api/ab");
   const cols = [["share_covered","pct","heat covered"],["heat_dumped_kwh","kwh","heat dumped"],["break_even_chf_per_server_h","chf","break-even"],
-    ["break_even_incl_hardware_chf_per_server_h","chf","break-even incl. hw"],["missed_deadline_pct","pct100","missed deadlines"]];
+    ["pays_off_above_chf_per_server_h","chf","paid price to pay off incl. hw"],["missed_deadline_pct","pct100","missed deadlines"]];
   $("ab").innerHTML = ab.rows.length ? `<table><thead><tr><th>policy (N = ${esc(ab.servers_per_house)})</th>${cols.map(c=>`<th class="n">${c[2]}</th>`).join("")}</tr></thead><tbody>`
     + ab.rows.map(r => `<tr><td>${esc(r.policy)}</td>${cols.map(([k,kind]) => `<td class="n" title="sweep.csv: ${k}" data-key="sweep.csv: ${k}">${fmt(r[k],kind)}</td>`).join("")}</tr>`).join("")
     + `</tbody></table>` : `<p class="sub">No sweep.csv yet.</p>`;

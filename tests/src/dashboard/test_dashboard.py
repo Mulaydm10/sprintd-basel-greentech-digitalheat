@@ -114,3 +114,81 @@ def test_real_run_dir_is_used_and_not_fixture(tmp_path, monkeypatch):
     c = TestClient(appmod.app)
     assert c.get("/api/provenance").json()["fixture"] is False
     assert c.get("/api/decision_card").json()["fixture"] is True  # falls back until #31
+
+
+# ------------------------------------------------------------------ #55 hardening (red team F26-F30)
+import shutil as _shutil
+
+import dashboard.app as _dash
+
+
+@pytest.fixture
+def broken_run(tmp_path, monkeypatch):
+    d = tmp_path / "runs" / "r1"
+    d.mkdir(parents=True)
+    for f in ("balance.json", "hourly.csv"):
+        _shutil.copy(_dash.FIXTURE_DIR / f, d / f)
+    monkeypatch.setenv("DH_RUN_DIR", str(d))
+    return d
+
+
+@pytest.mark.parametrize("content", ["{not json", "[1, 2]", "", "\x00\xff"])
+def test_corrupt_balance_is_422_with_message(broken_run, content):
+    from fastapi.testclient import TestClient
+    (broken_run / "balance.json").write_text(content, errors="ignore")
+    c = TestClient(_dash.app, raise_server_exceptions=False)
+    for p in ("/api/balance", "/api/ab", "/api/decision", "/api/provenance", "/api/ab_like_for_like"):
+        r = c.get(p)
+        assert r.status_code == 422 and "run incomplete or corrupt" in r.json()["detail"], (p, r.status_code)
+
+
+def test_bad_sibling_run_is_skipped_and_listed(broken_run):
+    from fastapi.testclient import TestClient
+    bad = broken_run.parent / "half-written"
+    bad.mkdir()
+    (bad / "balance.json").write_text('{"policy": "merit", "servers_per')
+    r = TestClient(_dash.app).get("/api/ab_like_for_like").json()
+    assert r["skipped"] == ["half-written"]
+
+
+@pytest.mark.parametrize("csv", ["hour,x\n0,1\n", "hour,demand,dump\na,1,2\n", ""])
+def test_malformed_hourly_is_422(broken_run, csv):
+    from fastapi.testclient import TestClient
+    (broken_run / "hourly.csv").write_text(csv)
+    r = TestClient(_dash.app, raise_server_exceptions=False).get("/api/day/january")
+    assert r.status_code == 422 and "run incomplete" in r.json()["detail"]
+
+
+def test_sensitivity_drops_non_numeric_rows(broken_run):
+    from fastapi.testclient import TestClient
+    (broken_run / "sensitivity.csv").write_text(
+        "parameter,low,high,metric,metric_low,metric_high,metric_base\nx,1,2,m,abc,1,0.5\ny,1,2,m,0.4,0.6,0.5\n")
+    r = TestClient(_dash.app).get("/api/sensitivity").json()
+    assert r["skipped_rows"] == 1 and [row["parameter"] for row in r["rows"]] == ["y"]
+
+
+def test_decision_ranks_by_pays_off_above_and_reports_its_verdict(broken_run):
+    """F30: the lower run-hour break-even must not win when the paid price needed is higher."""
+    from fastapi.testclient import TestClient
+    import pandas as pd
+    pd.DataFrame([
+        {"policy": "merit", "servers_per_house": 4, "share_covered": 0.58, "heat_dumped_kwh": 5000,
+         "missed_deadline_pct": 0, "break_even_incl_hardware_chf_per_server_h": 0.47,
+         "pays_off_above_chf_per_server_h": 0.53, "pays_off": False},
+        {"policy": "merit", "servers_per_house": 1, "share_covered": 0.13, "heat_dumped_kwh": 0,
+         "missed_deadline_pct": 0, "break_even_incl_hardware_chf_per_server_h": 0.53,
+         "pays_off_above_chf_per_server_h": 0.52, "pays_off": False},
+    ]).to_csv(broken_run / "sweep.csv", index=False)
+    d = TestClient(_dash.app).get("/api/decision").json()
+    assert "pays_off_above" in d["rule"]
+    assert d["chosen"]["servers_per_house"] == 1 and d["chosen"]["pays_off_above_chf_per_server_h"] == 0.52
+    assert d["chosen"]["pays_off"] in (False, "False")
+
+
+def test_decision_with_pre_50_sweep_ranks_nothing_and_says_why(broken_run):
+    from fastapi.testclient import TestClient
+    import pandas as pd
+    pd.DataFrame([{"policy": "merit", "servers_per_house": 4, "break_even_incl_hardware_chf_per_server_h": 0.47}]
+                 ).to_csv(broken_run / "sweep.csv", index=False)
+    d = TestClient(_dash.app).get("/api/decision").json()
+    assert d["chosen"] is None and "predates #50" in d["rule"]

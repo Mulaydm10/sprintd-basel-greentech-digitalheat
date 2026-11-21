@@ -24,6 +24,9 @@ T0 = 1_764_000_000.0  # 2025-11-24, a winter hour
 TOK = {"admin": "A" * 40, "observer": "O" * 40, "node-a": "a" * 40, "node-b": "b" * 40, "node-c": "c" * 40}
 ROLES = {TOK["admin"]: "admin", TOK["observer"]: "observer",
          **{TOK[n]: f"node:{n}" for n in ("node-a", "node-b", "node-c")}}
+# v1.2 operator registry for the test nodes
+REGISTRY = {n: {"certified": False, "max_classes": ["public", "swiss-only", "certified"], "region": "CH-BS",
+                "site_id": f"site-{n[-1]}"} for n in TOK if n.startswith("node-")}
 
 
 class Clock:
@@ -42,7 +45,7 @@ def H(who):
 def env(tmp_path):
     clock = Clock()
     def make():
-        app = create_app(tmp_path, tokens=ROLES, clock=clock)
+        app = create_app(tmp_path, tokens=ROLES, clock=clock, registry=REGISTRY)
         # test seam: the limiter runs on real monotonic time (v1.1); these tests compress time with the
         # injected clock, so they hand the limiter the same simulated time
         app.state.limiter.clock = clock
@@ -79,6 +82,13 @@ def hb(c, node, demand=5.0, tank=5.0):
                json={"watts": 30.0, "watts_source": "none", "progress": 0.0, "demand_kw": demand, "tank_level_kwh": tank})
     assert r.status_code == 200, r.text
     return r.json()
+
+
+def signal(c, node, demand=5.0, tank=5.0):
+    """v1.1/F33: heat comes only from the site signal (heartbeat heat fields are ignored)."""
+    r = c.post(f"/v1/sites/site-{node[-1]}/signal", headers=H("admin"),
+               json={"demand_kw": demand, "tank_level_kwh": tank, "ts": 1.0})
+    assert r.status_code == 200, r.text
 
 
 def submit(c, job_type="image_tagging", force=True, **kw):
@@ -378,7 +388,7 @@ def test_degraded_when_heat_signal_stale_and_no_dump_only_work(env):
     c = env.client()
     register(c, "node-a")
     # summer, full tank: heat has nowhere to go; an urgent unit would run straight into dump
-    hb(c, "node-a", demand=0.0, tank=35.0)
+    signal(c, "node-a", demand=0.0, tank=35.0)
     submit(c, deadline_h=0.25)
     fresh = lease(c, "node-a")
     assert fresh.get("degraded") is False
@@ -393,7 +403,9 @@ def test_degraded_when_heat_signal_stale_and_no_dump_only_work(env):
     stale = lease(c, "node-a")
     assert stale["hold"] and stale["degraded"] is True
     assert "degraded" in stale["reason"] or "idle" in stale["reason"] or "no capacity" in stale["reason"]
-    assert hb(c, "node-a", demand=5.0, tank=5.0)["degraded"] is False  # fresh data clears it
+    assert hb(c, "node-a", demand=5.0, tank=5.0)["degraded"] is True  # F33: heartbeat heat is ignored
+    signal(c, "node-a")
+    assert hb(c, "node-a")["degraded"] is False  # a fresh site signal clears it
 
 
 # ------------------------------------------------------------------ admission at submit
@@ -502,7 +514,7 @@ def test_running_unit_pauses_when_heat_is_no_longer_wanted_and_migrates(env):
     L = lease(c, "node-a")
     unit, lid = L["unit"]["unit_id"], L["lease_id"]
     assert c.post(f"/v1/leases/{lid}/renew", headers=H("node-a")).json()["ok"] is True  # cold: keeps running
-    hb(c, "node-a", demand=0.0, tank=35.0)  # house warm, tank full: heat no longer wanted
+    signal(c, "node-a", demand=0.0, tank=35.0)  # house warm, tank full: heat no longer wanted
     r = c.post(f"/v1/leases/{lid}/renew", headers=H("node-a")).json()
     assert r["hold"] is True and r["final_checkpoint_within_s"] == LEASE_S
     st = c.get("/v1/status", headers=H("admin")).json()

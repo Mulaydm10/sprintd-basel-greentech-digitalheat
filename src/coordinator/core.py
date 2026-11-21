@@ -41,6 +41,7 @@ from scheduler import Assign, Hold, Params, Route, SiteState, Unit, decide, heat
 from scheduler.admit import admit
 from scheduler.policy import used_capacity_kwh_el
 
+from .registry import load_registry, validate as validate_registry
 from .store import Store
 
 VERSION = "coordinator-v1"
@@ -71,8 +72,10 @@ def _priv_bytes(k: X25519PrivateKey) -> bytes:
 
 
 class Coordinator:
-    def __init__(self, state_dir: Path, clock, assumptions: dict | None = None):
+    def __init__(self, state_dir: Path, clock, assumptions: dict | None = None, registry: dict | None = None):
         self.dir = Path(state_dir)
+        # v1.2: operator registry decides certification + class ceiling (missing file -> {} -> deny all)
+        self.registry = validate_registry(registry) if registry is not None else load_registry(self.dir / "nodes.json")
         self.ckpt_dir = self.dir / "ckpt"
         self.clock = clock
         self.a = assumptions or load_assumptions()
@@ -186,10 +189,12 @@ class Coordinator:
 
     @staticmethod
     def _with_signal(db, n) -> dict | None:
-        """The node row with its site's latest signal (if any) overriding the legacy heartbeat fields."""
+        """The node row with its site's latest signal. F33: heartbeat heat fields never drive scheduling; a site
+        without a signal row has no heat data (degraded: persistence/no-dump rules)."""
         if n is None:
             return None
         d = dict(n)
+        d.update(demand_kw=None, tank_level_kwh=None, signal_at=None)
         s = db.execute("SELECT * FROM sites WHERE site_id=?", (d["site_id"],)).fetchone()
         if s is not None:
             d.update(demand_kw=s["demand_kw"], tank_level_kwh=s["tank_level_kwh"], signal_at=s["received_at"])
@@ -204,6 +209,17 @@ class Coordinator:
     def _attestation(self, n) -> trust.Attestation:
         d = json.loads(n["attestation"])
         return trust.Attestation(d["node_id"], d["evidence"], base64.b64decode(d["signature_b64"]))
+
+    def _release(self, job_id: str, node_id: str, att: trust.Attestation, region: str):
+        """KeyBroker.release, plus the v1.2 rule: a certified job's key only goes to a registry-certified node
+        (the broker alone would trust the self-reported evidence flag)."""
+        job = self.broker._jobs.get(job_id)
+        reg = self.registry.get(node_id)
+        if job is not None and job.access_class == "certified" and not (reg and reg["certified"]):
+            self.broker._log({"type": "deny", "job": job_id, "node": node_id, "region": region,
+                              "attestation": "mock", "reason": "not_certified_in_registry"})
+            return trust.Denied("not_certified_in_registry", job_id, node_id)
+        return self.broker.release(job_id, node_id, att, region)
 
     def _live(self, db, now: float, requester: str):
         return [self._with_signal(db, n)
@@ -241,12 +257,28 @@ class Coordinator:
         ok = (attestation.node_id == node_id and attestation.is_valid()
               and attestation.evidence.get("measurement") in self.broker.expected_measurements
               and isinstance(attestation.evidence.get(REGION_KEY), str))
+        reg = self.registry.get(node_id)
         with self._tx() as db:
             self._touch(db, now)
+            if reg is None:
+                self._audit(db, {"type": "register_denied", "node": node_id, "reason": "not_in_registry"})
+                raise CoordError(403, "node not in registry")
+            if site_id != reg["site_id"]:
+                self._audit(db, {"type": "register_denied", "node": node_id, "reason": "site_not_in_registry"})
+                raise CoordError(403, "site not in registry for this node")
             if not ok:
                 self._audit(db, {"type": "register_denied", "node": node_id, "attestation": "mock"})
                 raise CoordError(403, "attestation rejected")
             region = attestation.evidence[REGION_KEY]
+            ceiling = set(reg["max_classes"])
+            if not reg["certified"]:
+                ceiling.discard("certified")
+                if attestation.evidence.get("certified") is True:
+                    self._audit(db, {"type": "certified_claim_rejected", "node": node_id})
+            eligible = [c for c in eligible if c in ceiling]
+            if not eligible:
+                self._audit(db, {"type": "register_denied", "node": node_id, "reason": "no_allowed_classes"})
+                raise CoordError(403, "no requested class is allowed for this node by the registry")
             db.execute("""INSERT INTO nodes(node_id, site_id, eligible_classes, server_kw_el, attestation, region,
                           registered_at, last_hb) VALUES(?,?,?,?,?,?,?,?)
                           ON CONFLICT(node_id) DO UPDATE SET site_id=excluded.site_id,
@@ -254,8 +286,10 @@ class Coordinator:
                           attestation=excluded.attestation, region=excluded.region, last_hb=excluded.last_hb""",
                        (node_id, site_id, json.dumps(sorted(set(eligible))), kw, json.dumps(att), region, now, now))
             self._audit(db, {"type": "register_node", "node": node_id, "site": site_id, "region": region,
-                             "attestation": "mock"})
-        return {"ok": True, "node_id": node_id, "heartbeat_s": HEARTBEAT_S, "lease_s": LEASE_S}
+                             "attestation": "mock", "classes": sorted(set(eligible)),
+                             "certified": bool(reg["certified"])})
+        return {"ok": True, "node_id": node_id, "eligible_classes": sorted(set(eligible)),
+                "certified": bool(reg["certified"]), "heartbeat_s": HEARTBEAT_S, "lease_s": LEASE_S}
 
     def heartbeat(self, node_id: str, hb: dict) -> dict:
         now = self.clock()
@@ -306,7 +340,7 @@ class Coordinator:
                     return {"hold": True, "reason": "degraded: no dump-only work on stale heat data",
                             "retry_after_s": HOLD_RETRY_S, "degraded": True}
             u = db.execute("SELECT * FROM units WHERE unit_id=?", (mine[0],)).fetchone()
-            rel = self.broker.release(u["job_id"], node_id, self._attestation(me), me["region"])
+            rel = self._release(u["job_id"], node_id, self._attestation(me), me["region"])
             self._persist_audit(db)
             if isinstance(rel, trust.Denied):
                 return {"hold": True, "reason": f"key denied: {rel.reason}", "retry_after_s": HOLD_RETRY_S,
@@ -325,7 +359,7 @@ class Coordinator:
         has_ckpt = db.execute("SELECT 1 FROM checkpoints WHERE unit_id=? LIMIT 1", (u["unit_id"],)).fetchone()
         if key is None:  # re-issued lease: release again (audited) so the node can re-open checkpoints
             n = self._node(db, lease["node_id"])
-            key = self.broker.release(u["job_id"], lease["node_id"], self._attestation(n), n["region"])
+            key = self._release(u["job_id"], lease["node_id"], self._attestation(n), n["region"])
             self._persist_audit(db)
             if isinstance(key, trust.Denied):
                 return {"hold": True, "reason": f"key denied: {key.reason}", "retry_after_s": HOLD_RETRY_S}

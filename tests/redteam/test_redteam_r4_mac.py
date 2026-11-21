@@ -37,9 +37,11 @@ def H(who):
 
 
 @pytest.fixture
-def env(tmp_path):
+def env(tmp_path, request):
     clock = Clock()
-    app = create_app(tmp_path, tokens=ROLES, clock=clock)
+    app = create_app(tmp_path, tokens=ROLES, clock=clock, registry={
+        "node-a": {"certified": False, "max_classes": ["public"], "region": "CH-BS", "site_id": "nowhere" if "f33" in request.node.name or "heat_bypasses" in request.node.name else "site-a"},
+        "node-b": {"certified": False, "max_classes": ["public"], "region": "CH-BS", "site_id": "site-b"}})
     if hasattr(app.state, "limiter"):
         app.state.limiter.clock = clock
     return type("Env", (), {"clock": clock, "app": app, "client": staticmethod(lambda: TestClient(app))})
@@ -65,7 +67,6 @@ def submit(c, **kw):
 
 
 # ================================================================== F33 heartbeat heat bypasses the site signal
-@pytest.mark.xfail(strict=True, reason="#65 r4 F33: node-reported heat (heartbeat) still drives scheduling")
 def test_finding_node_reported_heat_bypasses_site_signal(env):
     """v1.1 moved heat to POST /v1/sites/{id}/signal (site token only), but core._with_signal falls back to the legacy
     heartbeat fields when the node's site has no signal row, and site_id is self-chosen at register. Live: node-rt-mac

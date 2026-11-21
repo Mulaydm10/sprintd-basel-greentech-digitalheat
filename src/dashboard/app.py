@@ -217,11 +217,63 @@ def decision() -> dict[str, Any]:
     }
 
 
+LIVE_TIMEOUT_S = 3.0
+LIVE_CACHE_S = 1.0
+_live_cache: dict[str, Any] = {"at": -1e9, "data": None}
+_live_transport: Any = None  # test seam: an httpx transport (MockTransport) instead of the network
+
+
+def _live_fetch() -> dict[str, Any]:
+    """GET {DH_COORDINATOR_URL}/v1/status with the observer token read server-side from DH_OBSERVER_TOKEN_FILE.
+    The token never reaches the page. Any failure -> {ok: False, error} (the page shows a banner), never a 500."""
+    import time as _time
+
+    import httpx
+
+    now = _time.monotonic()
+    if _live_cache["data"] is not None and now - _live_cache["at"] < LIVE_CACHE_S:
+        return _live_cache["data"]
+    url = os.environ.get("DH_COORDINATOR_URL", "http://127.0.0.1:8710").rstrip("/")
+    tok_file = os.environ.get("DH_OBSERVER_TOKEN_FILE", "")
+    out: dict[str, Any] = {"enabled": True, "coordinator": url}
+    try:
+        token = Path(tok_file).read_text().strip() if tok_file else ""
+        if not token:
+            raise ValueError("DH_OBSERVER_TOKEN_FILE is not set or empty")
+        kw = {"transport": _live_transport} if _live_transport is not None else {}
+        with httpx.Client(base_url=url, timeout=LIVE_TIMEOUT_S, **kw) as c:
+            r = c.get("/v1/status", headers={"Authorization": f"Bearer {token}"})
+        if r.status_code != 200:
+            raise RuntimeError(f"coordinator answered HTTP {r.status_code}")
+        st = r.json()
+        if not isinstance(st, dict):
+            raise ValueError("unexpected status payload")
+        out |= {
+            "ok": True,
+            "nodes": [{k: n.get(k) for k in ("node_id", "site_id", "suspect", "degraded", "tampered", "running_unit",
+                                              "progress", "watts", "last_error")} for n in st.get("nodes", [])],
+            "leases": [{k: x.get(k) for k in ("lease_id", "unit_id", "node_id", "expires_in_s")}
+                       for x in st.get("leases", [])],
+            "sites": [{k: x.get(k) for k in ("site_id", "demand_kw", "tank_level_kwh", "heat_used_kw", "age_s",
+                                              "degraded")} for x in st.get("sites", [])],
+            "queue": st.get("queue", {}),
+            "audit": [{k: v for k, v in e.items()} for e in st.get("recent_audit", [])[:10]],
+            "audit_verifies": st.get("audit_verifies"),
+        }
+    except Exception as e:  # noqa: BLE001 - any failure is shown as a banner, not a 500
+        msg = str(e) if isinstance(e, (ValueError, RuntimeError)) else type(e).__name__
+        out |= {"ok": False, "error": f"coordinator unreachable or unreadable: {msg}"}
+    _live_cache.update(at=now, data=out)
+    return out
+
+
 @app.get("/api/nodes")
 def nodes() -> dict[str, Any]:
-    """Live nodes from #8 (GET /status). Stubbed behind DH_LIVE_NODES until #8 lands."""
-    enabled = os.environ.get("DH_LIVE_NODES") == "1"
-    return {"enabled": enabled, "nodes": [], "note": "stub until #8 live_agent exposes GET /status"}
+    """Live nodes from the coordinator's /v1/status (#78), enabled with DH_LIVE_NODES=1."""
+    if os.environ.get("DH_LIVE_NODES") != "1":
+        return {"enabled": False, "nodes": [],
+                "note": "live view off: set DH_LIVE_NODES=1, DH_COORDINATOR_URL and DH_OBSERVER_TOKEN_FILE"}
+    return _live_fetch()
 
 
 # ================================================================ v3 (claim/9-v3): real runs, like-for-like A/B,

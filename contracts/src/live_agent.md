@@ -14,3 +14,6 @@ Loop:
 Never runs anything except `jobs.runner`; never writes outside `runs/agent/<node_id>/`.
 
 Tests: against an in-process coordinator (TestClient transport) with the `cpu-hash` backend: pause/resume, lease lapse → kill, checkpoint upload/resume on another agent instance, backoff on 5xx, key denied, Windows stop-file path (skip the signal parts on win32).
+
+## v2.1 — demo sizing
+CLI `--rounds R --chunks N` overrides (default unchanged). The coordinator includes `rounds`/`chunks` in the unit so every node computes an identical result (required for a byte-identical migrated output); the agent uses the unit's values when present.

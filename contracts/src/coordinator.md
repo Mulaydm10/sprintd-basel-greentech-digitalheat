@@ -30,3 +30,8 @@ Unit = ~15 min of work = N chunks. A chunk id is recorded once in `units.done_ch
 
 ## Tests (tests/src/coordinator/)
 TestClient + 2–3 in-process fake nodes: register/lease/renew/complete happy path; node death → lease lapse → reassign → resume from the latest checkpoint; coordinator restart mid-lease (timers frozen); auth 401/403/429/413/422; path-traversal ids rejected; duplicate/conflicting completion; tamper → key denied → reassigned; degraded mode; property test: random kill schedule → exactly-once.
+
+## v1.1 — site signals + demo replay (bring-up findings, 2026-11-21)
+- `POST /v1/sites/{site_id}/signal {demand_kw, tank_level_kwh, ts}`: role `admin` or `site:<site_id>`; validated (finite, ≥ 0, tank ≤ cap). It is the **only** source of heat signals (nodes no longer need to send them). No signal for > 2 ticks → degraded (as before).
+- `python -m coordinator.sitesim --coordinator URL --token-file T --site S [--replay coldest|july|year] [--speed 3600]`: posts signals from `house_model` (the reference profile; the tank evolves with the heat that the coordinator reports as used), so the demo can run "January" and "July" live.
+- RateLimiter must use a monotonic real clock, never the injected test clock (red team: app.py:86).

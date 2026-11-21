@@ -36,6 +36,7 @@ import httpx
 
 STEPS = ("surface", "roles", "client", "cancel", "host", "migrate", "pause", "certified", "audit")
 ADMIN_STEPS = {"migrate", "pause", "certified", "audit"}
+UI_STEPS = ("ui08", "ui09", "ui10", "ui07")  # #117, opt-in with --ui (tools/demo/e2e_ui.py)
 
 
 class StepFail(RuntimeError):
@@ -70,6 +71,9 @@ class Config:
     tick: Callable[[], None] = lambda: None  # tests: advance a simulated node on every poll
     sleep: Callable[[float], None] = time.sleep
     reference: Callable[["Config", int], str] | None = None  # (cfg, rounds) -> sha of an uninterrupted run
+    ui_out: str = "runs/e2e/ui"  # #117 screenshots
+    ui_allow_pause: bool = False  # 09: click Pause/Resume on the real site
+    ui_channel: str | None = None  # Playwright browser channel, e.g. "chrome" for the system Chrome
 
 
 def _ok(r: httpx.Response, *codes: int) -> httpx.Response:
@@ -359,8 +363,29 @@ class E2E:
         return f"audit verifies: {a['length']} entries, head {str(a['head'])[:12]}"
 
     # ------------------------------------------------------------------ run
+    # ------------------------------------------------------------------ #117 browser steps
+    def _ui(self):
+        if getattr(self, "_uir", None) is None:
+            from .e2e_ui import UI
+            self._uir = UI(self)
+        return self._uir
+
+    def step_ui08(self) -> str:
+        return self._ui().page08()
+
+    def step_ui09(self) -> str:
+        return self._ui().page09()
+
+    def step_ui10(self) -> str:
+        return self._ui().page10()
+
+    def step_ui07(self) -> str:
+        return self._ui().page07()
+
     def cleanup(self) -> list[str]:
         done = []
+        if getattr(self, "_uir", None) is not None:
+            self._uir.close()
         for n in sorted(self._drained):
             if self.admin and self.admin.post(f"/v1/ops/nodes/{n}/undrain").status_code == 200:
                 done.append(f"undrained {n}")

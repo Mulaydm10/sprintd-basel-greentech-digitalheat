@@ -104,8 +104,24 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--sweep", action="store_true")
     ap.add_argument("--workers", type=int, default=None)
+    ap.add_argument("--band-sweep", action="store_true", help="#31: tank-band grid -> band_sweep.csv")
+    ap.add_argument("--sensitivity", action="store_true", help="#31: tornado at N=4 -> sensitivity.csv (+png)")
+    ap.add_argument("--decision-card", action="store_true", help="#31: -> decision_card.json")
     ns = ap.parse_args(argv)
 
+    if ns.band_sweep or ns.sensitivity or ns.decision_card:
+        from . import analysis as an
+        out = ns.out or ROOT / "runs" / f"analysis-seed{ns.seed}"
+        if ns.band_sweep:
+            rows = an.band_sweep(ns.seed, ns.workers)
+            print(f"wrote {an.write_csv(rows, out / 'band_sweep.csv')}; chosen: {an.choose_band(rows)}")
+        if ns.sensitivity:
+            rows = an.sensitivity(ns.seed, ns.workers)
+            print(f"wrote {an.write_csv(rows, out / 'sensitivity.csv')}")
+            print("wrote tornado.png" if an.tornado_png(rows, out / "tornado.png") else "matplotlib missing: no png")
+        if ns.decision_card:
+            print(f"wrote {an.write_json(an.decision_card(ns.seed, ns.workers), out / 'decision_card.json')}")
+        return 0
     if ns.sweep:
         out = ns.out or ROOT / "runs" / f"sweep-seed{ns.seed}"
         print(f"wrote {sweep(out, ns.seed, ns.workers)}")

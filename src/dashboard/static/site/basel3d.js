@@ -218,7 +218,7 @@ export async function create(host, opts = {}) {
           float rad = ${sparks ? "8.0 + life * 140.0" : "10.0 + 40.0 * life + 18.0 * sin(life * 7.0 + aSeed.w * 6.0)"};
           vec3 p = vec3(h.x + cos(ang) * rad, h.y + life * ${sparks ? "260.0" : "180.0"}, h.z + sin(ang) * rad);
           vA = step(aSeed.w, clamp(amt * ${sparks ? "3.0" : "2.2"}, 0.0, 1.0)) * smoothstep(0.0, 0.08, life) * (1.0 - life) * (1.0 - st.a); vK = life;
-          vec4 mv = modelViewMatrix * vec4(p, 1.0); gl_PointSize = uPx * ${sparks ? "3.0" : "4.5"} * 420.0 / -mv.z; gl_Position = projectionMatrix * mv; }`,
+          vec4 mv = modelViewMatrix * vec4(p, 1.0); gl_PointSize = uPx * ${sparks ? "6.0" : "4.5"} * 420.0 / -mv.z; gl_Position = projectionMatrix * mv; }`,
       fragmentShader: `varying float vA; varying float vK; void main(){ vec2 c = gl_PointCoord * 2.0 - 1.0; float r = dot(c, c); if (r > 1.0) discard;
         vec3 col = ${sparks ? "mix(vec3(1.0, 0.25, 0.35), vec3(1.0, 0.75, 0.4), vK)" : "mix(vec3(1.0, 0.55, 0.15), vec3(1.0, 0.85, 0.6), vK)"};
         gl_FragColor = vec4(col * vA, vA * exp(-r * 2.5)); }` });
@@ -256,7 +256,9 @@ export async function create(host, opts = {}) {
     const norm = Math.max(1, run._demMax || 1);
     houses.forEach((hs, i) => { const k = i * 4, s = hs.scale;
       H[k] = Math.min(1.5, used * s / norm * 1.6); H[k + 1] = Math.min(1.5, back * s / norm * 1.2);
-      H[k + 2] = Math.min(1.5, dump * s / norm * 2.5); H[k + 3] = paused ? 1 : 0; });
+      // dumped: any dumping hour sparks visibly; intensity grows with the dumped share of this hour's server heat
+      H[k + 2] = dump > 1e-3 ? 0.35 + 0.65 * Math.min(1, dump / Math.max(1e-6, used + dump) + dump * s / (N * 0.8)) : 0;
+      H[k + 3] = paused ? 1 : 0; });
     houseTex.needsUpdate = true;
     // racks: N per house, lit = running share
     let idx = 0;

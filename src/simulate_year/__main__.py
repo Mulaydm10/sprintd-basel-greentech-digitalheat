@@ -1,3 +1,7 @@
-"""Entry: python -m simulate_year. TODO: implement yearly balance."""
+"""Entry: python -m simulate_year (see simulate_year.cli)."""
+import sys
 
-print("simulate_year: not implemented yet")
+from simulate_year.cli import main
+
+if __name__ == "__main__":
+    sys.exit(main())

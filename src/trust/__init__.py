@@ -23,7 +23,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 __all__ = [
     "ACCESS_CLASSES", "Envelope", "Attestation", "ReleasedKey", "Denied", "AuditEntry", "AuditLog",
-    "KeyBroker", "generate_keypair", "seal", "open_", "attest", "region_allowed",
+    "KeyBroker", "PublishedHead", "generate_keypair", "seal", "open_", "attest", "region_allowed",
 ]
 
 ACCESS_CLASSES = ("public", "swiss-only", "certified")
@@ -130,12 +130,27 @@ class AuditLog:
         self.entries.append(entry)
         return entry
 
-    def verify(self) -> bool:
+    def verify(self, expected_head: str | None = None, expected_len: int | None = None) -> bool:
+        """Chain integrity, optionally anchored to a previously published head.
+
+        A hash chain alone cannot see its newest entries being dropped. With an anchor
+        (``expected_len`` entries ending in ``expected_head``, e.g. from ``KeyBroker.published_head()``)
+        the log must still contain that prefix: truncation below the anchor fails, appends after it pass.
+        """
         prev = GENESIS
         for i, e in enumerate(self.entries):
             if e.index != i or e.prev_hash != prev or e.hash != _entry_hash(i, e.event, prev):
                 return False
             prev = e.hash
+        if expected_len is not None:
+            if expected_len < 0 or len(self.entries) < expected_len:
+                return False
+            anchor = self.entries[expected_len - 1].hash if expected_len else GENESIS
+            if expected_head is not None and anchor != expected_head:
+                return False
+        elif expected_head is not None:
+            if expected_head != GENESIS and all(e.hash != expected_head for e in self.entries):
+                return False
         return True
 
     @property
@@ -179,6 +194,32 @@ class _Job:
     priv: X25519PrivateKey | None
 
 
+@dataclass(frozen=True)
+class PublishedHead:
+    """A signed anchor for the audit log: ``length`` entries ending in ``head``. MOCK signature
+    (demo Ed25519 key); in production it would go to a store the operator cannot rewrite."""
+
+    length: int
+    head: str
+    signature: bytes
+    mock: bool = True
+
+    def payload(self) -> bytes:
+        return _canon({"length": self.length, "head": self.head, "anchor": "mock"})
+
+    def is_valid(self) -> bool:
+        try:
+            MOCK_VERIFIER_PUB.verify(self.signature, self.payload())
+            return True
+        except InvalidSignature:
+            return False
+
+
+def _publish(log: AuditLog) -> PublishedHead:
+    unsigned = PublishedHead(len(log.entries), log.head, b"")
+    return PublishedHead(unsigned.length, unsigned.head, _MOCK_SIGNER.sign(unsigned.payload()))
+
+
 @dataclass
 class KeyBroker:
     """Holds one X25519 key per job. Customers seal inputs to ``job_public_key``; nodes get the
@@ -188,13 +229,28 @@ class KeyBroker:
     audit: AuditLog = field(default_factory=AuditLog)
     _jobs: dict[str, _Job] = field(default_factory=dict)
     _tampered: set[str] = field(default_factory=set)
+    _published: PublishedHead | None = None
+
+    def _log(self, event: Mapping[str, Any]) -> None:
+        """Append to the audit log and publish the new signed head (anchor against truncation)."""
+        self.audit.append(event)
+        self._published = _publish(self.audit)
+
+    def published_head(self) -> PublishedHead:
+        """The last head the broker signed. Compare a log against it with ``verify_audit``."""
+        return self._published if self._published is not None else _publish(self.audit)
+
+    def verify_audit(self, anchor: PublishedHead | None = None) -> bool:
+        """Chain intact AND still contains the (signed) published head: catches tail truncation."""
+        a = anchor or self.published_head()
+        return a.is_valid() and self.audit.verify(expected_head=a.head, expected_len=a.length)
 
     def register_job(self, job_id: str, customer_id: str, access_class: str) -> X25519PublicKey:
         if access_class not in ACCESS_CLASSES:
             raise ValueError(f"unknown access_class {access_class!r}")
         priv = X25519PrivateKey.generate()
         self._jobs[job_id] = _Job(customer_id, access_class, priv)
-        self.audit.append({"type": "register", "job": job_id, "customer": customer_id, "class": access_class})
+        self._log({"type": "register", "job": job_id, "customer": customer_id, "class": access_class})
         return priv.public_key()
 
     def job_public_key(self, job_id: str) -> X25519PublicKey:
@@ -226,15 +282,15 @@ class KeyBroker:
                  "evidence_sha256": hashlib.sha256(attestation.payload()).hexdigest()}
         if reason is not None:
             event["reason"] = reason
-            self.audit.append(event)
+            self._log(event)
             return Denied(reason, job_id, node_id)
-        self.audit.append(event)
+        self._log(event)
         return ReleasedKey(job_id, node_id, job.priv)
 
     def tamper(self, node_id: str) -> None:
         """Mark a node as tampered (enclosure opened / moved). All later releases to it are denied."""
         self._tampered.add(node_id)
-        self.audit.append({"type": "tamper", "node": node_id})
+        self._log({"type": "tamper", "node": node_id})
 
     def is_tampered(self, node_id: str) -> bool:
         return node_id in self._tampered
@@ -247,7 +303,7 @@ class KeyBroker:
             if job.customer_id == customer_id and job.priv is not None:
                 job.priv = None
                 n += 1
-        self.audit.append({"type": "shred", "customer": customer_id, "keys_dropped": n})
+        self._log({"type": "shred", "customer": customer_id, "keys_dropped": n})
         return n
 
 

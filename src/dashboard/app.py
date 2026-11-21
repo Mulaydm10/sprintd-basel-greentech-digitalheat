@@ -15,7 +15,7 @@ from typing import Any
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from trust import KeyBroker, attest
 
@@ -124,6 +124,17 @@ def pick_day(df: pd.DataFrame, which: str) -> tuple[int, pd.DataFrame]:
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(STATIC / "index.html")
+
+
+FAVICON_SVG = ("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' "
+               "fill='#c2410c'/><path d='M16 6c4 5 6 8 6 12a6 6 0 0 1-12 0c0-2 1-4 2-5 0 2 1 3 2 3 0-4 1-7 2-10z' "
+               "fill='#fff7ed'/></svg>")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon() -> Response:
+    """The page links an inline SVG icon; this answers browsers that still ask for /favicon.ico (#81: no 404)."""
+    return Response(FAVICON_SVG, media_type="image/svg+xml", headers={"Cache-Control": "max-age=86400"})
 
 
 @app.get("/api/source")

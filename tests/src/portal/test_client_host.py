@@ -104,8 +104,12 @@ class FakeStore:
             return None
         if j["status"] != "done":
             raise CoordError(409, "job not done")
-        return {"result_sha256": "ab" * 32, "chunk_ids": [0, 1], "nodes_used": ["node-mac"], "kwh": 0.5,
-                "heat_used_kwh": 0.4, "audit_head": "cd" * 32}
+        if j.get("receipt_degraded"):  # the real store's None cases: unreadable final bytes, empty audit chain
+            return {"result_sha256": None, "chunk_ids": {f"{jid}-u000": [0, 1]}, "nodes_used": [], "kwh": 0.0,
+                    "heat_used_kwh": 0.0, "audit_head": None}
+        return {"result_sha256": "ab" * 32, "chunk_ids": {f"{jid}-u000": [0, 1], f"{jid}-u001": [0, 1]},
+                "nodes_used": ["node-mac"], "kwh": 0.5, "heat_used_kwh": 0.4, "audit_head": "cd" * 32,
+                "audit_length": 7}  # same shape as coordinator.portal_store.get_receipt (unit -> chunk ids)
 
     # ---- host
     def host_site(self, coord, sid):
@@ -250,7 +254,17 @@ def test_result_409_until_done_then_bytes_with_sha(env):
     assert r.status_code == 200 and r.headers["content-type"] == "application/octet-stream"
     assert r.headers["x-result-sha256"] == hashlib.sha256(r.content).hexdigest()
     rc = c.get(f"/v1/client/jobs/{jid}/receipt", headers=h("tok-c1")).json()
-    assert rc["nodes_used"] == ["node-mac"] and len(rc["audit_head"]) == 64
+    assert rc["nodes_used"] == ["node-mac"] and len(rc["audit_head"]) == 64 and rc["audit_length"] == 7
+    assert rc["chunk_ids"] == {f"{jid}-u000": [0, 1], f"{jid}-u001": [0, 1]}
+
+
+def test_receipt_passes_through_the_stores_none_fields(env):
+    store, c = env
+    jid = c.post("/v1/client/jobs", json=JOB, headers=h("tok-c1")).json()["job_id"]
+    store.jobs[jid] |= {"status": "done", "receipt_degraded": True}
+    r = c.get(f"/v1/client/jobs/{jid}/receipt", headers=h("tok-c1"))
+    assert r.status_code == 200, r.text
+    assert r.json()["result_sha256"] is None and r.json()["audit_head"] is None
 
 
 # ================================================================== host

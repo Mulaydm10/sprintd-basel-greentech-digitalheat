@@ -108,12 +108,12 @@ class JobPage(Open):
 
 
 class Receipt(Open):
-    result_sha256: str
-    chunk_ids: list[Any]
+    result_sha256: str | None  # None when a unit's final bytes are unreadable (the store says so; not hidden)
+    chunk_ids: dict[str, list[int]]  # unit_id -> its completed chunk ids, so the client can check 0..N-1 per unit
     nodes_used: list[str]
     kwh: float
     heat_used_kwh: float
-    audit_head: str
+    audit_head: str | None  # None only for an empty audit chain
 
 
 def _store_module():

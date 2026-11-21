@@ -75,13 +75,21 @@ def _store_module():
 
 
 def make_router(principal: Callable[..., Any], coord: Callable[[], Any], store: Any = None,
-                now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)) -> APIRouter:
+                now: Callable[[], datetime] | None = None) -> APIRouter:
     """``principal``: the app's auth + rate-limit dependency; ``coord``: returns the running Coordinator;
-    ``store``: ``portal_store``-like object (default: the real module); ``now``: UTC clock for validating ``until``."""
+    ``store``: ``portal_store``-like object (default: the real module); ``now``: UTC clock for validating ``until``
+    (default: the coordinator's own clock, the one the store checks ``until_ts`` against, so a simulated demo clock
+    and the router never disagree; wall time only if the coordinator has no clock)."""
     r = APIRouter(prefix="/v1/host", tags=["host"])
 
     def ps():
         return store if store is not None else _store_module()
+
+    def clock() -> datetime:
+        if now is not None:
+            return now()
+        c = getattr(coord(), "clock", None)
+        return datetime.fromtimestamp(float(c()), timezone.utc) if callable(c) else datetime.now(timezone.utc)
 
     def site_id(p=Depends(principal)) -> str:
         sid = getattr(p, "site_id", None)
@@ -107,7 +115,7 @@ def make_router(principal: Callable[..., Any], coord: Callable[[], Any], store: 
         until_ts = None
         if body is not None and body.until is not None:
             until = body.until if body.until.tzinfo else body.until.replace(tzinfo=timezone.utc)
-            t = now()
+            t = clock()
             if until <= t:
                 raise HTTPException(422, "until must be in the future")
             if until - t > MAX_PAUSE:

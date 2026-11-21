@@ -11,6 +11,10 @@ Site simulator (contract coordinator v1.1): replays the house_model reference pr
 - Tank model (kept simple): every signal reply carries `heat_used_kw` (the heat recovered by the site's nodes that
   hold active leases). Between posts, tank += (heat_used_kw - demand_kw) * sim_dt, clamped to [0, capacity];
   heat above capacity is dumped, demand the tank cannot cover is the backup heater's.
+- `--loop` (default off, #75): when the replay ends it restarts from its first hour with the tank level carried
+  over and `ts` kept monotonic (offset by whole replays), so a "coldest"/"july" demo day can run indefinitely.
+  Without `--loop` the replay ends after its last sim hour: a WARNING says the site will now go degraded (no more
+  signals), and a final "sitesim stopped" line is logged on every exit path.
 - Network errors, 5xx and 429 back off exponentially with full jitter (cap 10 s) and retry the same signal;
   401/403/422 stop with a clear message. The token is read from a file and never logged.
 """
@@ -67,6 +71,8 @@ class SiteSim:
     sleep: Callable[[float], None] = time.sleep
     rng: random.Random = field(default_factory=random.Random)
     sim_s: float = 0.0
+    loop: bool = False
+    loops: int = 0  # completed replays (only > 0 with loop=True)
     failures: int = 0
     posted: list[dict] = field(default_factory=list)
 
@@ -74,8 +80,12 @@ class SiteSim:
     def interval_s(self) -> float:
         return min(MAX_POST_INTERVAL_S, 3600.0 / self.speed)
 
+    @property
+    def replay_s(self) -> float:
+        return len(self.rows) * 3600.0
+
     def done(self) -> bool:
-        return self.sim_s >= len(self.rows) * 3600.0
+        return self.sim_s >= self.replay_s
 
     def backoff(self) -> float:
         self.failures += 1
@@ -88,7 +98,7 @@ class SiteSim:
         i = int(self.sim_s // 3600)
         row = self.rows.iloc[i]
         body = {"demand_kw": round(float(row["demand_kw"]), 6), "tank_level_kwh": round(self.tank_kwh, 6),
-                "ts": float(self.rows.index[i].timestamp()) + self.sim_s % 3600}
+                "ts": float(self.rows.index[i].timestamp()) + self.sim_s % 3600 + self.loops * self.replay_s}
         while True:
             try:
                 r = self.http.post(f"/v1/sites/{self.site_id}/signal", json=body)
@@ -115,9 +125,23 @@ class SiteSim:
         self.tank_kwh = min(self.capacity_kwh, max(0.0, self.tank_kwh + (heat - demand) * dt_h))
         self.sim_s += dt_real * self.speed
 
-    def run(self, stop: Callable[[], bool] = lambda: False) -> None:
-        while not self.done() and not stop():
+    def run(self, stop: Callable[[], bool] = lambda: False) -> str:
+        """Replay until stopped. Returns why it ended: 'stopped' or 'replay-ended'."""
+        while not stop():
+            if self.done():
+                hours = len(self.rows)
+                if not self.loop:
+                    log.warning("replay ended after %d sim-hours (tank %.2f kWh); no more signals will be posted, "
+                                "so site %s will go degraded. Use --loop to keep replaying.", hours, self.tank_kwh,
+                                self.site_id)
+                    return "replay-ended"
+                self.loops += 1
+                self.sim_s = 0.0
+                log.info("replay %d ended after %d sim-hours; restarting (--loop) with the tank carried over at "
+                         "%.2f kWh", self.loops, hours, self.tank_kwh)
+                continue
             self.step()
+        return "stopped"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -132,6 +156,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--replay", default="coldest", choices=REPLAYS)
     p.add_argument("--speed", type=float, default=3600.0, help="sim seconds per real second")
     p.add_argument("--tank0", type=float, default=None, help="initial tank kWh (default: half the capacity)")
+    p.add_argument("--loop", action="store_true", help="restart the replay when it ends (tank carried over)")
     a = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     if not ID_RE.match(a.site) or not a.speed > 0:
@@ -140,15 +165,19 @@ def main(argv: list[str] | None = None) -> int:
     from pathlib import Path
     with client(a.coordinator, read_token(Path(a.token_file))) as http:
         sim = SiteSim(http, a.site, replay_rows(load_reference_profile(), a.replay), a.speed, cap,
-                      cap / 2 if a.tank0 is None else min(cap, max(0.0, a.tank0)))
+                      cap / 2 if a.tank0 is None else min(cap, max(0.0, a.tank0)), loop=a.loop)
+        why, code = "error", 1
         try:
-            sim.run()
+            why, code = sim.run(), 0
         except Fatal as e:
             print(f"sitesim: {e}", file=sys.stderr)
-            return 2
+            why, code = "fatal", 2
         except KeyboardInterrupt:
-            return 0
-    return 0
+            why, code = "interrupted", 0
+        finally:
+            log.info("sitesim stopped (%s): site %s, %d signals posted, %d completed replays, tank %.2f kWh",
+                     why, a.site, len(sim.posted), sim.loops, sim.tank_kwh)
+    return code
 
 
 if __name__ == "__main__":

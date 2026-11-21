@@ -189,3 +189,56 @@ def test_sitesim_fatal_on_403():
     rows = pd.DataFrame({"demand_kw": [1.0]}, index=pd.DatetimeIndex([pd.Timestamp("2025-01-01", tz="UTC")]))
     with pytest.raises(sitesim.Fatal):
         sitesim.SiteSim(http, "site-a", rows, sleep=lambda s: None).post()
+
+
+# ------------------------------------------------------------------ #75: --loop and a clear end-of-replay line
+def test_sitesim_without_loop_ends_and_warns_degraded(senv, caplog):
+    rows = sitesim.replay_rows(profile(), "july")
+    http = TestClient(senv.app, headers={"Authorization": f"Bearer {SITE_TOK}"})
+    sim = sitesim.SiteSim(http, "site-a", rows, speed=3600, capacity_kwh=35.0, tank_kwh=10.0, sleep=lambda s: None)
+    with caplog.at_level("WARNING", logger="coordinator.sitesim"):
+        assert sim.run() == "replay-ended"
+    assert len(sim.posted) == 24 and sim.loops == 0
+    assert any("go degraded" in r.message and "--loop" in r.message for r in caplog.records)
+
+
+def test_sitesim_loop_restarts_with_tank_carried_and_monotonic_ts(senv, caplog):
+    rows = sitesim.replay_rows(profile(), "coldest")
+    http = TestClient(senv.app, headers={"Authorization": f"Bearer {SITE_TOK}"})
+    sim = sitesim.SiteSim(http, "site-a", rows, speed=3600, capacity_kwh=35.0, tank_kwh=10.0, sleep=lambda s: None,
+                          loop=True)
+    tank_at_end = []
+    orig = sim.step
+
+    def step():
+        if sim.sim_s == 0.0 and sim.loops:
+            tank_at_end.append(sim.tank_kwh)  # tank when a replay restarts
+        orig()
+
+    sim.step = step
+    with caplog.at_level("INFO", logger="coordinator.sitesim"):
+        assert sim.run(stop=lambda: len(sim.posted) >= 24 * 2 + 5) == "stopped"
+    assert sim.loops == 2 and len(sim.posted) == 53
+    ts = [b["ts"] for b in sim.posted]
+    assert all(b > a for a, b in zip(ts, ts[1:]))  # simulated time keeps moving forward across replays
+    assert sim.posted[24]["demand_kw"] == sim.posted[0]["demand_kw"]  # replay restarted at its first hour
+    assert sim.posted[24]["tank_level_kwh"] == pytest.approx(tank_at_end[0])  # tank carried over, not reset
+    assert sum("restarting (--loop)" in r.message for r in caplog.records) == 2
+
+
+def test_sitesim_cli_logs_a_final_stopped_line(monkeypatch, caplog, tmp_path):
+    import contextlib
+
+    class Http:
+        def post(self, url, json):
+            return type("R", (), {"status_code": 403, "text": "forbidden", "json": lambda self: {}})()
+
+    monkeypatch.setattr("live_agent.__main__.client", lambda url, tok: contextlib.nullcontext(Http()))
+    monkeypatch.setattr("live_agent.__main__.read_token", lambda p: "x" * 40)
+    tok = tmp_path / "t"
+    tok.write_text("x" * 40)
+    with caplog.at_level("INFO", logger="coordinator.sitesim"):
+        code = sitesim.main(["--coordinator", "http://x", "--token-file", str(tok), "--site", "site-a",
+                             "--replay", "july"])
+    assert code == 2
+    assert any("sitesim stopped (fatal)" in r.message for r in caplog.records)

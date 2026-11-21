@@ -1,8 +1,9 @@
 # How real compute-heat and carbon/price-aware schedulers work, and what our `decide()` should take (#24)
 
 Author: parth-hp, 2026-11-21. Report only, no `src/` changes. Sources: `sources.md` (`[S#]`).
-**Evidence level:** every source was read through search summaries, not full text, so every claim tagged
-`[S#]` is **UNVERIFIED** until checked against the page. Statements marked *(our analysis)* are inference.
+**Evidence level:** S1, S19, S23 and S30 (the sources behind the top recommendations) were checked in full text
+and are **VERIFIED**; every other `[S#]` was read through search summaries only and is **UNVERIFIED** until checked
+(Borg S21 and BOINC S22 were fetched but unreadable). See `sources.md`. Statements marked *(our analysis)* are inference.
 
 ## 0. Summary
 
@@ -11,7 +12,8 @@ Author: parth-hp, 2026-11-21. Report only, no `src/` changes. Sources: `sources.
    pools with the gas boiler as backup [S8]), or move peaks elsewhere (Qarnot → DATA4 data centres [S5]).
    That matches our merit order: heat sets the price, it does not switch servers.
 2. **Big schedulers split planning from placement.** Google's carbon-aware system plans next-day hourly
-   capacity caps per cluster (VCCs), and the real-time scheduler only obeys them [S1]. Borg rejects work at
+   capacity caps per cluster (VCCs); the real-time scheduler only obeys them, and the caps act at **admission** of
+   flexible work [S1]. Borg rejects work at
    admission when quota is short instead of discovering it at run time [S21]. Our `decide()` has no
    admission step and no plan; adding a thin one is the biggest robustness gain.
 3. **Guarantees exist for exactly our problem.** "Online pause and resume" (run k hours before deadline T,
@@ -91,7 +93,7 @@ Volcano and YuniKorn: searched, nothing usable returned; **not covered**.
 | Rank | Technique | Change in our code | Expected gain | Cost | Risk |
 |---|---|---|---|---|---|
 | **1** | **Forecast admission check** (Borg/Kueue admission [S21][S18], VCC plan [S1], BOINC predicted-miss [S22]) | New pure `scheduler.admit(job, forecast_capacity, queue) -> Accept/Reject(reason)`; caller (sim/live) calls it at arrival; capacity = forecast heat room + dump allowance over the deadline window | Missed deadlines turn into explicit rejections at submit; customers get an honest "no" | 2–3 h | Low; additive API, decide() unchanged |
-| **2** | **Double-threshold slack rule** [S30] | Rule 4 in `policy.py` (`best.kind == DUMP and slack>0 → Hold`) becomes: run if MC ≤ θ(remaining work, time left, MC bounds), with switching cost = `migration_margin_chf` | Provable competitive ratio for the pitch; fewer forced last-minute dumps | 3 h | Medium: needs MC bounds per horizon; golden numbers move → re-baseline |
+| **2** | **Double-threshold slack rule** [S30] | Rule 4 in `policy.py` (`best.kind == DUMP and slack>0 → Hold`) becomes: run if MC ≤ ℓ_i when idle, or MC ≤ u_i = ℓ_i + 2β when already running (β = switching cost, e.g. `migration_margin_chf`), thresholds from MC bounds [L, U] over the deadline window — the built-in hysteresis also covers rank 5 | Provable competitive ratio for the pitch; fewer forced last-minute dumps | 3 h | Medium: needs MC bounds per horizon; golden numbers move → re-baseline |
 | **3** | **Index units by eligibility** (production queues bucket by class) | `policy.py:147-160`: group queue by `access_class`, precompute eligible block lists once per class instead of per unit | Meets the 50 ms / 100k-unit budget (F7, #21) | 1–2 h | Low; covered by red-team F7 + determinism tests |
 | **4** | **Safe degraded mode** [S8][S5] | Caller-level: if forecast missing/stale → persistence forecast, `slack_enabled=False`, no new dumping starts; `trace` says "degraded: forecast stale" | No silent bad decisions when the feed dies on stage | 1 h | Low |
 | **5** | **Minimum dwell time** (Slurm PreemptExemptTime [S19]) | `next_mode_hysteresis` (`policy.py:57-62`): also require `min_dwell_h` since the last switch (new `SiteState` field, additive) | Kills residual flapping (red-team F6 class) and the on/off churn judges see | 1 h | Low |

@@ -33,6 +33,24 @@ def assumptions_hash(path=None) -> str:
     return hashlib.sha256((path or ROOT / "data" / "assumptions.yaml").read_bytes()).hexdigest()
 
 
+def ballast_bid(a: dict, check: bool = True) -> tuple[float | None, str]:
+    """(bid, access_class) of the unlimited filler stream from `ballast:`. With check, assert the contract
+    v2 band at the reference server: MC_used <= bid < MC_dump (else the filler would dump or never run)."""
+    cfg = a.get("ballast") or {}
+    if "bid_chf_per_server_h" not in cfg:
+        if check:
+            raise ValueError("--ballast needs `ballast.bid_chf_per_server_h` in assumptions.yaml")
+        return None, "public"
+    b = float(cfg["bid_chf_per_server_h"])
+    if check:
+        p, kw = float(a["price"]["chf_per_kwh"]), float(a["server"]["electric_kw"])
+        rec, div = float(a["server"]["heat_recovery_fraction"]), float(a["price"]["heat_value_divisor"])
+        mc_used, mc_dump = p * kw - rec * kw * p / div, p * kw
+        if not (mc_used <= b < mc_dump):
+            raise ValueError(f"ballast bid {b} must satisfy MC_used {mc_used:.4f} <= bid < MC_dump {mc_dump:.4f}")
+    return b, str(cfg.get("access_class", "public"))
+
+
 def ballast_type(a: dict) -> JobType | None:
     """Cheapest public, interruptible catalogue type (the paid stream), or None without a catalogue."""
     if len(a.get("jobs") or []) < 2:
@@ -48,27 +66,31 @@ class _Acc:
     backup: float = 0.0
     run_h: float = 0.0
     units_in: int = 0
+    ballast_kwh: float = 0.0
     units_done: int = 0
     missed: int = 0
     transitions: int = 0
 
 
 def simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h: float = 0.0, load: float = 0.0,
-             seed: int = 0, a_hash: str = "", hourly: bool = True) -> tuple[dict, pd.DataFrame | None]:
-    """Run one year. Defers the cyclic GC for the loop (8,760 decide() calls allocate many short-lived
+             seed: int = 0, a_hash: str = "", hourly: bool = True,
+             ballast: bool = False) -> tuple[dict, pd.DataFrame | None]:
+    """Run one year. ballast=True (merit only, #37) offers unlimited heat-backed filler work each hour at
+    `ballast.bid_chf_per_server_h`, which must satisfy MC_used <= bid < MC_dump, so it runs only where its
+    heat is used and never dumps. Unassigned filler is dropped each hour (never queued, never missed). Defers the cyclic GC for the loop (8,760 decide() calls allocate many short-lived
     actions; refcounting still frees them) and restores its previous state. scheduler.decide() itself
     never touches GC (#21 review)."""
     was = gc.isenabled()
     gc.disable()
     try:
-        return _simulate(profile, a, servers, policy, slack_h, load, seed, a_hash, hourly)
+        return _simulate(profile, a, servers, policy, slack_h, load, seed, a_hash, hourly, ballast)
     finally:
         if was:
             gc.enable()
 
 
 def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h: float, load: float,
-              seed: int, a_hash: str, hourly: bool) -> tuple[dict, pd.DataFrame | None]:
+              seed: int, a_hash: str, hourly: bool, ballast: bool = False) -> tuple[dict, pd.DataFrame | None]:
     if policy not in POLICIES:
         raise ValueError(f"policy {policy!r} not in {POLICIES}")
     if servers < 0 or load < 0 or slack_h < 0:
@@ -81,14 +103,18 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
     unit_h = float(sch["unit_minutes"]) / 60.0
     unit_kwh = kw * unit_h
 
-    ballast = ballast_type(a)
-    if load > 0 and ballast is None:
+    ballast_t = ballast_type(a)
+    if load > 0 and ballast_t is None:
         raise ValueError("load > 0 needs a public interruptible job type in assumptions.yaml `jobs:`")
-    bid = ballast.price_chf_per_h if ballast else 0.0
-    job_class = ballast.name if ballast else "none"
-    access = ballast.access_class if ballast else "public"
+    bid = ballast_t.price_chf_per_h if ballast_t else 0.0
+    job_class = ballast_t.name if ballast_t else "none"
+    access = ballast_t.access_class if ballast_t else "public"
 
     params = Params.from_assumptions(a, policy=policy, slack_enabled=slack_h > 0)
+    use_ballast = ballast and policy == "merit"
+    b_bid, b_access = ballast_bid(a, check=use_ballast)
+    units_per_server_h = int(round(1.0 / unit_h))
+    far = 10 ** 9  # filler deadline: never forced, never missed
 
     space = profile["space_heat_kw"].to_numpy(float)
     dhw = profile["hot_water_kw"].to_numpy(float)
@@ -116,10 +142,24 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
                          heat_value_chf_kwh(p_el, div, dem, lvl, high), frozenset({access}), None, False,
                          low, high, mode, dhw[h])
         # 3. decide + apply
-        dec = decide([site], queue, h, params, seed=seed)
+        offer = queue
+        if use_ballast and servers > 0:
+            filler = [Unit(f"b{h}_{i}", f"ballast{h}_{i}", "ballast", b_access, unit_kwh, b_bid, far, float(far), True)
+                      for i in range(servers * units_per_server_h)]
+            offer = queue + filler
+            site = SiteState(site.site_id, site.hour_index, site.demand_kw, site.tank_level_kwh, site.tank_cap_kwh,
+                             site.servers, site.server_kw_el, site.heat_recovery, site.p_el_chf_kwh,
+                             site.heat_value_chf_kwh, site.eligible_classes | {b_access}, site.night_cap_kw,
+                             site.has_dump, site.band_low_kwh, site.band_high_kwh, site.mode_running,
+                             site.dhw_demand_kw)
+        dec = decide([site], offer, h, params, seed=seed)
         on = next(x.servers_on for x in dec.actions if isinstance(x, SetPower))
         r = next(x for x in dec.actions if isinstance(x, Route))
         done = {x.unit_id for x in dec.actions if isinstance(x, Assign)}
+        n_ballast = sum(1 for uid in done if uid[0] == "b")
+        if n_ballast:
+            t.ballast_kwh += n_ballast * unit_kwh
+            done = {uid for uid in done if uid[0] != "b"}
         if dec.next_mode["house"] != mode:
             t.transitions += 1
         mode = dec.next_mode["house"]
@@ -153,7 +193,13 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
             modes[h] = mode
     t.units_in = k
 
-    bal = _balance(a, servers, policy, slack_h, load, seed, a_hash, H, space, dhw, t, bid, unit_h, ballast is not None)
+    bal = _balance(a, servers, policy, slack_h, load, seed, a_hash, H, space, dhw, t, bid, unit_h, ballast_t is not None)
+    paid_run_h = t.units_done * unit_h
+    bal["ballast"] = use_ballast
+    bal["paid_run_h"] = _r(paid_run_h, 3)
+    # thermostat/always_on run servers without paid work: that is implicit ballast
+    bal["ballast_run_h"] = _r(max(0.0, t.run_h - paid_run_h), 3)
+    bal["ballast_income_chf"] = _r(max(0.0, t.run_h - paid_run_h) * b_bid, 3) if b_bid is not None else None
     df = None
     if hourly:
         df = pd.DataFrame(rec_cols, index=profile.index)

@@ -22,7 +22,7 @@ from jobs.catalogue import load_catalogue
 SRC = str(Path(__file__).resolve().parents[3] / "src")
 JOB = load_catalogue()[0].name
 CHUNKS = 60
-ROUNDS = 400  # a few ms per chunk, so random kills land mid-run
+ROUNDS = 400  # a few ms per chunk; kills are triggered by checkpoint progress, not time
 
 
 def _cmd(ckpt: Path, chunks: int = CHUNKS) -> list[str]:
@@ -81,16 +81,38 @@ def test_forced_crash_then_resume_is_exactly_once(tmp_path, reference, stage, k)
     assert _out(ckpt) == reference
 
 
+def _wait_progress(p: subprocess.Popen, ckpt: Path, target: int, timeout: float = 60.0) -> bool:
+    """Poll the checkpoint until next_chunk >= target. False if the process exited first."""
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < timeout:
+        try:
+            state = checkpoint.load(ckpt)
+        except (ValueError, OSError):  # only the tmp file is ever partial, but be tolerant
+            state = None
+        if state and state["next_chunk"] >= target:
+            return True
+        if p.poll() is not None:
+            return False
+        time.sleep(0.001)
+    raise AssertionError("runner made no progress")
+
+
 def test_random_kills_sigkill_and_sigterm(tmp_path, reference):
-    """Kill N times at random points with SIGKILL or SIGTERM; final output must equal reference."""
+    """Kill at random *progress* points (not wall-clock, so machine speed does not matter, #32 review)
+    with SIGKILL or SIGTERM; the final output must equal the reference."""
     rng = random.Random(1234)
     ckpt = tmp_path / "job.ckpt"
     kills = 0
     for _ in range(40):
+        state = checkpoint.load(ckpt)
+        done_so_far = state["next_chunk"] if state else 0
+        if kills < 5 and done_so_far < CHUNKS - 1:
+            target = rng.randrange(done_so_far + 1, CHUNKS)
+        else:
+            target = None
         p = subprocess.Popen(_cmd(ckpt), env=_env(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        time.sleep(rng.uniform(0.05, 0.6))
         sig = None
-        if p.poll() is None:
+        if target is not None and _wait_progress(p, ckpt, target) and p.poll() is None:
             sig = rng.choice([signal.SIGKILL, signal.SIGTERM])
             p.send_signal(sig)
             kills += 1
@@ -104,8 +126,29 @@ def test_random_kills_sigkill_and_sigterm(tmp_path, reference):
             break
     else:
         pytest.fail("runner never finished")
-    assert kills >= 3, "kills should land mid-run; raise ROUNDS if this machine is very fast"
+    assert kills >= 3, kills
     assert _out(ckpt) == reference
+
+
+@pytest.mark.parametrize("damage", ["deleted", "shortened"])
+def test_resume_refuses_when_output_log_is_behind_checkpoint(tmp_path, damage):
+    """If the log is lost or shorter than the committed out_bytes, truncate() would pad with NULs and the
+    run would 'finish' with missing chunks. The runner must refuse instead (#32 review)."""
+    ckpt = tmp_path / "job.ckpt"
+    r = _run(ckpt, JOBS_RUNNER_CRASH="after-append:20")
+    assert r.returncode == 97
+    out = ckpt.with_name(ckpt.name + ".out")
+    committed = checkpoint.load(ckpt)["out_bytes"]
+    if damage == "deleted":
+        out.unlink()
+    else:
+        with open(out, "r+b") as f:
+            f.truncate(committed - 10)
+    r = _run(ckpt)
+    assert r.returncode != 0
+    assert "refusing to resume" in r.stderr
+    assert checkpoint.load(ckpt)["out_bytes"] == committed  # nothing advanced
+    assert not out.exists() or b"\0" not in out.read_bytes()
 
 
 def test_sigterm_exits_zero_with_checkpoint(tmp_path):

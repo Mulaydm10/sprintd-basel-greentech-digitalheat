@@ -85,6 +85,10 @@ def run(job_type: str, ckpt: Path, out: Path, chunks: int, workload: Workload) -
     crash_after_append = _crash_hook("after-append")
     crash_mid_ckpt = _crash_hook("mid-checkpoint")
 
+    have = out.stat().st_size if out.exists() else 0
+    if have < state["out_bytes"]:  # log lost or rolled back: truncate() would pad with NULs (#32 review)
+        raise SystemExit(f"output log {out} has {have} bytes but checkpoint {ckpt} committed "
+                         f"{state['out_bytes']}; refusing to resume (restore the log or delete the checkpoint)")
     with open(out, "ab+") as f:
         f.truncate(state["out_bytes"])  # drop anything written after the last commit
         f.seek(0, os.SEEK_END)
@@ -97,9 +101,7 @@ def run(job_type: str, ckpt: Path, out: Path, chunks: int, workload: Workload) -
             if crash_after_append(cid):
                 os._exit(97)
             state = {**state, "next_chunk": cid + 1, "out_bytes": f.tell(), "done": cid + 1 == chunks}
-            checkpoint._before_rename = (lambda: os._exit(98)) if crash_mid_ckpt(cid) else None
-            checkpoint.save(ckpt, state)
-            checkpoint._before_rename = None
+            checkpoint.save(ckpt, state, before_rename=(lambda: os._exit(98)) if crash_mid_ckpt(cid) else None)
     return state
 
 

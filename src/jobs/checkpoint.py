@@ -11,11 +11,6 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
-# Test-only fault hook: called after the tmp file is durable and before the rename, i.e. the
-# "mid-checkpoint" moment. The runner wires it to an env var so tests can crash exactly there.
-_before_rename: Callable[[], None] | None = None
-
-
 def _fsync_dir(d: Path) -> None:
     try:
         fd = os.open(d, os.O_RDONLY)
@@ -27,8 +22,12 @@ def _fsync_dir(d: Path) -> None:
         os.close(fd)
 
 
-def save(path: str | Path, state: dict[str, Any]) -> None:
-    """Atomically replace the checkpoint at `path` with `state`."""
+def save(path: str | Path, state: dict[str, Any], before_rename: Callable[[], None] | None = None) -> None:
+    """Atomically replace the checkpoint at `path` with `state`.
+
+    `before_rename` is a test-only fault hook, called after the tmp file is durable and before the rename
+    (the "mid-checkpoint" moment). A parameter, not a global, so several jobs can share a process (#32 review).
+    """
     p = Path(path)
     tmp = p.with_name(p.name + ".tmp")
     data = json.dumps(state, sort_keys=True).encode()
@@ -36,8 +35,8 @@ def save(path: str | Path, state: dict[str, Any]) -> None:
         f.write(data)
         f.flush()
         os.fsync(f.fileno())
-    if _before_rename is not None:
-        _before_rename()
+    if before_rename is not None:
+        before_rename()
     os.replace(tmp, p)
     _fsync_dir(p.parent)
 

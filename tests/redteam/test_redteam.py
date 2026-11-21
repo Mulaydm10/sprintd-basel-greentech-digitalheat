@@ -205,7 +205,6 @@ def _profile(path):
     return load_reference_profile(path)
 
 
-@pytest.mark.xfail(strict=True, reason="F8 → #22")
 def test_finding_nan_temperature_gives_nan_demand_silently(tmp_path):
     """profile.py:60-67: one missing temperature becomes a NaN demand_kw row, no error; NaN then poisons
     every yearly sum downstream."""
@@ -220,7 +219,6 @@ def test_finding_nan_temperature_gives_nan_demand_silently(tmp_path):
     assert not df["demand_kw"].isna().any(), "NaN demand passed through"
 
 
-@pytest.mark.xfail(strict=True, reason="F9 → #22")
 def test_finding_short_year_accepted_without_error(tmp_path):
     """profile.py:56-58 checks unique/monotonic only; a 48-row (or 8,759-row) file loads as if it were the year."""
     p = tmp_path / "w.csv"
@@ -242,9 +240,10 @@ def test_duplicate_hour_is_rejected(tmp_path):
 
 
 def test_temperature_extremes_give_sane_demand(tmp_path):
+    from house_model.profile import load_reference_profile
     p = tmp_path / "w.csv"
     _write_csv(p, [-30.0] * 24 + [45.0] * 24)
-    df = _profile(p)
+    df = load_reference_profile(p, allow_partial=True)  # 48 rows: partial by design since #22 (F9)
     d = df["demand_kw"].to_numpy()
     assert (d >= 0).all() and (d[:24] > d[24:]).all()
 
@@ -258,7 +257,6 @@ def _jobtype(**kw):
     return JobType(**d)
 
 
-@pytest.mark.xfail(strict=True, reason="F10 → #22")
 @pytest.mark.parametrize("field,value", [("runtime_h", float("nan")), ("price_chf_per_h", float("nan")),
                                          ("deadline_h", float("nan")), ("price_chf_per_h", float("inf")),
                                          ("energy_kwh", float("nan"))])
@@ -275,18 +273,24 @@ def test_jobtype_rejects_unknown_class_and_negative_values():
         _jobtype(runtime_h=-1.0)
 
 
-@pytest.mark.xfail(strict=True, reason="F11 → #10")
 # ============================================================ 5. trust
 def test_finding_audit_log_tail_truncation_not_detected():
-    """trust/__init__.py AuditLog.verify(): the chain head is not anchored anywhere, so dropping the newest
-    entries (e.g. the 'deny' that proves a refusal) still verifies."""
-    from trust import AuditLog
+    """F11 (fixed in #23): dropping the newest entries (e.g. the 'deny' that proves a refusal) must fail
+    verification against the broker's signed published head. A bare hash chain cannot see this by itself."""
+    from trust import AuditLog, KeyBroker, attest
+    b = KeyBroker()
+    b.register_job("j1", "c1", "swiss-only")
+    ev = {"measurement": "digitalheat-node-image-v1", "certified": False, "region": "DE-BW"}
+    b.release("j1", "N1", attest("N1", ev), "DE-BW")  # deny: region_not_allowed
+    anchor = b.published_head()
+    del b.audit.entries[-1]
+    assert not b.verify_audit(anchor), "truncated log still verifies"
     log = AuditLog()
     for i in range(5):
         log.append({"i": i})
-    head = log.head
+    n, head = len(log.entries), log.head
     del log.entries[-2:]
-    assert not log.verify() or log.head == head, "truncated log still verifies"
+    assert not log.verify(expected_head=head, expected_len=n), "truncated log still verifies"
 
 
 def test_trust_replay_modify_reorder_shred_reuse():

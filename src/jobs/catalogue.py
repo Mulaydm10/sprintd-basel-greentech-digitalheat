@@ -5,6 +5,7 @@ Until the Mac measurement lands (EXP row, #5 runner part) the entries are placeh
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from common.config import load_assumptions
@@ -26,6 +27,10 @@ class JobType:
     measured: bool = False
 
     def __post_init__(self) -> None:
+        for f in ("runtime_h", "energy_kwh", "deadline_h", "price_chf_per_h", "jobs_per_day"):  # F10
+            v = getattr(self, f)
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+                raise ValueError(f"{self.name}: {f} must be a finite number, got {v!r}")
         if self.access_class not in ACCESS_CLASSES:
             raise ValueError(f"{self.name}: access_class {self.access_class!r} not in {sorted(ACCESS_CLASSES)}")
         if self.runtime_h <= 0 or self.energy_kwh < 0 or self.price_chf_per_h < 0 or self.jobs_per_day < 0:

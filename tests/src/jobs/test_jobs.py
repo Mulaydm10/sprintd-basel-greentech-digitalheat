@@ -163,3 +163,15 @@ def test_units_feed_scheduler_and_eligibility_holds(cat):
     for a in d.of(Assign):
         if by_id[a.unit_id].access_class == "swiss-only":
             assert a.site_id == "ch"
+
+
+# ------------------------------------------------------------------ #22 hardening (red team F10)
+@pytest.mark.parametrize("field", ["runtime_h", "energy_kwh", "deadline_h", "price_chf_per_h", "jobs_per_day"])
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_numeric_fields_rejected(field, value):
+    e = dict(PROPOSED[0])
+    e.update({"energy_kwh": e["runtime_h"] * KW}, **{field: value})
+    bad = copy.deepcopy(PROPOSED)
+    bad[0] = e
+    with pytest.raises(ValueError, match=field):
+        load_catalogue({**A, "jobs": bad})

@@ -16,7 +16,7 @@ from common.config import load_assumptions
 from house_model.profile import load_reference_profile
 import simulate_year.cli as cli
 from simulate_year.cli import main
-from simulate_year.sim import simulate
+from simulate_year.sim import simulate, thermostat_load
 
 A = load_assumptions()
 KW, REC = A["server"]["electric_kw"], A["server"]["heat_recovery_fraction"]
@@ -199,3 +199,33 @@ def test_sweep_runs_in_worker_processes(tmp_path, monkeypatch):
     rows = pd.read_csv(tmp_path / "sweep.csv")
     assert len(rows) == 3 and set(rows.policy) == {"merit", "thermostat", "always_on"}
     assert set(rows.columns) >= CONTRACT_KEYS
+
+
+# ------------------------------------------------------------------ #19 follow-ups
+def test_hourly_csv_written_and_matches_parquet(tmp_path):
+    assert main(["--servers", "1", "--policy", "thermostat", "--out", str(tmp_path)]) == 0
+    csv_df = pd.read_csv(tmp_path / "hourly.csv", index_col=0)
+    pq = pd.read_parquet(tmp_path / "hourly.parquet")
+    assert list(csv_df.columns) == HOURLY_COLS and len(csv_df) == len(pq)
+    assert np.allclose(csv_df.dump, pq.dump, atol=1e-6)
+
+
+def test_like_for_like_load_equals_thermostat_work():
+    n = 3
+    lf = thermostat_load(SYN, A, n)
+    th, _ = run(SYN, n, "thermostat")
+    assert lf == pytest.approx(th["run_h"] / (n * len(SYN)))
+    me, _ = run(SYN, n, "merit", 168, lf)
+    # same paid work offered as the thermostat runs (to within one unit of accumulator phase)
+    unit_h = A["scheduler"]["unit_minutes"] / 60
+    assert me["jobs_total"] * unit_h == pytest.approx(th["run_h"], abs=unit_h)
+    assert thermostat_load(SYN, A, 0) == 0.0
+
+
+def test_cli_load_thermostat_basis(tmp_path):
+    assert main(["--servers", "2", "--policy", "merit", "--slack-h", "24", "--load", "thermostat",
+                 "--out", str(tmp_path)]) == 0
+    b = json.loads((tmp_path / "balance.json").read_text())
+    assert b["load_basis"] == "thermostat" and 0 < b["load"] < 1
+    with pytest.raises(SystemExit):
+        main(["--servers", "1", "--load", "lots", "--out", str(tmp_path / "x")])

@@ -1,6 +1,6 @@
 """Resumable real-workload entrypoint (contracts/src/jobs.md):
 
-    python -m jobs.runner <type> --checkpoint <path> [--out <path>] [--chunks N] [--rounds R]
+    python -m jobs.runner <type> --checkpoint <path> [--out <path>] [--stop-file <path>] [--chunks N] [--rounds R]
 
 The work is a sequence of chunks with stable ids 0..N-1. Each finished chunk appends one line
 `<chunk_id> <sha256>` to the output log. Exactly-once comes from the commit order:
@@ -14,8 +14,13 @@ On start the runner loads the checkpoint (if any), truncates the output log to `
 anywhere, including halfway through writing the checkpoint, therefore repeats no committed chunk
 and loses none: the final log is byte-identical to an uninterrupted run.
 
-SIGTERM sets a flag; the runner finishes and commits the current chunk, then exits 0.
-SIGSTOP/SIGCONT need no handling: nothing depends on wall-clock time.
+Graceful stop (finish and commit the current chunk, then exit 0), three ways:
+- a **stop file** (`--stop-file`, default `<checkpoint>.stop`): checked before every chunk and consumed (deleted)
+  when honoured. Portable, so it is the pause path the live agent uses on every OS (#49);
+- SIGTERM (POSIX; on Windows SIGTERM is TerminateProcess, a hard kill with no handler);
+- SIGBREAK (Windows: CTRL_BREAK_EVENT to a process started with CREATE_NEW_PROCESS_GROUP).
+A hard kill anywhere (SIGKILL, TerminateProcess, power loss) is covered by the commit order above.
+SIGSTOP/SIGCONT (POSIX only) need no handling: nothing depends on wall-clock time.
 
 The default workload is a CPU-only stand-in (repeated SHA-256 over deterministic per-chunk data)
 so CI needs no models. Real backends (Whisper, image tagging) plug in behind `Workload`.
@@ -71,9 +76,30 @@ def _crash_hook(stage: str) -> Callable[[int], bool]:
     return lambda cid: cid == k
 
 
-def run(job_type: str, ckpt: Path, out: Path, chunks: int, workload: Workload) -> dict:
+def default_stop_file(ckpt: Path) -> Path:
+    return ckpt.with_name(ckpt.name + ".stop")
+
+
+def _install_stop_handlers(stop: dict) -> None:
+    def handler(*_):
+        stop["flag"] = True
+    signal.signal(signal.SIGTERM, handler)  # POSIX graceful stop; harmless on Windows (never delivered)
+    if hasattr(signal, "SIGBREAK"):  # Windows only
+        signal.signal(signal.SIGBREAK, handler)
+
+
+def run(job_type: str, ckpt: Path, out: Path, chunks: int, workload: Workload,
+        stop_file: Path | None = None) -> dict:
     stop = {"flag": False}
-    signal.signal(signal.SIGTERM, lambda *_: stop.__setitem__("flag", True))
+    _install_stop_handlers(stop)
+    stop_file = stop_file or default_stop_file(ckpt)
+
+    def stop_requested() -> bool:
+        if stop["flag"]:
+            return True
+        if stop_file.exists():
+            stop["flag"] = True
+        return stop["flag"]
 
     state = checkpoint.load(ckpt)
     if state is None:
@@ -92,7 +118,7 @@ def run(job_type: str, ckpt: Path, out: Path, chunks: int, workload: Workload) -
     with open(out, "ab+") as f:
         f.truncate(state["out_bytes"])  # drop anything written after the last commit
         f.seek(0, os.SEEK_END)
-        while state["next_chunk"] < chunks and not stop["flag"]:
+        while state["next_chunk"] < chunks and not stop_requested():
             cid = state["next_chunk"]
             digest = workload.run_chunk(cid)
             f.write(f"{cid} {digest}\n".encode())
@@ -102,6 +128,8 @@ def run(job_type: str, ckpt: Path, out: Path, chunks: int, workload: Workload) -
                 os._exit(97)
             state = {**state, "next_chunk": cid + 1, "out_bytes": f.tell(), "done": cid + 1 == chunks}
             checkpoint.save(ckpt, state, before_rename=(lambda: os._exit(98)) if crash_mid_ckpt(cid) else None)
+    if stop_file.exists():  # consume the request only after the last chunk is committed
+        stop_file.unlink(missing_ok=True)
     return state
 
 
@@ -113,11 +141,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out", type=Path, help="output log (default: <checkpoint>.out)")
     p.add_argument("--chunks", type=int, default=DEFAULT_CHUNKS)
     p.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS)
+    p.add_argument("--stop-file", type=Path, help="graceful-stop request file (default: <checkpoint>.stop)")
     a = p.parse_args(argv)
     if a.chunks <= 0 or a.rounds <= 0:
         p.error("--chunks and --rounds must be positive")
     out = a.out or a.checkpoint.with_name(a.checkpoint.name + ".out")
-    state = run(a.type, a.checkpoint, out, a.chunks, HashWorkload(a.type, a.rounds))
+    state = run(a.type, a.checkpoint, out, a.chunks, HashWorkload(a.type, a.rounds), stop_file=a.stop_file)
     print(json.dumps({"job_type": a.type, "next_chunk": state["next_chunk"], "chunks": a.chunks,
                       "done": state["done"], "out": str(out), "workload": "stand-in sha256"}))
     return 0

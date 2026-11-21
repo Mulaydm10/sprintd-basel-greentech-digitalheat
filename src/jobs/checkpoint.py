@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -37,8 +38,20 @@ def save(path: str | Path, state: dict[str, Any], before_rename: Callable[[], No
         os.fsync(f.fileno())
     if before_rename is not None:
         before_rename()
-    os.replace(tmp, p)
+    _replace(tmp, p)
     _fsync_dir(p.parent)
+
+
+def _replace(src: Path, dst: Path, tries: int = 100, wait_s: float = 0.01) -> None:
+    """os.replace, retried on Windows while a reader holds `dst` open (PermissionError there; atomic on POSIX)."""
+    for i in range(tries):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if os.name != "nt" or i == tries - 1:
+                raise
+            time.sleep(wait_s)
 
 
 def load(path: str | Path) -> dict[str, Any] | None:

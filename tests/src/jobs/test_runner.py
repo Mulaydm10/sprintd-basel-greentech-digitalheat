@@ -16,11 +16,14 @@ from pathlib import Path
 
 import pytest
 
-from jobs import checkpoint
+from jobs import checkpoint, runner
 from jobs.catalogue import load_catalogue
 
 SRC = str(Path(__file__).resolve().parents[3] / "src")
 JOB = load_catalogue()[0].name
+WIN = sys.platform == "win32"
+POSIX_ONLY = pytest.mark.skipif(WIN, reason="POSIX signals: Windows has no SIGSTOP/SIGCONT and SIGTERM is "
+                                            "TerminateProcess (no handler); the stop file / SIGBREAK cover it (#49)")
 CHUNKS = 60
 ROUNDS = 400  # a few ms per chunk; kills are triggered by checkpoint progress, not time
 
@@ -97,36 +100,44 @@ def _wait_progress(p: subprocess.Popen, ckpt: Path, target: int, timeout: float 
     raise AssertionError("runner made no progress")
 
 
-def test_random_kills_sigkill_and_sigterm(tmp_path, reference):
-    """Kill at random *progress* points (not wall-clock, so machine speed does not matter, #32 review)
-    with SIGKILL or SIGTERM; the final output must equal the reference."""
+def test_random_stops_and_kills(tmp_path, reference):
+    """Stop at random *progress* points (not wall-clock, #32 review) with a hard kill, a stop-file request or (POSIX)
+    SIGTERM; the final output must equal the reference. The hard kill is Popen.kill(): SIGKILL on POSIX,
+    TerminateProcess on Windows, so this test runs on every OS (#49)."""
     rng = random.Random(1234)
     ckpt = tmp_path / "job.ckpt"
-    kills = 0
-    for _ in range(40):
+    stop_file = runner.default_stop_file(ckpt)
+    methods = ["kill", "stopfile"] + ([] if WIN else ["sigterm"])
+    used: list[str] = []
+    for _ in range(60):
         state = checkpoint.load(ckpt)
         done_so_far = state["next_chunk"] if state else 0
-        if kills < 5 and done_so_far < CHUNKS - 1:
-            target = rng.randrange(done_so_far + 1, CHUNKS)
-        else:
-            target = None
+        left = CHUNKS - done_so_far
+        # small steps (<= a quarter of what is left) so every stop method gets used before the job finishes
+        target = done_so_far + rng.randint(1, max(1, left // 4)) if len(used) < 8 and left > 1 else None
         p = subprocess.Popen(_cmd(ckpt), env=_env(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        sig = None
+        how = None
         if target is not None and _wait_progress(p, ckpt, target) and p.poll() is None:
-            sig = rng.choice([signal.SIGKILL, signal.SIGTERM])
-            p.send_signal(sig)
-            kills += 1
+            how = methods[len(used) % len(methods)] if len(used) < len(methods) else rng.choice(methods)
+            if how == "kill":
+                p.kill()
+            elif how == "stopfile":
+                stop_file.touch()
+            else:
+                p.send_signal(signal.SIGTERM)
+            used.append(how)
         rc = p.wait(timeout=60)
-        if sig == signal.SIGTERM:
+        if how in (None, "stopfile"):
+            assert rc == 0, p.stderr.read()
+        elif how == "sigterm":
             assert rc in (0, -signal.SIGTERM)  # graceful stop exits 0 (unless it landed before the handler)
-        elif sig is None:
-            assert rc == 0
+        assert not stop_file.exists()  # a request is consumed once honoured (or the job finished first)
         state = checkpoint.load(ckpt)
         if state and state["done"]:
             break
     else:
         pytest.fail("runner never finished")
-    assert kills >= 3, kills
+    assert set(used) == set(methods), used  # every stop path was exercised at least once
     assert _out(ckpt) == reference
 
 
@@ -151,6 +162,7 @@ def test_resume_refuses_when_output_log_is_behind_checkpoint(tmp_path, damage):
     assert not out.exists() or b"\0" not in out.read_bytes()
 
 
+@POSIX_ONLY
 def test_sigterm_exits_zero_with_checkpoint(tmp_path):
     ckpt = tmp_path / "job.ckpt"
     p = subprocess.Popen(_cmd(ckpt, chunks=100_000), env=_env(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -164,6 +176,7 @@ def test_sigterm_exits_zero_with_checkpoint(tmp_path):
     assert _ids(_out(ckpt)) == list(range(state["next_chunk"]))
 
 
+@POSIX_ONLY
 def test_sigstop_sigcont(tmp_path, reference):
     ckpt = tmp_path / "job.ckpt"
     p = subprocess.Popen(_cmd(ckpt), env=_env(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -187,3 +200,56 @@ def test_unknown_type_rejected(tmp_path):
     r = subprocess.run([sys.executable, "-m", "jobs.runner", "nope", "--checkpoint", str(tmp_path / "c")],
                        env=_env(), capture_output=True, text=True)
     assert r.returncode == 2
+
+
+# ------------------------------------------------------------------ #49 portable graceful stop
+def _start_and_wait(ckpt: Path, k: int = 3, **kw) -> subprocess.Popen:
+    p = subprocess.Popen(_cmd(ckpt, chunks=100_000) + kw.get("extra", []), env=_env(), stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, creationflags=kw.get("creationflags", 0))
+    assert _wait_progress(p, ckpt, k)
+    return p
+
+
+@pytest.mark.parametrize("custom", [False, True], ids=["default-path", "--stop-file"])
+def test_stop_file_is_a_graceful_stop_on_every_os(tmp_path, custom):
+    ckpt = tmp_path / "job.ckpt"
+    stop = tmp_path / "pause.request" if custom else runner.default_stop_file(ckpt)
+    p = _start_and_wait(ckpt, extra=["--stop-file", str(stop)] if custom else [])
+    stop.touch()
+    assert p.wait(timeout=30) == 0
+    state = checkpoint.load(ckpt)
+    assert 3 <= state["next_chunk"] < 100_000 and not state["done"]
+    assert _ids(_out(ckpt)) == list(range(state["next_chunk"]))  # committed exactly once, no gap
+    assert not stop.exists()  # consumed, so a restart resumes instead of stopping again
+
+
+def test_stop_file_then_resume_equals_reference(tmp_path, reference):
+    ckpt = tmp_path / "job.ckpt"
+    p = subprocess.Popen(_cmd(ckpt), env=_env(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    assert _wait_progress(p, ckpt, CHUNKS // 3)
+    runner.default_stop_file(ckpt).touch()
+    assert p.wait(timeout=30) == 0
+    assert not checkpoint.load(ckpt)["done"] or p.poll() == 0
+    assert _run(ckpt).returncode == 0
+    assert _out(ckpt) == reference
+
+
+def test_stop_file_present_at_start_does_no_work(tmp_path):
+    """A pause requested before the process started: exit 0 at once, no chunk run, request consumed."""
+    ckpt = tmp_path / "job.ckpt"
+    stop = runner.default_stop_file(ckpt)
+    stop.touch()
+    r = _run(ckpt)
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout)["next_chunk"] == 0 and not stop.exists()
+    assert _run(ckpt).returncode == 0 and checkpoint.load(ckpt)["done"]
+
+
+@pytest.mark.skipif(not WIN, reason="Windows only: CTRL_BREAK_EVENT needs a new process group")
+def test_ctrl_break_is_a_graceful_stop_on_windows(tmp_path):  # pragma: no cover - runs on Windows CI/hosts
+    ckpt = tmp_path / "job.ckpt"
+    p = _start_and_wait(ckpt, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+    p.send_signal(signal.CTRL_BREAK_EVENT)
+    assert p.wait(timeout=30) == 0
+    state = checkpoint.load(ckpt)
+    assert _ids(_out(ckpt)) == list(range(state["next_chunk"]))

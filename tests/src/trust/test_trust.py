@@ -153,3 +153,34 @@ def test_unknown_access_class_rejected():
         region_allowed("secret", "CH-BS", True)
     with pytest.raises(ValueError):
         KeyBroker().register_job("j", "c", "secret")
+
+
+# ---------------------------------------------------------------- #23: anchored head (red team F11)
+def test_verify_anchor_detects_tail_truncation_but_allows_appends():
+    log = AuditLog()
+    for i in range(5):
+        log.append({"i": i})
+    anchor_len, anchor_head = len(log.entries), log.head
+    log.append({"i": 5})
+    assert log.verify(expected_head=anchor_head, expected_len=anchor_len)  # growth after the anchor is fine
+    del log.entries[-3:]
+    assert log.verify()  # the bare chain cannot tell
+    assert not log.verify(expected_head=anchor_head, expected_len=anchor_len)
+    assert not log.verify(expected_head=anchor_head)
+
+
+def test_broker_publishes_signed_head_and_catches_truncated_deny():
+    b, _ = _broker_with_job()
+    b.release("job-1", "BL-01", attest("BL-01", {**GOOD, "region": "DE-BW"}), "DE-BW")  # a deny
+    ph = b.published_head()
+    assert ph.mock and ph.is_valid() and ph.length == len(b.audit.entries) and ph.head == b.audit.head
+    assert b.verify_audit()
+    del b.audit.entries[-1]  # hide the deny
+    assert not b.verify_audit(ph)
+
+
+def test_forged_published_head_rejected():
+    b, _ = _broker_with_job()
+    ph = b.published_head()
+    from dataclasses import replace as _r
+    assert not b.verify_audit(_r(ph, length=ph.length - 1, head=b.audit.entries[-1].prev_hash))

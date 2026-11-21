@@ -185,3 +185,98 @@ def nodes() -> dict[str, Any]:
     """Live nodes from #8 (GET /status). Stubbed behind DH_LIVE_NODES until #8 lands."""
     enabled = os.environ.get("DH_LIVE_NODES") == "1"
     return {"enabled": enabled, "nodes": [], "note": "stub until #8 live_agent exposes GET /status"}
+
+
+# ================================================================ v3 (claim/9-v3): real runs, like-for-like A/B,
+# sensitivity, decision card, per-number provenance. #31 outputs fall back to fixtures until it lands.
+def _runs_root(d: Path) -> Path:
+    """Where sibling runs live: the fixture's runs/ folder, else the run's parent (runs/)."""
+    return FIXTURE_DIR / "runs" if d.resolve() == FIXTURE_DIR.resolve() else d.parent
+
+
+def _git_commit() -> str | None:
+    """HEAD commit read from .git files (no subprocess). Works for plain checkouts and worktrees."""
+    git = ROOT / ".git"
+    try:
+        if git.is_file():  # worktree: "gitdir: <path>"
+            git = Path(git.read_text().split(":", 1)[1].strip())
+        head = (git / "HEAD").read_text().strip()
+        if not head.startswith("ref:"):
+            return head
+        ref = head.split(" ", 1)[1]
+        for base in (git, git.parent.parent if git.parent.name == "worktrees" else git):
+            p = base / ref
+            if p.exists():
+                return p.read_text().strip()
+        packed = (git.parent.parent if git.parent.name == "worktrees" else git) / "packed-refs"
+        for line in packed.read_text().splitlines() if packed.exists() else []:
+            if line.endswith(" " + ref):
+                return line.split(" ", 1)[0]
+    except OSError:
+        return None
+    return None
+
+
+@app.get("/api/provenance")
+def provenance() -> dict[str, Any]:
+    """Where every number on the page comes from: run folder, assumptions hash, code commit, input files."""
+    d = run_dir()
+    b = load_balance(d)
+    files = {p.name: p.stat().st_mtime for p in sorted(d.iterdir()) if p.is_file()} if d.exists() else {}
+    return {"run_id": d.name, "run_dir": str(d), "fixture": d.resolve() == FIXTURE_DIR.resolve(),
+            "assumptions_hash": b.get("assumptions_hash"), "load_basis": b.get("load_basis"),
+            "code_commit": _git_commit(), "files": sorted(files), "producer": "python -m simulate_year (src/simulate_year)"}
+
+
+@app.get("/api/ab_like_for_like")
+def ab_like_for_like() -> dict[str, Any]:
+    """#25: thermostat vs merit/always_on selling the SAME paid work (load_basis == 'thermostat'), same N."""
+    d = run_dir()
+    n = load_balance(d).get("servers_per_house")
+    keep = ("policy", "servers_per_house", "slack_h", "load", "load_basis", "share_covered", "heat_dumped_kwh",
+            "backup_heat_kwh", "utilisation", "break_even_chf_per_server_h", "missed_deadline_pct", "compute_income_chf")
+    rows, root = [], _runs_root(d)
+    for p in sorted(root.glob("*/balance.json")) if root.exists() else []:
+        b = json.loads(p.read_text(encoding="utf-8"))
+        if b.get("servers_per_house") != n:
+            continue
+        if b.get("policy") == "thermostat" or b.get("load_basis") == "thermostat":
+            rows.append({k: b.get(k) for k in keep} | {"run_id": p.parent.name})
+    order = {"thermostat": 0, "always_on": 1, "merit": 2}
+    rows.sort(key=lambda r: (order.get(r["policy"], 9), r["run_id"]))
+    note = None if any(r["policy"] != "thermostat" for r in rows) else \
+        "no like-for-like run yet: python -m simulate_year --servers N --policy merit --slack-h 24 --load thermostat"
+    return {"servers_per_house": n, "rows": rows, "note": note}
+
+
+def _run_or_fixture(name: str) -> tuple[Path | None, bool]:
+    d = run_dir()
+    p = d / name
+    if p.exists():
+        return p, d.resolve() == FIXTURE_DIR.resolve()
+    f = FIXTURE_DIR / name
+    return (f, True) if f.exists() else (None, True)
+
+
+@app.get("/api/sensitivity")
+def sensitivity() -> dict[str, Any]:
+    """#31 tornado: one row per parameter with the metric at its low and high setting. Sorted by swing.
+    Column names are read as given; expected: parameter, low, high, metric_low, metric_high, metric_base, metric."""
+    p, fixture = _run_or_fixture("sensitivity.csv")
+    if p is None:
+        return {"fixture": True, "rows": [], "note": "no sensitivity.csv yet (#31)"}
+    df = pd.read_csv(p)
+    if {"metric_low", "metric_high"} <= set(df.columns):
+        df = df.assign(swing=(df["metric_high"] - df["metric_low"]).abs()).sort_values("swing", ascending=False)
+    return {"fixture": fixture, "source": str(p.relative_to(ROOT)) if p.is_relative_to(ROOT) else str(p),
+            "rows": _records(df)}
+
+
+@app.get("/api/decision_card")
+def decision_card() -> dict[str, Any]:
+    """#31 decision_card.json, shown key by key (whatever keys it carries), with its source file."""
+    p, fixture = _run_or_fixture("decision_card.json")
+    if p is None:
+        return {"fixture": True, "card": {}, "note": "no decision_card.json yet (#31)"}
+    return {"fixture": fixture, "source": str(p.relative_to(ROOT)) if p.is_relative_to(ROOT) else str(p),
+            "card": json.loads(p.read_text(encoding="utf-8"))}

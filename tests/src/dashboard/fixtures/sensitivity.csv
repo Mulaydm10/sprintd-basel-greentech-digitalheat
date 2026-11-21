@@ -1,0 +1,6 @@
+parameter,low,high,metric,metric_low,metric_high,metric_base
+electricity price,-20%,+20%,break_even_incl_hardware_chf_per_server_h,0.39,0.50,0.446
+heat value divisor,2.0,3.0,break_even_incl_hardware_chf_per_server_h,0.42,0.46,0.446
+capex,5k/5y,15k/3y,break_even_incl_hardware_chf_per_server_h,0.34,0.89,0.446
+load,0.4,0.8,break_even_incl_hardware_chf_per_server_h,0.52,0.40,0.446
+slack h,0,168,break_even_incl_hardware_chf_per_server_h,0.47,0.43,0.446

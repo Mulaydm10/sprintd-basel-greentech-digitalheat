@@ -1,0 +1,51 @@
+{
+ "servers_per_house": 4,
+ "policy": "thermostat",
+ "slack_h": 24,
+ "load": 0.6,
+ "seed": 1,
+ "heat_demand_kwh": 31231.0,
+ "server_heat_used_kwh": 18114.0,
+ "share_covered": 0.58,
+ "backup_heat_kwh": 13117.0,
+ "heat_dumped_kwh": 0.0,
+ "run_h": 22671.0,
+ "utilisation": 0.647,
+ "jobs_total": 5400,
+ "units_done": 90684,
+ "missed_deadline_pct": 22.0,
+ "transitions_per_day": 0.9,
+ "electricity_cost_chf": 7538.1,
+ "heat_value_chf": 2409.2,
+ "compute_income_chf": 9068.4,
+ "break_even_chf_per_server_h": 0.2261,
+ "break_even_incl_hardware_chf_per_server_h": {
+  "value": 0.446,
+  "table": [
+   {
+    "capex_chf": 5000,
+    "life_y": 3,
+    "chf_per_server_h": 0.416
+   },
+   {
+    "capex_chf": 5000,
+    "life_y": 5,
+    "chf_per_server_h": 0.34
+   },
+   {
+    "capex_chf": 15000,
+    "life_y": 3,
+    "chf_per_server_h": 0.887
+   },
+   {
+    "capex_chf": 15000,
+    "life_y": 5,
+    "chf_per_server_h": 0.623
+   }
+  ]
+ },
+ "assumptions_hash": "fixture-not-a-real-hash",
+ "pays_off": false,
+ "pays_off_conditions": "FIXTURE TEXT: pays off only if compute sells above break-even incl. hardware",
+ "load_basis": "default"
+}

@@ -17,5 +17,6 @@ Rules: never push to main or merge; only touch src/<lane>/ + tests/src/<lane>/ o
 3. Handshake: gh issue create --label agent:devin --title "worker handshake: macmini (Mulaydm10)" with body: worker id macmini/<8 chars of $CLAUDE_CODE_SESSION_ID>, machine (M4, 16 GB, macOS), can run (python, whisper on Metal, sudo powermetrics needs Dhruv), lane: scheduler (#6) first, setup results, "watcher: active".
 4. Watcher: start a Monitor (or background loop) polling every 2 min for new comments on your handshake issue, your claimed issue and your PR (gh issue view <n> --comments / gh pr view <pr> --comments). Keep it on all session; re-arm when it expires.
 5. Wait for design's "go" on the handshake issue (it will confirm #6 and any contract-v2 changes). Then /bus:claim 6, work in the worktree, implement contracts/src/scheduler.md exactly (design pushes contract v2 before "go"), small commits with trailer "Worker: macmini", /bus:verify, /bus:pr. Ask design on the issue when the contract is unclear.
+Because you share the Mulaydm10 GitHub account with design, START EVERY issue/PR comment and issue body with "worker macmini:" so design can tell you apart.
 Report to Dhruv in 3 lines: handshake link, watcher status, task.
 ```

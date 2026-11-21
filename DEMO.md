@@ -21,7 +21,7 @@ Pitch slot, length and event facts: `COMPETITION.md` (5 min incl. live demo + 3 
 
 ## Scenarios
 **DEMO-0002 — January / July replay (runnable)**
-- Pre: `python -m simulate_year --servers 4 --policy merit --slack-h 24 --load thermostat` (≈30 s on parth-hp). Then `PYTHONPATH=src DH_RUN_DIR=runs/merit-n4-slack24-loadthermostat-seed0 python -m dashboard` → http://127.0.0.1:8700
+- Pre: `python -m simulate_year --servers 4 --policy merit --slack-h 24 --load thermostat --ballast --force` (≈30 s on parth-hp). Then `PYTHONPATH=src python -m dashboard` (no DH_RUN_DIR: it uses the newest run) → http://127.0.0.1:8700
 - Show: the "Day replay" cards (coldest January day by demand, July day with most dump). Hover any number: file:key · run · assumptions hash · commit.
 - Reset: none (stateless). Fallback if the venue laptop is slow: pre-generate runs/ before the pitch.
 

@@ -12,7 +12,7 @@ from coordinator import sitesim
 from coordinator.__main__ import make_tokens
 from coordinator.auth import load_tokens
 
-from test_coordinator import H, ROLES, TOK, Clock, env, lease, register, submit  # noqa: F401
+from test_coordinator import H, REGISTRY, ROLES, TOK, Clock, env, lease, register, submit  # noqa: F401
 
 SITE_TOK = "s" * 40
 ROLES_S = {**ROLES, SITE_TOK: "site:site-a", "t" * 40: "site:site-b"}
@@ -22,7 +22,7 @@ ROLES_S = {**ROLES, SITE_TOK: "site:site-a", "t" * 40: "site:site-b"}
 def senv(tmp_path):
     from coordinator.app import create_app
     clock = Clock()
-    app = create_app(tmp_path, tokens=ROLES_S, clock=clock)
+    app = create_app(tmp_path, tokens=ROLES_S, clock=clock, registry=REGISTRY)
     return type("E", (), {"clock": clock, "app": app, "c": TestClient(app)})
 
 
@@ -66,7 +66,7 @@ def test_signal_is_durable_and_stale_signal_degrades(senv, tmp_path):
     st = c.get("/v1/status", headers=H("observer")).json()
     assert st["degraded"] == ["node-a"] and st["sites"][0]["degraded"] is True
     from coordinator.app import create_app  # restart: the signal survives (timers frozen while down)
-    app2 = create_app(tmp_path, tokens=ROLES_S, clock=senv.clock)
+    app2 = create_app(tmp_path, tokens=ROLES_S, clock=senv.clock, registry=REGISTRY)
     st = TestClient(app2).get("/v1/status", headers=H("observer")).json()
     assert st["sites"][0]["demand_kw"] == 4.0
     assert sig(TestClient(app2)).status_code == 200
@@ -91,7 +91,7 @@ def test_warm_site_signal_makes_renew_hold(senv):
 def test_rate_limiter_ignores_frozen_injected_clock(tmp_path):
     from coordinator.app import create_app
     app_clock, mono = Clock(), [0.0]  # both frozen: the bucket can only refill when `mono` advances
-    c = TestClient(create_app(tmp_path, tokens=ROLES_S, clock=app_clock, monotonic=lambda: mono[0]))
+    c = TestClient(create_app(tmp_path, tokens=ROLES_S, clock=app_clock, monotonic=lambda: mono[0], registry=REGISTRY))
     codes = [c.get("/v1/status", headers=H("observer")).status_code for _ in range(45)]
     assert codes[:40] == [200] * 40 and set(codes[40:]) == {429}
     app_clock.t += 3600  # app clock jumping does not refill the limiter

@@ -24,6 +24,10 @@ from live_agent.agent import Agent, Config
 T0 = 1_764_000_000.0  # a winter hour: heat is wanted
 TOK = {"admin": "A" * 40, "node-a": "a" * 40, "node-b": "b" * 40}
 ROLES = {TOK["admin"]: "admin", TOK["node-a"]: "node:node-a", TOK["node-b"]: "node:node-b"}
+
+# v1.2 operator registry for the test nodes
+REGISTRY = {n: {"certified": False, "max_classes": ["public", "swiss-only", "certified"], "region": "CH-BS",
+                "site_id": f"site-{n[-1]}"} for n in TOK if n.startswith("node-")}
 ROUNDS = 3000  # ~0.15 s per chunk: long enough to act mid-unit, short enough to keep the test fast
 FAST = dict(renew_s=0.25, upload_s=0.25,  # stays under the coordinator's 20 req/s per token
             stop_grace_s=5.0, poll_s=0.01, heartbeat_s=0.1)
@@ -47,13 +51,13 @@ def H(who):
 @pytest.fixture
 def env(tmp_path):
     clock = Clock()
-    app = create_app(tmp_path / "coord", tokens=ROLES, clock=clock)
+    app = create_app(tmp_path / "coord", tokens=ROLES, clock=clock, registry=REGISTRY)
     return type("Env", (), {"clock": clock, "app": app, "c": TestClient(app), "tmp": tmp_path})
 
 
 def heat(env, node, warm=False):
-    r = env.c.post(f"/v1/nodes/{node}/heartbeat", headers=H(node), json={
-        "demand_kw": 0.0 if warm else 5.0, "tank_level_kwh": 35.0 if warm else 5.0})
+    r = env.c.post(f"/v1/sites/site-{node[-1]}/signal", headers=H("admin"), json={  # F33: site signal only
+        "demand_kw": 0.0 if warm else 5.0, "tank_level_kwh": 35.0 if warm else 5.0, "ts": 1.0})
     assert r.status_code == 200, r.text
 
 

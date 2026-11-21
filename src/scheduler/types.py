@@ -8,6 +8,10 @@ PolicyName = Literal["merit", "thermostat", "always_on"]
 POLICIES: tuple[str, ...] = ("merit", "thermostat", "always_on")
 
 
+class InvalidInput(ValueError):
+    """decide() was given physically or logically invalid input (#21). Subclass of ValueError."""
+
+
 @dataclass(frozen=True)
 class SiteState:
     """One site at one tick. Energies in kWh, powers in kW, prices in CHF/kWh."""

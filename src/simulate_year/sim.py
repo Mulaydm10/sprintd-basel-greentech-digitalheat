@@ -13,6 +13,7 @@ public ballast job type, bid = that type's price_chf_per_h, deadline = h + slack
 """
 from __future__ import annotations
 
+import gc
 import hashlib
 import math
 from dataclasses import dataclass
@@ -54,6 +55,20 @@ class _Acc:
 
 def simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h: float = 0.0, load: float = 0.0,
              seed: int = 0, a_hash: str = "", hourly: bool = True) -> tuple[dict, pd.DataFrame | None]:
+    """Run one year. Defers the cyclic GC for the loop (8,760 decide() calls allocate many short-lived
+    actions; refcounting still frees them) and restores its previous state. scheduler.decide() itself
+    never touches GC (#21 review)."""
+    was = gc.isenabled()
+    gc.disable()
+    try:
+        return _simulate(profile, a, servers, policy, slack_h, load, seed, a_hash, hourly)
+    finally:
+        if was:
+            gc.enable()
+
+
+def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h: float, load: float,
+              seed: int, a_hash: str, hourly: bool) -> tuple[dict, pd.DataFrame | None]:
     if policy not in POLICIES:
         raise ValueError(f"policy {policy!r} not in {POLICIES}")
     if servers < 0 or load < 0 or slack_h < 0:

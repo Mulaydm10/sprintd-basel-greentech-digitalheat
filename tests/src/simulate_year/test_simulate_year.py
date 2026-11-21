@@ -229,3 +229,14 @@ def test_cli_load_thermostat_basis(tmp_path):
     assert b["load_basis"] == "thermostat" and 0 < b["load"] < 1
     with pytest.raises(SystemExit):
         main(["--servers", "1", "--load", "lots", "--out", str(tmp_path / "x")])
+
+
+def test_simulate_restores_gc_state():
+    import gc
+    for enabled in (True, False):
+        (gc.enable if enabled else gc.disable)()
+        try:
+            run(SYN, 1, "thermostat")
+            assert gc.isenabled() is enabled
+        finally:
+            gc.enable()

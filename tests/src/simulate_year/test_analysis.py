@@ -86,11 +86,18 @@ def test_band_sweep_rows_and_override_applied(fast):
     assert all(r["ballast_run_h"] > 0 and r["missed_deadline_pct"] == 0 for r in rows)  # ballast on, merit
 
 
+def _band(lo, hi, cov, dump, tr):
+    return dict(band_low_kwh=lo, band_high_kwh=hi, share_covered=cov, heat_dumped_kwh=dump, transitions_per_day=tr)
+
+
 def test_choose_band_rule():
-    rows = [dict(band_low_kwh=0, band_high_kwh=35, share_covered=0.5, heat_dumped_kwh=10, transitions_per_day=9),
-            dict(band_low_kwh=10, band_high_kwh=33, share_covered=0.5, heat_dumped_kwh=8, transitions_per_day=1),
-            dict(band_low_kwh=5, band_high_kwh=30, share_covered=0.4, heat_dumped_kwh=1, transitions_per_day=0.5)]
-    assert an.choose_band(rows)["band_low_kwh"] == 10  # flapping row excluded, then coverage, then dump
+    rows = [_band(35, 35, 0.60, 10, 9.0),     # best coverage but flaps: excluded (> 2/day)
+            _band(33, 35, 0.5009, 8, 0.12),   # best allowed coverage
+            _band(20, 35, 0.5002, 8, 0.07),   # within 0.1 pp and fewer switches -> chosen
+            _band(10, 35, 0.5002, 8, 0.07),   # same, lower band_low loses the last tie-break
+            _band(5, 30, 0.4000, 1, 0.01)]    # fewest switches but 10 pp worse: not "equal"
+    assert (an.choose_band(rows)["band_low_kwh"], an.choose_band(rows)["band_high_kwh"]) == (20, 35)
+    assert an.choose_band(rows, tol=0.0)["band_low_kwh"] == 33  # no tolerance -> plain max coverage
 
 
 # ------------------------------------------------------------------ 2. sensitivity

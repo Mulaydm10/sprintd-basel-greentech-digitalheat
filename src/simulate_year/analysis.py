@@ -45,6 +45,7 @@ LIVES = (3.0, 5.0)
 CARD_SERVERS = range(1, 9)
 PATIENCE_SLACKS = (0.0, 24.0, 168.0)
 MAX_TRANSITIONS_PER_DAY = 2.0  # band choice: no more than 2 on/off switches a day (actuator wear; stated rule)
+COVERAGE_TOL = 0.001  # band choice: coverage within 0.1 pp of the best counts as equal (below seed/weather noise)
 TORNADO_METRIC = "pays_off_above_chf_per_server_h"
 
 
@@ -127,11 +128,15 @@ def band_sweep(seed: int = 0, workers: int | None = None) -> list[dict]:
     return rows
 
 
-def choose_band(rows: list[dict]) -> dict:
-    """Highest coverage among bands with <= MAX_TRANSITIONS_PER_DAY; ties -> less dump, then wider band."""
+def choose_band(rows: list[dict], tol: float = COVERAGE_TOL) -> dict:
+    """Among bands with <= MAX_TRANSITIONS_PER_DAY, those within `tol` of the best coverage are equal; of those
+    pick the fewest transitions, then higher coverage, then less dump, then the higher band_low (fuller tank =
+    more buffer for a cold snap)."""
     ok = [r for r in rows if r["transitions_per_day"] <= MAX_TRANSITIONS_PER_DAY] or rows
-    return max(ok, key=lambda r: (round(r["share_covered"], 6), -r["heat_dumped_kwh"],
-                                  r["band_high_kwh"] - r["band_low_kwh"]))
+    best = max(r["share_covered"] for r in ok)
+    near = [r for r in ok if r["share_covered"] >= best - tol - 1e-12]
+    return min(near, key=lambda r: (r["transitions_per_day"], -r["share_covered"], r["heat_dumped_kwh"],
+                                    -r["band_low_kwh"]))
 
 
 # ------------------------------------------------------------------ 2. sensitivity

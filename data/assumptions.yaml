@@ -27,8 +27,9 @@ jobs:
     access_class: swiss-only
     price_chf_per_h: 1.70        # teammate sovereign price CHF 1.70/GPU-h (design/PLAN §0 [T])
     jobs_per_day: 4
-    measured: false
-    source: "ASSUMED: runtime/jobs_per_day placeholders pending Mac measurement; price from design/PLAN-scheduler-deploy.md §0 [T]"
+    measured: true               # EXP-0001: M4 Metal RTF 0.028, 9.2 W, 0.26 Wh/audio-h (src/jobs/measurements/whisper_m4.json)
+    efficiency_vs_m4: 1.0        # ASSUMED: 1 kW reference server as efficient per joule as the M4 GPU
+    source: "runtime_h ASSUMED (1 server-h per job); energy per audio-hour MEASURED in EXP-0001; price from design/PLAN-scheduler-deploy.md §0 [T]"
   - name: image_tagging
     runtime_h: 0.25
     interruptible: true

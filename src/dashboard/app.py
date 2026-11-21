@@ -122,13 +122,13 @@ def pick_day(df: pd.DataFrame, which: str) -> tuple[int, pd.DataFrame]:
 
 
 SITE = STATIC / "site"  # Dhruv's frontend (#91), built by dashboard.site_build from design/frontend/
-DECK = "DigitalHeat Pitch Deck.dc.html"
+HOME = "DigitalHeat 01 Overview.dc.html"  # Dhruv: the website is the entry point, not the deck
 
 
 @app.get("/", include_in_schema=False)
 def index() -> FileResponse:
-    """The pitch deck (#91). Its pages, runtime and vendored assets are served from the root by the mount below."""
-    return FileResponse(SITE / DECK, media_type="text/html")
+    """The website, page 01 Overview (#91). Its pages, runtime and vendored assets are served from the root by the mount below."""
+    return FileResponse(SITE / HOME, media_type="text/html")
 
 
 @app.get("/dashboard", include_in_schema=False)

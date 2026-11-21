@@ -1,0 +1,257 @@
+{
+ "schema": "fleetview-v1",
+ "fixture": true,
+ "provenance": {
+  "key": "fixture",
+  "assumptions_hash": null,
+  "profile_sha256": null,
+  "commit": null,
+  "generated_at": null
+ },
+ "assumed": {
+  "houses": "10 (fixture)",
+  "placement": "fixture",
+  "servers": "fixture",
+  "access_classes": "fixture",
+  "job_stream": "fixture"
+ },
+ "start": "2025-01-01T00:00:00+01:00",
+ "tz": "Europe/Zurich",
+ "step_h": 1,
+ "hours": 48,
+ "houses": [
+  {
+   "id": 0,
+   "building": 0,
+   "x": 1239.9,
+   "y": 773.9,
+   "footprint_m2": 305,
+   "scale": 0.665,
+   "servers": 4,
+   "tank_kwh": 35.0,
+   "classes": [
+    "public",
+    "swiss-only",
+    "certified"
+   ],
+   "district": "Bachletten"
+  },
+  {
+   "id": 1,
+   "building": 1,
+   "x": -342.2,
+   "y": 851.4,
+   "footprint_m2": 245,
+   "scale": 2.148,
+   "servers": 3,
+   "tank_kwh": 35.0,
+   "classes": [
+    "public",
+    "swiss-only"
+   ],
+   "district": "St. Johann"
+  },
+  {
+   "id": 2,
+   "building": 2,
+   "x": 16.9,
+   "y": -654.5,
+   "footprint_m2": 138,
+   "scale": 1.589,
+   "servers": 3,
+   "tank_kwh": 35.0,
+   "classes": [
+    "public",
+    "swiss-only"
+   ],
+   "district": "St. Johann"
+  },
+  {
+   "id": 3,
+   "building": 3,
+   "x": -683.5,
+   "y": 689.5,
+   "footprint_m2": 259,
+   "scale": 1.355,
+   "servers": 2,
+   "tank_kwh": 35.0,
+   "classes": [
+    "public",
+    "swiss-only"
+   ],
+   "district": "Matth\u00e4us"
+  },
+  {
+   "id": 4,
+   "building": 4,
+   "x": -237.0,
+   "y": 332.7,
+   "footprint_m2": 194,
+   "scale": 2.147,
+   "servers": 3,
+   "tank_kwh": 35.0,
+   "classes": [
+    "public",
+    "swiss-only"
+   ],
+   "district": "Bachletten"
+  },
+  {
+   "id": 5,
+   "building": 5,
+   "x": 1315.1,
+   "y": -718.5,
+   "footprint_m2": 370,
+   "scale": 2.066,
+   "servers": 2,
+   "tank_kwh": 35.0,
+   "classes": [
+    "public",
+    "swiss-only"
+   ],
+   "district": "Bachletten"
+  },
+  {
+   "id": 6,
+   "building": 6,
+   "x": 756.9,
+   "y": 855.1,
+   "footprint_m2": 90,
+   "scale": 1.579,
+   "servers": 3,
+   "tank_kwh": 35.0,
+   "classes": [
+    "public",
+    "swiss-only"
+   ],
+   "district": "St. Johann"
+  },
+  {
+   "id": 7,
+   "building": 7,
+   "x": 829.0,
+   "y": 610.9,
+   "footprint_m2": 122,
+   "scale": 0.906,
+   "servers": 4,
+   "tank_kwh": 35.0,
+   "classes": [
+    "public",
+    "swiss-only",
+    "certified"
+   ],
+   "district": "St. Johann"
+  },
+  {
+   "id": 8,
+   "building": 8,
+   "x": -941.0,
+   "y": 1402.6,
+   "footprint_m2": 368,
+   "scale": 1.317,
+   "servers": 2,
+   "tank_kwh": 35.0,
+   "classes": [
+    "public",
+    "swiss-only"
+   ],
+   "district": "Matth\u00e4us"
+  },
+  {
+   "id": 9,
+   "building": 9,
+   "x": 1350.3,
+   "y": 1493.9,
+   "footprint_m2": 340,
+   "scale": 0.774,
+   "servers": 4,
+   "tank_kwh": 35.0,
+   "classes": [
+    "public",
+    "swiss-only"
+   ],
+   "district": "Matth\u00e4us"
+  }
+ ],
+ "series": {
+  "file": "houses.u16",
+  "layout": "[field][house][hour]",
+  "dtype": "uint16-le",
+  "fields": [
+   {
+    "name": "servers_on",
+    "unit": "servers",
+    "scale": 1.0
+   },
+   {
+    "name": "heat_used_kwh",
+    "unit": "kWh",
+    "scale": 0.001
+   },
+   {
+    "name": "unmet_kwh",
+    "unit": "kWh",
+    "scale": 0.001
+   },
+   {
+    "name": "dumped_kwh",
+    "unit": "kWh",
+    "scale": 0.001
+   },
+   {
+    "name": "tank_kwh",
+    "unit": "kWh",
+    "scale": 0.01
+   },
+   {
+    "name": "state",
+    "unit": "code",
+    "scale": 1.0
+   },
+   {
+    "name": "mc_chf_per_server_h",
+    "unit": "CHF/server-h",
+    "scale": 0.0001
+   }
+  ]
+ },
+ "fleet": {
+  "file": "fleet.json"
+ },
+ "jobs": {
+  "file": "jobs.json",
+  "tracked_every": 4
+ },
+ "totals": {
+  "ours": {
+   "coverage_pct": 0,
+   "heat_demand_kwh": 0,
+   "heat_used_kwh": 0,
+   "dumped_kwh": 0,
+   "backup_kwh": 0,
+   "run_h": 0,
+   "utilisation_pct": 0,
+   "units_arrived": 0,
+   "units_done": 0,
+   "units_rejected": 0,
+   "units_missed": 0,
+   "missed_pct": 0,
+   "net_chf_excl_hardware": 0
+  },
+  "baseline": {
+   "coverage_pct": 0,
+   "heat_demand_kwh": 0,
+   "heat_used_kwh": 0,
+   "dumped_kwh": 0,
+   "backup_kwh": 0,
+   "run_h": 0,
+   "utilisation_pct": 0,
+   "units_arrived": 0,
+   "units_done": 0,
+   "units_rejected": 0,
+   "units_missed": 0,
+   "missed_pct": 0,
+   "net_chf_excl_hardware": 0
+  }
+ }
+}

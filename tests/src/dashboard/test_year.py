@@ -122,9 +122,10 @@ def test_year_page_is_served_offline_and_in_nav(client):
     html = r.text
     assert "./vendor/resources.js" in html and "./vendor/fonts/fonts.css" in html
     assert not re.findall(r"""(?:src|href)=["']https?://""", html)
-    assert "/api/year/sizing" in html and "/api/year?n=" in html and "navActive: 7" in html
+    assert "/api/year/sizing" in html and "/api/year?n=" in html and "navActive: 7," in html and "__NAV" not in html
     nav = client.get("/Nav.dc.html").text
-    assert '["07", "Year", "DigitalHeat%2007%20Year.dc.html"]' in nav and "&quot;max&quot;:7," in nav
+    assert '["07", "Year", "DigitalHeat%2007%20Year.dc.html"]' in nav
+    assert f"&quot;max&quot;:{6 + len(site_build.NAV_EXTRA)}," in nav
 
 
 def test_page_uses_only_api_numbers():

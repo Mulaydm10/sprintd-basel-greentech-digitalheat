@@ -20,7 +20,7 @@
   </nav>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:900,&quot;height&quot;:120},&quot;active&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:1,&quot;min&quot;:1,&quot;max&quot;:7,&quot;tsType&quot;:&quot;number&quot;}}">
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:900,&quot;height&quot;:120},&quot;active&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:1,&quot;min&quot;:1,&quot;max&quot;:8,&quot;tsType&quot;:&quot;number&quot;}}">
 class Component extends DCLogic {
   state = { progress: 0 };
   static PAGES = [
@@ -30,7 +30,8 @@ class Component extends DCLogic {
     ["04", "Live demo", "DigitalHeat%2004%20Live.dc.html"],
     ["05", "Economics", "DigitalHeat%2005%20Economics.dc.html"],
     ["06", "Simulator", "DigitalHeat%2006%20Simulator.dc.html"],
-    ["07", "Year", "DigitalHeat%2007%20Year.dc.html"]
+    ["07", "Year", "DigitalHeat%2007%20Year.dc.html"],
+    ["10", "Coordinator", "DigitalHeat%2010%20Coordinator.dc.html"]
   ];
   static EASE = "cubic-bezier(.16,.84,.24,1)";
   go(href) {

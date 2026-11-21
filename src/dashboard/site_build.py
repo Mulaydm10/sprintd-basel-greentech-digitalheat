@@ -28,13 +28,18 @@ DST = Path(__file__).resolve().parent / "static" / "site"
 EXTRA = Path(__file__).resolve().parent / "site_extra"  # our own pages in the same visual language (#96: 07 Year)
 RUNTIME = ("support.js", "deck-stage.js")
 
-# Nav: the 07 Year tab (#96). One more PAGES row and the props' max 6 -> 7, so arrow paging reaches it.
+# Nav: extra tabs after 06, in order. Each PR that adds a page appends ONE row (#96 07 Year, #102 08/09, #103 10);
+# the props' max follows, so arrow paging reaches every tab.
 NAV_PAGE = "Nav.dc.html"
+NAV_EXTRA = [
+    ("07", "Year", "DigitalHeat 07 Year.dc.html"),
+    ("10", "Coordinator", "DigitalHeat 10 Coordinator.dc.html"),
+]
 NAV_OLD = '    ["06", "Simulator", "DigitalHeat%2006%20Simulator.dc.html"]\n  ];'
 NAV_NEW = ('    ["06", "Simulator", "DigitalHeat%2006%20Simulator.dc.html"],\n'
-           '    ["07", "Year", "DigitalHeat%2007%20Year.dc.html"]\n  ];')
+           + ",\n".join(f'    ["{n}", "{label}", "{f.replace(" ", "%20")}"]' for n, label, f in NAV_EXTRA) + "\n  ];")
 NAV_MAX_OLD = "&quot;min&quot;:1,&quot;max&quot;:6,"
-NAV_MAX_NEW = "&quot;min&quot;:1,&quot;max&quot;:7,"
+NAV_MAX_NEW = f"&quot;min&quot;:1,&quot;max&quot;:{6 + len(NAV_EXTRA)},"
 
 FONT_LINKS = ('<link rel="preconnect" href="https://fonts.googleapis.com">\n'
               '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family='
@@ -138,8 +143,13 @@ def build(src: Path = SRC, dst: Path = DST) -> list[str]:
     for f in RUNTIME:
         shutil.copyfile(src / f, dst / f)
         out.append(f)
-    for p in sorted(EXTRA.glob("*.dc.html")):  # our own pages: written offline-ready, copied verbatim
-        shutil.copyfile(p, dst / p.name)
+    total = 6 + len(NAV_EXTRA)
+    for p in sorted(EXTRA.glob("*.dc.html")):  # our own pages: written offline-ready; only the Nav position is filled in
+        pos = next((6 + i + 1 for i, (_n, _l, f) in enumerate(NAV_EXTRA) if f == p.name), None)
+        html = p.read_text(encoding="utf-8")
+        if pos is not None:
+            html = html.replace("__NAV_INDEX__", str(pos)).replace("__NAV_TOTAL__", f"{total:02d}")
+        (dst / p.name).write_text(html, encoding="utf-8")
         out.append(p.name)
     return out
 

@@ -20,3 +20,14 @@ price:
   heat_value_divisor: 2.5
 expected_checks: {annual_heating_kwh: 27000, heating_days: 206, verified_annual_heating_kwh: 26851}  # 27000 is rounded; 26851 verified per brief
 jobs: []            # TODO: runtime/energy/interruptible/deadline/access_class per job type
+scheduler:  # contract v2 (contracts/src/scheduler.md)
+  eta_heat_used: 0.8          # = server.heat_recovery_fraction
+  tank_band_low_kwh: 10.0     # hysteresis band (tunable; report sensitivity)
+  tank_band_high_kwh: 33.0
+  unit_minutes: 15
+  deadline_safety_h: 1.0
+  migration_margin_chf: 0.05
+hardware:  # ASSUMED, unsourced; always show sensitivity 5k/8k/15k x 3/5 y
+  capex_chf_per_server: 8000
+  capex_range_chf: [5000, 8000, 15000]
+  life_years: 5

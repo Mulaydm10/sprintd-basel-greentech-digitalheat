@@ -21,6 +21,7 @@ Site simulator (contract coordinator v1.1): replays the house_model reference pr
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 import logging
 import random
 import sys
@@ -75,6 +76,30 @@ class SiteSim:
     loops: int = 0  # completed replays (only > 0 with loop=True)
     failures: int = 0
     posted: list[dict] = field(default_factory=list)
+    # portal v1 (#83): POST /v1/ops/sites/{id}/scenario writes <state>/scenario/<site>; we poll it each step
+    scenario_file: Path | None = None
+    profile: pd.DataFrame | None = None
+    replay: str = ""
+    _scenario_mtime: float | None = None
+
+    def check_scenario(self) -> bool:
+        """Switch replay when the operator's scenario file names another one (tank carried over, replay restarts
+        at its first hour). Unreadable or unknown content is ignored. Returns True when it switched."""
+        if self.scenario_file is None or self.profile is None:
+            return False
+        try:
+            m = self.scenario_file.stat().st_mtime
+            if m == self._scenario_mtime:
+                return False
+            self._scenario_mtime = m
+            want = self.scenario_file.read_text().strip()
+        except OSError:
+            return False
+        if want not in ("coldest", "july") or want == self.replay:
+            return False
+        self.rows, self.replay, self.sim_s = replay_rows(self.profile, want), want, 0.0
+        log.info("scenario switched to %s by the operator (tank %.2f kWh carried over)", want, self.tank_kwh)
+        return True
 
     @property
     def interval_s(self) -> float:
@@ -140,6 +165,7 @@ class SiteSim:
                 log.info("replay %d ended after %d sim-hours; restarting (--loop) with the tank carried over at "
                          "%.2f kWh", self.loops, hours, self.tank_kwh)
                 continue
+            self.check_scenario()
             self.step()
         return "stopped"
 
@@ -157,15 +183,19 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--speed", type=float, default=3600.0, help="sim seconds per real second")
     p.add_argument("--tank0", type=float, default=None, help="initial tank kWh (default: half the capacity)")
     p.add_argument("--loop", action="store_true", help="restart the replay when it ends (tank carried over)")
+    p.add_argument("--scenario-dir", default=None,
+                   help="poll <dir>/<site> for an operator scenario switch (coldest|july), e.g. runs/coordinator/scenario")
     a = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     if not ID_RE.match(a.site) or not a.speed > 0:
         raise SystemExit("--site must match [a-z0-9-]{1,64} and --speed must be > 0")
     cap = float(load_assumptions()["house"]["tank_kwh"])
-    from pathlib import Path
+    profile = load_reference_profile()
     with client(a.coordinator, read_token(Path(a.token_file))) as http:
-        sim = SiteSim(http, a.site, replay_rows(load_reference_profile(), a.replay), a.speed, cap,
-                      cap / 2 if a.tank0 is None else min(cap, max(0.0, a.tank0)), loop=a.loop)
+        sim = SiteSim(http, a.site, replay_rows(profile, a.replay), a.speed, cap,
+                      cap / 2 if a.tank0 is None else min(cap, max(0.0, a.tank0)), loop=a.loop,
+                      scenario_file=Path(a.scenario_dir) / a.site if a.scenario_dir else None, profile=profile,
+                      replay=a.replay)
         why, code = "error", 1
         try:
             why, code = sim.run(), 0

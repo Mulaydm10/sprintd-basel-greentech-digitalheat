@@ -42,6 +42,7 @@ from scheduler import Assign, Hold, Params, Route, SiteState, Unit, decide, heat
 from scheduler.admit import admit
 from scheduler.policy import used_capacity_kwh_el
 
+from . import portal_store as ps
 from .registry import load_registry, validate as validate_registry
 from .store import Store
 
@@ -121,6 +122,7 @@ class Coordinator:
         for e in self.broker.audit.entries[have:]:
             db.execute("INSERT INTO audit(idx, event, prev_hash, hash) VALUES(?,?,?,?)",
                        (e.index, json.dumps(dict(e.event), sort_keys=True), e.prev_hash, e.hash))
+            ps.on_audit(db, self, e.index, dict(e.event))  # portal events, same transaction (#83)
 
     def _audit(self, db, event: dict) -> None:
         self.broker._log(event)
@@ -191,17 +193,20 @@ class Coordinator:
         return Unit(r["unit_id"], r["job_id"], r["job_class"], r["access_class"], r["kwh_el"], r["bid"],
                     r["deadline_hour"], r["slack_h"], bool(r["checkpointable"]))
 
-    @staticmethod
-    def _with_signal(db, n) -> dict | None:
+    def _with_signal(self, db, n) -> dict | None:
         """The node row with its site's latest signal. F33: heartbeat heat fields never drive scheduling; a site
-        without a signal row has no heat data (degraded: persistence/no-dump rules)."""
+        without a signal row has no heat data (degraded: persistence/no-dump rules). Portal v1: an active owner
+        override (POST /v1/host/site/pause) makes the site want no heat (zero demand, full tank), so its running
+        units hold on their next renew via the normal pause path."""
         if n is None:
             return None
         d = dict(n)
-        d.update(demand_kw=None, tank_level_kwh=None, signal_at=None)
+        d.update(demand_kw=None, tank_level_kwh=None, signal_at=None, owner_paused=False)
         s = db.execute("SELECT * FROM sites WHERE site_id=?", (d["site_id"],)).fetchone()
         if s is not None:
             d.update(demand_kw=s["demand_kw"], tank_level_kwh=s["tank_level_kwh"], signal_at=s["received_at"])
+        if ps.site_paused(db, d["site_id"], self.clock()):
+            d.update(demand_kw=0.0, tank_level_kwh=float(self.a["house"]["tank_kwh"]), owner_paused=True)
         return d
 
     def _node(self, db, node_id: str):
@@ -227,7 +232,7 @@ class Coordinator:
 
     def _live(self, db, now: float, requester: str):
         return [self._with_signal(db, n)
-                for n in db.execute("SELECT * FROM nodes WHERE tampered=0 ORDER BY node_id").fetchall()
+                for n in db.execute("SELECT * FROM nodes WHERE tampered=0 AND drained=0 ORDER BY node_id").fetchall()
                 if n["node_id"] == requester or now - n["last_hb"] <= SUSPECT_S]
 
     # ------------------------------------------------------------------ site signals (v1.1)
@@ -239,11 +244,13 @@ class Coordinator:
         with self._tx() as db:
             self._touch(db, now)
             self._expire(db, now)
+            ps.account_site(db, self, site_id, now)  # hourly heat/dump/demand from the previous signal (#83)
             db.execute("""INSERT INTO sites(site_id, demand_kw, tank_level_kwh, ts, received_at) VALUES(?,?,?,?,?)
                           ON CONFLICT(site_id) DO UPDATE SET demand_kw=excluded.demand_kw,
                           tank_level_kwh=excluded.tank_level_kwh, ts=excluded.ts, received_at=excluded.received_at""",
                        (site_id, float(demand_kw), float(tank_level_kwh), float(ts), now))
             heat = self._site_heat(db).get(site_id, 0.0)
+            ps.site_signal_event(db, self, site_id, now, demand_kw, tank_level_kwh, heat)
         return {"ok": True, "site_id": site_id, "heat_produced_kw": heat, "heat_used_kw": heat}
 
     def _site_heat(self, db) -> dict[str, float]:
@@ -316,7 +323,7 @@ class Coordinator:
         with self._tx() as db:
             self._touch(db, now)
             self._expire(db, now)
-            self._node(db, node_id)
+            before = self._node(db, node_id)
             sets = {"last_hb": now, "watts": hb.get("watts"), "running_unit": hb.get("running_unit"),
                     "progress": hb.get("progress"), "last_error": hb.get("last_error")}
             if hb.get("tank_level_kwh") is not None or hb.get("demand_kw") is not None:
@@ -324,6 +331,7 @@ class Coordinator:
             db.execute(f"UPDATE nodes SET {', '.join(k + '=?' for k in sets)} WHERE node_id=?",
                        (*sets.values(), node_id))
             n = self._node(db, node_id)
+            ps.heartbeat_events(db, self, before, n, now)
         return {"ok": True, "degraded": self._degraded(n, now)}
 
     # ------------------------------------------------------------------ leases
@@ -336,6 +344,8 @@ class Coordinator:
             if me["tampered"]:
                 self._audit(db, {"type": "lease_refused", "node": node_id, "reason": "node_tampered"})
                 return {"hold": True, "reason": "key denied: node_tampered", "retry_after_s": HOLD_RETRY_S}
+            if me["drained"]:
+                return {"hold": True, "reason": "node drained by the operator", "retry_after_s": HOLD_RETRY_S}
             cur = db.execute("SELECT * FROM leases WHERE node_id=? AND state='active'", (node_id,)).fetchone()
             if cur is not None:  # one unit at a time per node: re-asking returns the same lease (idempotent)
                 return self._lease_payload(db, cur, now, self._degraded(me, now), key=None)
@@ -430,6 +440,8 @@ class Coordinator:
                 r = next(x for x in dec.actions if isinstance(x, Route) and x.site_id == node_id)
                 if r.dump_kwh > 0 and r.space_kwh + r.dhw_kwh + r.tank_kwh <= 1e-9:
                     held = Hold(u["unit_id"], "degraded: no dump-only work on stale heat data")
+            if held is None and me["drained"]:  # portal v1: checkpoint and move off a drained node
+                held = Hold(u["unit_id"], "node drained by the operator")
             if held is not None:
                 db.execute("UPDATE leases SET state='paused', expires_at=? WHERE lease_id=?", (now + LEASE_S, lease_id))
                 db.execute("UPDATE units SET state='pending' WHERE unit_id=? AND state='leased'", (u["unit_id"],))
@@ -438,6 +450,8 @@ class Coordinator:
                 return {"hold": True, "reason": held.reason, "retry_after_s": HOLD_RETRY_S,
                         "final_checkpoint_within_s": LEASE_S, "degraded": degraded}
             db.execute("UPDATE leases SET expires_at=? WHERE lease_id=?", (now + LEASE_S, lease_id))
+            ps.emit(db, self, "lease.renewed", {"lease": lease_id, "unit": u["unit_id"], "node": node_id,
+                                                "expires_in_s": LEASE_S}, **ps.scope(db, u["unit_id"], node_id))
         return {"ok": True, "expires_in_s": LEASE_S}
 
     def checkpoint(self, node_id: str, lease_id: str, body: bytes, next_chunk: int, out_bytes: int,
@@ -469,6 +483,9 @@ class Coordinator:
             db.execute("INSERT INTO checkpoints VALUES(?,?,?,?,?,?,?,?)",
                        (lz["unit_id"], seq, next_chunk, out_bytes, sha256, str(final.relative_to(self.dir)),
                         node_id, now))
+            ps.emit(db, self, "unit.progress", {"unit": lz["unit_id"], "node": node_id, "next_chunk": next_chunk,
+                                                "chunks": u["chunks"], "checkpoint": seq},
+                    **ps.scope(db, lz["unit_id"], node_id))
             if lz["state"] == "paused":  # the one final checkpoint after a pause
                 db.execute("UPDATE leases SET state='released' WHERE lease_id=?", (lease_id,))
                 self._audit(db, {"type": "lease_released", "lease": lease_id, "unit": lz["unit_id"], "node": node_id,
@@ -528,12 +545,14 @@ class Coordinator:
             db.execute("""UPDATE units SET state='done', result_sha256=?, done_chunks=?, completed_at=?, completed_by=?
                           WHERE unit_id=?""", (result_sha256, json.dumps(sorted(chunk_ids)), now, node_id, u["unit_id"]))
             db.execute("UPDATE leases SET state='completed' WHERE lease_id=?", (lease_id,))
+            ps.store_result(db, self, u["unit_id"], u["job_id"], result_sha256)  # portal v1: client can fetch it
             self._audit(db, {"type": "complete", "unit": u["unit_id"], "node": node_id, "result": result_sha256})
         return {"ok": True, "duplicate": False, "unit_id": u["unit_id"]}
 
     # ------------------------------------------------------------------ admin / observer
     def submit_job(self, job_type: str, customer_id: str, access_class: str | None, deadline_h: float | None,
-                   force: bool, rounds: int | None = None, chunks: int | None = None) -> dict:
+                   force: bool, rounds: int | None = None, chunks: int | None = None, client_id: str | None = None,
+                   idempotency_key: str | None = None) -> dict:
         now = self.clock()
         if chunks is not None and not 1 <= chunks <= MAX_CHUNKS:
             raise CoordError(422, f"chunks must be in [1, {MAX_CHUNKS}]")
@@ -574,9 +593,10 @@ class Coordinator:
                 priv = _priv_bytes(self.broker._jobs[job_id].priv)
             else:
                 priv = None
-            db.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?)",
+            db.execute("""INSERT INTO jobs(job_id, job_type, access_class, customer_id, deadline_hour, priv_key,
+                          created_at, admitted, reason, client_id, idempotency_key) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                        (job_id, job_type, jt.access_class, customer_id, units[0].deadline_hour, priv, now, int(ok),
-                        reason))
+                        reason, client_id, idempotency_key))
             if ok:
                 for i, u in enumerate(units):
                     db.execute("""INSERT INTO units(unit_id, job_id, seq, job_class, access_class, kwh_el, bid,
@@ -600,12 +620,7 @@ class Coordinator:
             self._node(db, node_id)
             self.broker.tamper(node_id)
             db.execute("UPDATE nodes SET tampered=1 WHERE node_id=?", (node_id,))
-            revoked = 0
-            for lz in db.execute("SELECT lease_id, unit_id FROM leases WHERE node_id=? AND state='active'",
-                                 (node_id,)).fetchall():
-                db.execute("UPDATE leases SET state='revoked' WHERE lease_id=?", (lz["lease_id"],))
-                db.execute("UPDATE units SET state='pending' WHERE unit_id=? AND state='leased'", (lz["unit_id"],))
-                revoked += 1
+            revoked = len(ps.revoke_leases(db, self, "node_id=? AND state='active'", (node_id,), "node tampered"))
             self._persist_audit(db)
             self._audit(db, {"type": "leases_revoked", "node": node_id, "count": revoked})
         return {"ok": True, "revoked": revoked}

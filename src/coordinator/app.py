@@ -10,7 +10,9 @@ before parsing.
 """
 from __future__ import annotations
 
+import importlib
 import logging
+import os
 import re
 import time
 from pathlib import Path
@@ -18,6 +20,7 @@ from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Path as PathParam, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -95,12 +98,20 @@ def create_app(state_dir: Path, tokens: dict[str, str] | None = None, clock=time
     tokens = tokens if tokens is not None else load_tokens(state_dir / "tokens.json")
     coord = Coordinator(state_dir, clock, assumptions, registry)
     limiter = RateLimiter(RATE, BURST, clock=monotonic)  # monotonic source, never the injected app clock (v1.1)
+    # portal v1 (#83): the frontend codegens from /openapi.json (route shapes only; no secrets, no docs UI)
     app = FastAPI(title="DigitalHeat coordinator", version=VERSION, docs_url=None, redoc_url=None,
-                  openapi_url=None)
+                  openapi_url="/openapi.json")
     app.state.coord = coord
     app.state.limiter = limiter
+    app.state.tokens = tokens
     app.add_middleware(BodyLimit, default=BODY_MAX, large=CKPT_MAX,
                        large_path=re.compile(r"^/v1/leases/[a-z0-9-]{1,64}/checkpoint$"))
+    origins = cors_origins()
+    if origins:  # exact origins only; bearer tokens, never cookies -> no credentials, never "*"
+        app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=False,
+                           allow_methods=["GET", "POST", "DELETE"],
+                           allow_headers=["Authorization", "Content-Type", "Last-Event-ID"],
+                           expose_headers=["X-Result-SHA256"], max_age=600)
     app.add_middleware(ConnCap, per_client=16)  # added last = outermost: runs before body read and auth (F34)
 
     @app.exception_handler(CoordError)
@@ -208,4 +219,45 @@ def create_app(state_dir: Path, tokens: dict[str, str] | None = None, clock=time
             raise HTTPException(403, "observer or admin token required")
         return coord.status()
 
+    mount_portal(app, principal, coord)
     return app
+
+
+def cors_origins() -> list[str]:
+    """DH_CORS_ORIGINS: comma-separated exact origins (scheme://host[:port]); empty = no CORS. '*' is refused."""
+    out = []
+    for o in (x.strip() for x in os.environ.get("DH_CORS_ORIGINS", "").split(",")):
+        if not o:
+            continue
+        if o == "*" or not re.fullmatch(r"https?://[A-Za-z0-9.-]+(:\d{1,5})?", o):
+            raise ValueError(f"DH_CORS_ORIGINS: {o!r} is not an exact origin like https://app.example.ch")
+        out.append(o)
+    return out
+
+
+PORTAL_ROUTERS = ("client", "host", "ops", "events")  # P2: client/host get the Coordinator; P3: ops/events a backend
+
+
+def mount_portal(app: FastAPI, principal, coord: Coordinator) -> list[str]:
+    """Mount the portal routers (src/portal, #84/#85) that exist: each module exposes
+    make_router(principal, backend). A missing module is skipped (the coordinator works without the portal);
+    any other import error is raised."""
+    mounted, backend = [], None
+    for name in PORTAL_ROUTERS:
+        try:
+            mod = importlib.import_module(f"portal.{name}")
+        except ModuleNotFoundError as e:
+            if e.name in ("portal", f"portal.{name}"):
+                continue
+            raise
+        if name in ("ops", "events"):
+            if backend is None:
+                from portal.backend import StoreBackend
+                backend = StoreBackend(coord)
+            b = backend
+            app.include_router(mod.make_router(principal, lambda: b))
+        else:
+            app.include_router(mod.make_router(principal, lambda: coord))
+        mounted.append(name)
+    app.state.portal_routers = mounted
+    return mounted

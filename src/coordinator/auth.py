@@ -6,6 +6,7 @@ which prefix matched.
 """
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
 import re
@@ -81,33 +82,53 @@ class RateLimiter:
 
 
 class BodyLimit:
-    """Pure-ASGI middleware: reject bodies over the limit with 413 before the app parses them.
+    """Pure-ASGI middleware: reject bodies over the limit with 413 before the app parses them, and slow bodies
+    with 408 (red team F34, slow-loris).
 
     The limit is `large` for paths matching `large_path`, else `default`. A declared Content-Length over the
-    limit is refused immediately; a streamed body is counted chunk by chunk.
+    limit is refused immediately; a streamed body is counted chunk by chunk. Reading the body must make
+    progress: no bytes for `idle_s` -> 408, and the whole body must arrive within
+    max(`min_total_s`, declared length / `min_rate_bps`) -> 408, so a held-open upload cannot pin a worker.
     """
 
-    def __init__(self, app, default: int, large: int, large_path: re.Pattern):
+    def __init__(self, app, default: int, large: int, large_path: re.Pattern, idle_s: float = 3.0,
+                 min_total_s: float = 10.0, min_rate_bps: float = 256 * 1024):
         self.app, self.default, self.large, self.large_path = app, default, large, large_path
+        self.idle_s, self.min_total_s, self.min_rate_bps = idle_s, min_total_s, min_rate_bps
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         limit = self.large if self.large_path.match(scope.get("path", "")) else self.default
+        declared = 0
         for k, v in scope.get("headers", []):
             if k == b"content-length":
                 try:
-                    if int(v) > limit:
+                    declared = int(v)
+                    if declared > limit:
                         return await _reject(send, limit)
                 except ValueError:
                     return await _reject(send, limit, status=400, msg="bad content-length")
         seen = 0
         too_big = False
+        too_slow = False
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + max(self.min_total_s, declared / self.min_rate_bps)
+        done_reading = False
 
         async def counted():
-            nonlocal seen, too_big
-            msg = await receive()
+            nonlocal seen, too_big, too_slow, done_reading
+            if done_reading or too_slow or too_big:
+                return await receive()  # after the body: disconnect notifications etc.
+            wait = min(self.idle_s, deadline - loop.time())
+            try:
+                msg = await asyncio.wait_for(receive(), timeout=max(0.0, wait))
+            except asyncio.TimeoutError:
+                too_slow = True
+                return {"type": "http.disconnect"}
             if msg["type"] == "http.request":
+                if not msg.get("more_body", False):
+                    done_reading = True
                 seen += len(msg.get("body", b""))
                 if seen > limit:
                     too_big = True
@@ -118,15 +139,22 @@ class BodyLimit:
 
         async def guarded_send(msg):
             nonlocal started
-            if too_big and not started:
+            if (too_big or too_slow) and not started:
                 started = True
+                if too_slow:
+                    return await _reject(send, limit, status=408, msg="request body too slow")
                 return await _reject(send, limit)
-            if too_big:
+            if too_big or too_slow:
                 return None
             started = started or msg["type"] == "http.response.start"
             return await send(msg)
 
-        await self.app(scope, counted, guarded_send)
+        try:
+            await self.app(scope, counted, guarded_send)
+        finally:
+            if too_slow and not started:  # the app gave up without answering (client disconnect): answer 408
+                started = True
+                await _reject(send, limit, status=408, msg="request body too slow")
 
 
 async def _reject(send, limit: int, status: int = 413, msg: str | None = None):
@@ -134,3 +162,41 @@ async def _reject(send, limit: int, status: int = 413, msg: str | None = None):
     await send({"type": "http.response.start", "status": status,
                 "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())]})
     await send({"type": "http.response.body", "body": body})
+
+
+class ConnCap:
+    """Pure-ASGI middleware: at most `per_client` requests in flight per client, checked BEFORE auth (F34).
+
+    Behind Tailscale Funnel every request arrives from 127.0.0.1, so the client key is the first
+    X-Forwarded-For hop when (and only when) the peer is loopback; otherwise the peer address. Over the cap -> 503.
+    """
+
+    def __init__(self, app, per_client: int = 16):
+        self.app, self.per_client = app, per_client
+        self.inflight: dict[str, int] = {}
+
+    def _key(self, scope) -> str:
+        peer = (scope.get("client") or ("?", 0))[0]
+        if peer in ("127.0.0.1", "::1"):
+            for k, v in scope.get("headers", []):
+                if k == b"x-forwarded-for":
+                    return v.decode("latin-1").split(",")[0].strip() or peer
+        return peer
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        key = self._key(scope)
+        if self.inflight.get(key, 0) >= self.per_client:
+            body = b'{"detail":"too many concurrent requests from this client"}'
+            await send({"type": "http.response.start", "status": 503,
+                        "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode()),
+                                    (b"retry-after", b"2")]})
+            return await send({"type": "http.response.body", "body": body})
+        self.inflight[key] = self.inflight.get(key, 0) + 1
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            self.inflight[key] -= 1
+            if self.inflight[key] <= 0:
+                del self.inflight[key]

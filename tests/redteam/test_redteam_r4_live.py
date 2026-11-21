@@ -221,6 +221,11 @@ def test_conflicting_result_on_completed_unit_is_409(env):
     holder, _, L = lease_held(c)
     lid, unit = L["lease_id"], L["unit"]["unit_id"]
     good = expected_sha(unit)
+    # #71 (F35): completion needs evidence of work and a minimum elapsed time, as a real agent provides
+    ck = b"final-checkpoint"
+    c.post(f"/v1/leases/{lid}/checkpoint", headers={**H(holder), "X-Next-Chunk": str(CHUNKS_PER_UNIT),
+           "X-Out-Bytes": "0", "X-Sha256": hashlib.sha256(ck).hexdigest()}, content=ck)
+    env.clock.t += 1
     ok = c.post(f"/v1/leases/{lid}/complete", headers=H(holder),
                 json={"result_sha256": good, "chunk_ids": list(range(CHUNKS_PER_UNIT))})
     assert ok.status_code == 200 and ok.json()["duplicate"] is False

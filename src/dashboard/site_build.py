@@ -25,7 +25,16 @@ from common.config import ROOT
 
 SRC = ROOT / "design" / "frontend"
 DST = Path(__file__).resolve().parent / "static" / "site"
+EXTRA = Path(__file__).resolve().parent / "site_extra"  # our own pages in the same visual language (#96: 07 Year)
 RUNTIME = ("support.js", "deck-stage.js")
+
+# Nav: the 07 Year tab (#96). One more PAGES row and the props' max 6 -> 7, so arrow paging reaches it.
+NAV_PAGE = "Nav.dc.html"
+NAV_OLD = '    ["06", "Simulator", "DigitalHeat%2006%20Simulator.dc.html"]\n  ];'
+NAV_NEW = ('    ["06", "Simulator", "DigitalHeat%2006%20Simulator.dc.html"],\n'
+           '    ["07", "Year", "DigitalHeat%2007%20Year.dc.html"]\n  ];')
+NAV_MAX_OLD = "&quot;min&quot;:1,&quot;max&quot;:6,"
+NAV_MAX_NEW = "&quot;min&quot;:1,&quot;max&quot;:7,"
 
 FONT_LINKS = ('<link rel="preconnect" href="https://fonts.googleapis.com">\n'
               '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family='
@@ -95,7 +104,7 @@ RET_NEW = '''    const ctl = this.state.liveCtl;
       liveOn, liveActions, liveActMsg, liveActC,
 '''
 WIRING = ["vendor/resources.js before support.js", "local fonts.css", "apiBase default '.' on 04 and 06",
-          "04 Live: LIVE controls row + liveAct()"]
+          "04 Live: LIVE controls row + liveAct()", "Nav: 07 Year tab (#96)"]
 
 
 def wire(name: str, html: str) -> str:
@@ -109,6 +118,9 @@ def wire(name: str, html: str) -> str:
     html = sub(html, SUPPORT, SUPPORT_LOCAL)
     if name in API_PAGES:
         html = sub(html, API_DEFAULT, API_LOCAL)
+    if name == NAV_PAGE:
+        html = sub(html, NAV_OLD, NAV_NEW)
+        html = sub(html, NAV_MAX_OLD, NAV_MAX_NEW)
     if name == LIVE_PAGE:
         html = sub(html, LIVE_ANCHOR, LIVE_ROW)
         html = sub(html, POLL_OLD, POLL_NEW)
@@ -126,6 +138,9 @@ def build(src: Path = SRC, dst: Path = DST) -> list[str]:
     for f in RUNTIME:
         shutil.copyfile(src / f, dst / f)
         out.append(f)
+    for p in sorted(EXTRA.glob("*.dc.html")):  # our own pages: written offline-ready, copied verbatim
+        shutil.copyfile(p, dst / p.name)
+        out.append(p.name)
     return out
 
 

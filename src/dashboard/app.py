@@ -406,8 +406,10 @@ def decision_card() -> dict[str, Any]:
 
 # ================================================================ #91: LIVE controls (local-only proxy) + the site
 from .live import router as _live_router  # noqa: E402
+from .year import router as _year_router  # noqa: E402
 
 app.include_router(_live_router)
+app.include_router(_year_router)  # #96: /api/year, /api/year/sizing (Y1's yearview-v1 cache)
 # Mounted last so every /api route above wins; serves the pages, support.js, deck-stage.js and vendor/ at the root,
 # where the pages' relative links and their same-origin "./api/..." calls resolve.
 from fastapi.staticfiles import StaticFiles  # noqa: E402

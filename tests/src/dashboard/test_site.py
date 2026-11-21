@@ -28,7 +28,8 @@ def client():
 def test_committed_site_is_exactly_the_build_of_the_export(tmp_path):
     """The shipped site = design/frontend + the WIRING edits only (no visual/copy change can sneak in)."""
     built = site_build.build(dst=tmp_path)
-    assert sorted(built) == sorted(PAGES + list(site_build.RUNTIME))
+    extras = sorted(p.name for p in site_build.EXTRA.glob("*.dc.html"))
+    assert sorted(built) == sorted(PAGES + list(site_build.RUNTIME) + extras)
     for name in built:
         assert (tmp_path / name).read_bytes() == (SITE / name).read_bytes(), f"{name}: rerun python -m dashboard.site_build"
 
@@ -47,6 +48,8 @@ def test_only_the_listed_wiring_differs():
             undo = undo.replace(site_build.FONT_LOCAL, site_build.FONT_LINKS)
         if name in site_build.API_PAGES:
             undo = undo.replace(site_build.API_LOCAL, site_build.API_DEFAULT)
+        if name == site_build.NAV_PAGE:
+            undo = undo.replace(site_build.NAV_NEW, site_build.NAV_OLD).replace(site_build.NAV_MAX_NEW, site_build.NAV_MAX_OLD)
         if name == site_build.LIVE_PAGE:
             for old, newer in ((site_build.LIVE_ANCHOR, site_build.LIVE_ROW), (site_build.POLL_OLD, site_build.POLL_NEW),
                                (site_build.ACT_METHOD, site_build.ACT_NEW), (site_build.RET_OLD, site_build.RET_NEW)):

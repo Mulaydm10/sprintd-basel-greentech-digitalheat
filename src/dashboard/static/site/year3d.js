@@ -40,7 +40,7 @@
     float used = mix(a0.y, a1.x, uPol), dump = mix(a0.z, a1.y, uPol), paused = mix(a0.w, a1.z, uPol);
     float day = floor(aHour / 24.0), hh = mod(aHour, 24.0);
     float ang = 6.2831853 * hh / 24.0 + day * 0.0172;
-    float r = 1.0 + 1.35 * demand / max(1e-3, uDemMax);
+    float r = 1.6 + 2.6 * demand / max(1e-3, uDemMax);
     float y = (day / 365.0) * 12.0 - 6.0 + hh / 24.0 * (12.0 / 365.0);
     vec3 p = vec3(cos(ang) * r, y, sin(ang) * r);
     gl_Position = uVP * vec4(p, 1.0);
@@ -158,13 +158,13 @@
     gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 32, 16);
     gl.bindVertexArray(null);
 
-    const S = { cur: null, prev: null, morph: 1, pol: 0, polT: 0, hour: 0, yaw: 0.6, pitch: 0.38, dist: 14,
+    const S = { cur: null, prev: null, morph: 1, pol: 0, polT: 0, hour: 0, yaw: 0.6, pitch: 0.22, dist: 13,
       drag: null, auto: true, lastInput: -1e9, tmin: -6, tmax: 36, demMax: 11, camY: -3.5, raf: 0, last: performance.now(),
       spawnAcc: 0, dead: false };
 
     function helixPos(i, d) {
       const day = Math.floor(i / 24), hh = i % 24, ang = 2 * Math.PI * hh / 24 + day * 0.0172;
-      const r = 1 + 1.35 * d / Math.max(1e-3, S.demMax), y = (day / 365) * 12 - 6 + hh / 24 * (12 / 365);
+      const r = 1.6 + 2.6 * d / Math.max(1e-3, S.demMax), y = (day / 365) * 12 - 6 + hh / 24 * (12 / 365);
       return [Math.cos(ang) * r, y, Math.sin(ang) * r];
     }
     function spawn(kind, from, to, col, size, vel) {

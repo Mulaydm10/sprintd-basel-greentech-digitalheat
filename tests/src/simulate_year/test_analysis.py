@@ -75,6 +75,7 @@ def test_paid_price_closes_the_books(fast):
     assert income == pytest.approx(b["electricity_cost_chf"] + hw, rel=1e-9)
     assert b["ballast_income_chf"] > 0 and p > an.break_even_with_capex(b, capex, life, hours)  # filler earns < BE
     assert an.paid_price_to_break_even({**b, "paid_run_h": 0}, capex, life) is None
+    assert p == pytest.approx(b["pays_off_above_chf_per_server_h"], abs=1e-6)  # same definition as balance.json
 
 
 # ------------------------------------------------------------------ 1. band

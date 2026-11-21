@@ -31,3 +31,6 @@ Plan: `design/PLAN-scheduler-deploy.md` §1. One policy, price-driven; heat-led 
 
 ## Out of scope for #6
 Leases, WebSocket, real processes (→ #8), yearly balance (→ #7). `Migrate` is gone: moving work = lease lapse + reassign in #8.
+
+## v2.1 — input validation (red team #20, fix in #21)
+`decide()` raises `scheduler.types.InvalidInput` for: non-finite or negative numbers, duplicate unit_ids, heat_recovery ∉ [0,1], server_kw_el ≤ 0, band_low > band_high, tank level outside [0, cap]. Performance: 100k units × 50 sites < 50 ms/tick.

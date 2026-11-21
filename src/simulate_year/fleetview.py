@@ -263,6 +263,14 @@ def _run(args):
     return run_fleet(houses, policy, ballast, hours, seed)
 
 
+def _commit() -> str | None:
+    import subprocess
+    try:
+        return subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, timeout=5).stdout.strip() or None
+    except Exception:  # noqa: BLE001 - provenance only
+        return None
+
+
 def cache_key(houses: list[dict], hours: int, seed: int) -> str:
     code = hashlib.sha256()
     for d in ("simulate_year", "scheduler", "house_model"):
@@ -291,7 +299,7 @@ def build(out: Path, k: int = DEFAULT_HOUSES, seed: int = 0, servers: int | None
         h["tank_kwh"] = ours["cap"]
         h["classes"] = sorted({"public"} | ({"certified"} if h.pop("certified") else set()))
     prov = {"key": key, "assumptions_hash": assumptions_hash(), "profile_sha256": hashlib.sha256(DEFAULT_CSV.read_bytes()).hexdigest(),
-            "commit": None, "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "commit": _commit(), "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "runtime_s": None}
     total_servers = sum(h["servers"] for h in houses)
     index = {"schema": fs.SCHEMA, "fixture": False, "provenance": prov,
@@ -310,6 +318,8 @@ def build(out: Path, k: int = DEFAULT_HOUSES, seed: int = 0, servers: int | None
                          "every hour"},
              "start": "2025-01-01T00:00:00+01:00", "tz": "Europe/Zurich", "step_h": 1, "hours": ours["H"],
              "houses": houses,
+             "series_baseline": {"file": "houses_baseline.u16", "layout": "[field][house][hour]", "dtype": "uint16-le",
+                                 "policy": "thermostat", "fields": [{"name": n, "unit": u, "scale": s} for n, u, s in fs.FIELDS]},
              "series": {"file": "houses.u16", "layout": "[field][house][hour]", "dtype": "uint16-le",
                         "fields": [{"name": n, "unit": u, "scale": s} for n, u, s in fs.FIELDS]},
              "fleet": {"file": "fleet.json"}, "jobs": {"file": "jobs.json", "tracked_every": ours["track_every"]},
@@ -317,7 +327,10 @@ def build(out: Path, k: int = DEFAULT_HOUSES, seed: int = 0, servers: int | None
     prov["runtime_s"] = round(time.time() - t0, 1)
     series = [[list(ours["F"][n][i]) for i in range(len(houses))] for n, *_ in fs.FIELDS]
     fleet = {k2: [round(float(v), 4) for v in ours["fleet"][k2]] for k2 in fs.FLEET_KEYS}
-    fs.write(d, index, series, fleet, {"tracked": ours["tracked"]})
+    for k2 in ("missed", "queue", "assigned"):  # #125 ghost view: the thermostat's hourly fleet counts
+        fleet["baseline_" + k2] = [round(float(v), 4) for v in base["fleet"][k2]]
+    bseries = [[list(base["F"][n][i]) for i in range(len(houses))] for n, *_ in fs.FIELDS]
+    fs.write(d, index, series, fleet, {"tracked": ours["tracked"]}, bseries)
     (out / "LATEST").write_text(key + "\n")
     log(f"fleetview: {len(houses)} houses, {ours['H']} h, both policies in {prov['runtime_s']} s -> {d}")
     return d

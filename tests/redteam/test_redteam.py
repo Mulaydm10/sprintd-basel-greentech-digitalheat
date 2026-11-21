@@ -152,8 +152,9 @@ def test_empty_eligible_classes_assigns_nothing(p):
 
 
 def test_tank_over_capacity_on_input_does_not_route_into_tank():
-    r = decide([site(tank_level_kwh=50.0)], [unit(kwh_el=1.0)], 0, MERIT)
-    assert r.of(Route)[0].tank_kwh == 0
+    from scheduler import InvalidInput
+    with pytest.raises(InvalidInput):  # contract v2.1 (#21): tank level outside [0, cap] is rejected
+        decide([site(tank_level_kwh=50.0)], [unit(kwh_el=1.0)], 0, MERIT)
 
 
 @pytest.mark.parametrize("p", POLICIES, ids=lambda p: p.policy)

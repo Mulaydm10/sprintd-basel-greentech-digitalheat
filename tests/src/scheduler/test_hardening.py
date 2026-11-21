@@ -84,12 +84,11 @@ def test_validation_applies_to_every_policy(policy):
         decide([site()], [unit(kwh_el=-1.0)], 0, dataclasses.replace(P, policy=policy))
 
 
-def test_tank_above_cap_is_tolerated_not_rejected():
-    # a sensor can overshoot; routing must just not add to the tank (red team survived-attack)
-    from scheduler import Route
-    d = decide([site(tank_level_kwh=A["house"]["tank_kwh"] + 5)], [unit()], 0, P, )
-    assert all(r.tank_kwh == 0 for r in d.of(Route))
-    assert d.next_mode["S0"] is False  # above band_high -> idle, by hysteresis
+def test_tank_above_cap_rejected_within_float_tolerance():
+    cap = A["house"]["tank_kwh"]
+    with pytest.raises(InvalidInput, match="above tank_cap"):
+        decide([site(tank_level_kwh=cap + 5)], [unit()], 0, P)
+    decide([site(tank_level_kwh=cap + 1e-9)], [unit()], 0, P)  # integration noise is fine
 
 
 # ------------------------------------------------------------------ scaling behaviour
@@ -140,11 +139,14 @@ def test_mixed_classes_scale_without_refusal_explosion():
     assert len(d.actions) < 200_000  # was ~1.77M before refusals stopped after exhaustion
 
 
-def test_gc_state_restored_even_on_error():
+def test_decide_leaves_gc_state_alone():
+    """No process-global side effects (#8 runs decide() in a threaded server); GC deferral is the caller's."""
     import gc
-    assert gc.isenabled()
-    big = [unit(i) for i in range(10_000)] + [unit(10_000, kwh_el=-1.0)]
-    with pytest.raises(InvalidInput):  # validation raises before the pause
-        decide([site()], big, 0, P)
-    decide([site()], [unit(i) for i in range(10_001)], 0, P)
-    assert gc.isenabled()
+    big = [unit(i) for i in range(12_000)]
+    for enabled in (True, False):
+        (gc.enable if enabled else gc.disable)()
+        try:
+            decide([site()], big, 0, P)
+            assert gc.isenabled() is enabled
+        finally:
+            gc.enable()

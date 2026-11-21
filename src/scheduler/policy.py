@@ -8,10 +8,11 @@ comparison runs one job stream. The simulator (#7) and the live agent (#8) both 
 where B_c is the number of capacity blocks eligible for a unit's access class: sites and blocks are
 indexed once per tick per access class, exhausted blocks are skipped by a moving pointer, and once a
 class has no capacity left its remaining units are held in O(1) each (one aggregated trace line).
+decide() touches no process-global state (it runs inside #8's threaded server); callers that run many
+big ticks may defer the cyclic GC around their own loop (simulate_year does).
 """
 from __future__ import annotations
 
-import gc
 import random
 from dataclasses import dataclass, field
 
@@ -21,7 +22,6 @@ from .validate import validate_params, validate_queue, validate_sites
 
 STEP_H = 1.0  # decide() is one tick = one hour (definition of the tick, not an assumption)
 EPS = 1e-9  # float tolerance
-GC_PAUSE_MIN_UNITS = 10_000  # performance knob (not a physical assumption)
 
 USED, DUMP = 0, 1  # block kinds; used heat sorts before dump at equal MC
 
@@ -327,18 +327,8 @@ def decide(sites: list[SiteState], queue: list[Unit], hour: int, params: Params,
     validate_sites(sites)
     validate_queue(queue)
     sites = sorted(sites, key=lambda s: s.site_id)
-    # A big tick allocates ~1 action per unit; cyclic-GC passes over those fresh objects cost ~1/3 of
-    # the time at 100k units (F7). Defer the cycle collector for the tick only (refcounting still frees
-    # memory) and restore its previous state; no effect on results.
-    pause = len(queue) >= GC_PAUSE_MIN_UNITS and gc.isenabled()
-    if pause:
-        gc.disable()
-    try:
-        if params.policy == "thermostat":
-            return _decide_thermostat(sites, queue)
-        if params.policy == "always_on":
-            return _decide_always_on(sites, queue)
-        return _decide_merit(sites, queue, hour, params, random.Random(seed))
-    finally:
-        if pause:
-            gc.enable()
+    if params.policy == "thermostat":
+        return _decide_thermostat(sites, queue)
+    if params.policy == "always_on":
+        return _decide_always_on(sites, queue)
+    return _decide_merit(sites, queue, hour, params, random.Random(seed))

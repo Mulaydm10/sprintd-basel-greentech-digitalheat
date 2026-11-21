@@ -10,6 +10,7 @@ import math
 from .types import InvalidInput, Params, SiteState, Unit
 
 _INF = math.inf
+TANK_TOL_KWH = 1e-6  # float slack for callers integrating the tank (simulate_year asserts the same)
 
 
 def _finite(x) -> bool:
@@ -46,6 +47,8 @@ def validate_sites(sites: list[SiteState]) -> None:
         for name in ("p_el_chf_kwh", "heat_value_chf_kwh"):
             if not _finite(getattr(s, name)):
                 raise InvalidInput(f"site {sid}: {name} must be finite, got {getattr(s, name)}")
+        if s.tank_level_kwh > s.tank_cap_kwh + TANK_TOL_KWH:  # contract v2.1: tank level within [0, cap]
+            raise InvalidInput(f"site {sid}: tank_level_kwh {s.tank_level_kwh} above tank_cap_kwh {s.tank_cap_kwh}")
         if s.night_cap_kw is not None and not (_finite(s.night_cap_kw) and s.night_cap_kw >= 0):
             raise InvalidInput(f"site {sid}: night_cap_kw must be None or finite >= 0, got {s.night_cap_kw}")
 

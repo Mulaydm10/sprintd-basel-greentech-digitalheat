@@ -21,13 +21,22 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from common.config import ROOT
+from common.config import ROOT, validate_assumptions
 from jobs.catalogue import JobType, load_catalogue
 from scheduler import Assign, Params, Route, SetPower, SiteState, Unit, decide, heat_value_chf_kwh
 from scheduler.admit import admit, net_of_backlog, persistence_forecast
 from scheduler.policy import used_capacity_kwh_el
 
 POLICIES = ("merit", "thermostat", "always_on")
+
+
+class ConservationError(AssertionError):
+    """An hour violated energy conservation or tank bounds. Raised explicitly (not `assert`), so the check
+    survives `python -O` (#39, red team F19). Subclasses AssertionError for existing callers."""
+
+
+class DecisionError(ValueError):
+    """decide() returned a Decision without the actions the loop needs (#39, red team F18)."""
 TOL = 1e-6
 
 
@@ -99,6 +108,7 @@ def simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h:
 def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h: float, load: float,
               seed: int, a_hash: str, hourly: bool, ballast: bool = False,
               admission: bool = False) -> tuple[dict, pd.DataFrame | None]:
+    validate_assumptions(a)  # typed ConfigError for missing/invalid keys (#38/#39, red team F13-F16)
     if policy not in POLICIES:
         raise ValueError(f"policy {policy!r} not in {POLICIES}")
     if servers < 0 or load < 0 or slack_h < 0:
@@ -174,8 +184,10 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
                              site.has_dump, site.band_low_kwh, site.band_high_kwh, site.mode_running,
                              site.dhw_demand_kw)
         dec = decide([site], offer, h, params, seed=seed)
-        on = next(x.servers_on for x in dec.actions if isinstance(x, SetPower))
-        r = next(x for x in dec.actions if isinstance(x, Route))
+        on = next((x.servers_on for x in dec.actions if isinstance(x, SetPower) and x.site_id == "house"), None)
+        r = next((x for x in dec.actions if isinstance(x, Route) and x.site_id == "house"), None)
+        if on is None or r is None:
+            raise DecisionError(f"hour {h}: decide() returned no {'SetPower' if on is None else 'Route'} for the site")
         done = {x.unit_id for x in dec.actions if isinstance(x, Assign)}
         n_ballast = len(done & filler_ids) if filler_ids else 0
         if n_ballast:
@@ -186,14 +198,17 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
         mode = dec.next_mode["house"]
         # 4. tank + backup, with conservation asserts (robustness req. 2)
         produced = on * kw * rec
-        assert abs(r.space_kwh + r.dhw_kwh + r.tank_kwh + r.dump_kwh - produced) < TOL, h
+        if not abs(r.space_kwh + r.dhw_kwh + r.tank_kwh + r.dump_kwh - produced) < TOL:
+            raise ConservationError(f"hour {h}: routed heat != produced heat ({produced:.6f} kWh)")
         lvl += r.tank_kwh
         unmet = dem - r.space_kwh - r.dhw_kwh
         draw = min(lvl, max(0.0, unmet))
         lvl -= draw
         backup = max(0.0, unmet - draw)
-        assert abs(r.space_kwh + r.dhw_kwh + draw + backup - dem) < TOL, h
-        assert -TOL <= lvl <= cap + TOL, (h, lvl)
+        if not abs(r.space_kwh + r.dhw_kwh + draw + backup - dem) < TOL:
+            raise ConservationError(f"hour {h}: demand not balanced by space+dhw+tank draw+backup")
+        if not -TOL <= lvl <= cap + TOL:
+            raise ConservationError(f"hour {h}: tank level {lvl} outside [0, {cap}]")
         # 5. queue bookkeeping
         queue = [u for u in queue if u.unit_id not in done]
         late = sum(1 for u in queue if u.deadline_hour <= h)

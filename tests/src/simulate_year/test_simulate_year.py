@@ -354,3 +354,46 @@ def test_cli_admission_flag(tmp_path):
                  "--out", str(tmp_path)]) == 0
     b = json.loads((tmp_path / "balance.json").read_text())
     assert b["admission"] is True and b["admitted_units"] + b["rejected_units"] == b["jobs_total"]
+
+
+# ------------------------------------------------------------------ #39 hardening (red team F12-F19)
+def test_run_id_full_precision_and_flags():
+    from simulate_year.cli import _run_id
+    assert _run_id(1, "merit", 0, 0.4, 0) != _run_id(1, "merit", 0, 0.4000001, 0)
+    assert _run_id(1, "merit", 24, 0.4, 0) != _run_id(1, "merit", 24, 0.4, 0, ballast=True)
+    assert _run_id(1, "merit", 24, 0.4, 0, admission=True).endswith("-admission")
+    assert "thermostat" in _run_id(4, "merit", 24, "thermostat", 0)
+
+
+def test_existing_run_dir_needs_force(tmp_path):
+    args = ["--servers", "1", "--policy", "thermostat", "--out", str(tmp_path)]
+    assert main(args) == 0
+    with pytest.raises(SystemExit, match="--force"):
+        main(args)
+    assert main(args + ["--force"]) == 0
+
+
+def test_sweep_isolates_failing_cells_and_exits_nonzero(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "SWEEP_SERVERS", (1,))
+    monkeypatch.setattr(cli, "SWEEP_SLACK_H", (0,))
+    monkeypatch.setattr(cli, "SWEEP_LOAD", (0.4, -1.0))
+    assert main(["--sweep", "--workers", "2", "--out", str(tmp_path)]) == 1
+    rows = pd.read_csv(tmp_path / "sweep.csv", keep_default_na=False)
+    assert len(rows) == 6 and (rows.error != "").sum() == 3
+    assert set(rows[rows.error != ""].load) == {-1.0} and rows[rows.error == ""].share_covered.notna().all()
+
+
+def test_invalid_assumptions_are_typed_config_errors():
+    from common.config import ConfigError
+    bad = copy.deepcopy(A)
+    bad["price"]["heat_value_divisor"] = 0
+    with pytest.raises(ConfigError, match="heat_value_divisor"):
+        run(SYN, 1, "thermostat", a=bad)
+
+
+def test_conservation_error_is_explicit_assertion_subclass():
+    from simulate_year.sim import ConservationError, DecisionError
+    assert issubclass(ConservationError, AssertionError) and issubclass(DecisionError, ValueError)
+    import inspect
+    import simulate_year.sim as sim_mod
+    assert "\n        assert " not in inspect.getsource(sim_mod._simulate)  # survives python -O

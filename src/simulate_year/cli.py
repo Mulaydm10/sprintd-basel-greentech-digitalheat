@@ -1,9 +1,11 @@
 """CLI for simulate_year (kept out of __main__ so spawned sweep workers can import _sweep_cell).
 
-python -m simulate_year --servers N --policy {merit,thermostat,always_on} [--slack-h H] [--load F] [--seed S] [--out DIR]
+python -m simulate_year --servers N --policy {merit,thermostat,always_on} [--slack-h H] [--load F|thermostat] [--seed S] [--out DIR]
+
+--load thermostat = like-for-like A/B: paid work equal to the thermostat baseline's server-hours for this N.
 python -m simulate_year --sweep [--out DIR] [--workers W]
 
-Writes <out>/balance.json + <out>/hourly.parquet (single run) or <out>/sweep.csv (sweep).
+Writes <out>/balance.json + <out>/hourly.parquet + <out>/hourly.csv (single run) or <out>/sweep.csv (sweep).
 All inputs from data/assumptions.yaml; balance.json carries its sha256 as assumptions_hash.
 """
 from __future__ import annotations
@@ -19,7 +21,7 @@ from pathlib import Path
 from common.config import ROOT, load_assumptions
 from house_model.profile import load_reference_profile
 
-from .sim import POLICIES, assumptions_hash, simulate
+from .sim import POLICIES, assumptions_hash, simulate, thermostat_load
 
 # Sweep grid as specified in contracts/src/simulate_year.md (grid shape, not a physical assumption).
 SWEEP_SERVERS = range(1, 14)
@@ -32,23 +34,39 @@ def _default_load(a: dict) -> float:
 
 
 def _run_id(servers, policy, slack_h, load, seed) -> str:
-    return f"{policy}-n{servers}-slack{slack_h:g}-load{load:g}-seed{seed}"
+    lt = load if isinstance(load, str) else f"{load:g}"
+    return f"{policy}-n{servers}-slack{slack_h:g}-load{lt}-seed{seed}"
 
 
 def _write_json(path: Path, obj: dict) -> None:
     path.write_text(json.dumps(obj, indent=2, sort_keys=True) + "\n")
 
 
-def run_one(servers: int, policy: str, slack_h: float, load: float, seed: int, out: Path | None,
+def resolve_load(load: str | float | None, a: dict, profile, servers: int) -> tuple[float, str]:
+    """-> (load fraction, basis). basis: explicit | default | thermostat."""
+    if load is None:
+        return _default_load(a), "default"
+    if isinstance(load, str) and load.strip().lower() == "thermostat":
+        return thermostat_load(profile, a, servers), "thermostat"
+    try:
+        return float(load), "explicit"
+    except ValueError:
+        raise SystemExit(f"--load must be a number or 'thermostat', got {load!r}") from None
+
+
+def run_one(servers: int, policy: str, slack_h: float, load: str | float | None, seed: int, out: Path | None,
             hourly: bool = True) -> dict:
     a = load_assumptions()
-    bal, df = simulate(load_reference_profile(assumptions=a), a, servers, policy, slack_h, load, seed,
-                       a_hash=assumptions_hash(), hourly=hourly)
+    profile = load_reference_profile(assumptions=a)
+    load_f, basis = resolve_load(load, a, profile, servers)
+    bal, df = simulate(profile, a, servers, policy, slack_h, load_f, seed, a_hash=assumptions_hash(), hourly=hourly)
+    bal["load_basis"] = basis
     if out is not None:
         out.mkdir(parents=True, exist_ok=True)
         _write_json(out / "balance.json", bal)
         if df is not None:
             df.to_parquet(out / "hourly.parquet")
+            df.to_csv(out / "hourly.csv", float_format="%.6f")
     return bal
 
 
@@ -78,7 +96,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--servers", type=int, default=1)
     ap.add_argument("--policy", choices=POLICIES, default="merit")
     ap.add_argument("--slack-h", type=float, default=0.0)
-    ap.add_argument("--load", type=float, default=None, help="paid work as a fraction of server capacity")
+    ap.add_argument("--load", default=None,
+                    help="paid work as a fraction of server capacity, or 'thermostat' for a like-for-like A/B")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--sweep", action="store_true")
@@ -89,9 +108,9 @@ def main(argv: list[str] | None = None) -> int:
         out = ns.out or ROOT / "runs" / f"sweep-seed{ns.seed}"
         print(f"wrote {sweep(out, ns.seed, ns.workers)}")
         return 0
-    load = _default_load(load_assumptions()) if ns.load is None else ns.load
-    out = ns.out or ROOT / "runs" / _run_id(ns.servers, ns.policy, ns.slack_h, load, ns.seed)
-    bal = run_one(ns.servers, ns.policy, ns.slack_h, load, ns.seed, out)
+    tag = ns.load if ns.load is not None else _default_load(load_assumptions())
+    out = ns.out or ROOT / "runs" / _run_id(ns.servers, ns.policy, ns.slack_h, tag, ns.seed)
+    bal = run_one(ns.servers, ns.policy, ns.slack_h, ns.load, ns.seed, out)
     print(json.dumps({k: bal[k] for k in ("share_covered", "utilisation", "heat_dumped_kwh",
                                            "break_even_chf_per_server_h", "missed_deadline_pct")}))
     print(f"wrote {out}/balance.json")

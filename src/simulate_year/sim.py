@@ -21,18 +21,45 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from common.config import ROOT
+from common.config import ROOT, validate_assumptions
 from jobs.catalogue import JobType, load_catalogue
 from scheduler import Assign, Params, Route, SetPower, SiteState, Unit, decide, heat_value_chf_kwh
 from scheduler.admit import admit, net_of_backlog, persistence_forecast
 from scheduler.policy import used_capacity_kwh_el
 
 POLICIES = ("merit", "thermostat", "always_on")
+
+
+class ConservationError(AssertionError):
+    """An hour violated energy conservation or tank bounds. Raised explicitly (not `assert`), so the check
+    survives `python -O` (#39, red team F19). Subclasses AssertionError for existing callers."""
+
+
+class DecisionError(ValueError):
+    """decide() returned a Decision without the actions the loop needs (#39, red team F18)."""
 TOL = 1e-6
 
 
 def assumptions_hash(path=None) -> str:
     return hashlib.sha256((path or ROOT / "data" / "assumptions.yaml").read_bytes()).hexdigest()
+
+
+def ballast_bid(a: dict, check: bool = True) -> tuple[float | None, str]:
+    """(bid, access_class) of the unlimited filler stream from `ballast:`. With check, assert the contract
+    v2 band at the reference server: MC_used <= bid < MC_dump (else the filler would dump or never run)."""
+    cfg = a.get("ballast") or {}
+    if "bid_chf_per_server_h" not in cfg:
+        if check:
+            raise ValueError("--ballast needs `ballast.bid_chf_per_server_h` in assumptions.yaml")
+        return None, "public"
+    b = float(cfg["bid_chf_per_server_h"])
+    if check:
+        p, kw = float(a["price"]["chf_per_kwh"]), float(a["server"]["electric_kw"])
+        rec, div = float(a["server"]["heat_recovery_fraction"]), float(a["price"]["heat_value_divisor"])
+        mc_used, mc_dump = p * kw - rec * kw * p / div, p * kw
+        if not (mc_used <= b < mc_dump):
+            raise ValueError(f"ballast bid {b} must satisfy MC_used {mc_used:.4f} <= bid < MC_dump {mc_dump:.4f}")
+    return b, str(cfg.get("access_class", "public"))
 
 
 def ballast_type(a: dict) -> JobType | None:
@@ -50,6 +77,8 @@ class _Acc:
     backup: float = 0.0
     run_h: float = 0.0
     units_in: int = 0
+    ballast_kwh: float = 0.0
+    ballast_dump_hours: int = 0
     rejected: int = 0
     units_done: int = 0
     missed: int = 0
@@ -58,23 +87,28 @@ class _Acc:
 
 def simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h: float = 0.0, load: float = 0.0,
              seed: int = 0, a_hash: str = "", hourly: bool = True,
-             admission: bool = False) -> tuple[dict, pd.DataFrame | None]:
-    """Run one year. admission=True gates every arriving job with scheduler.admit (contract v2.2):
-    persistence forecast of the last 24 h of heat-used capacity, net of queued work; rejected units never
-    enter the queue and are not counted as missed. Off by default (golden numbers unchanged). Defers the cyclic GC for the loop (8,760 decide() calls allocate many short-lived
+             ballast: bool = False, admission: bool = False) -> tuple[dict, pd.DataFrame | None]:
+    """Run one year. ballast=True (merit only, #37) offers unlimited heat-backed filler work each hour at
+    `ballast.bid_chf_per_server_h`, which must satisfy MC_used <= bid < MC_dump, so it runs only where its
+    heat is used and never dumps; unassigned filler is dropped each hour (never queued, never missed).
+    admission=True gates every arriving job with scheduler.admit (contract v2.2): persistence forecast of the
+    last 24 h of heat-used capacity, net of queued work; rejected units never enter the queue and are not
+    counted as missed. Both off by default (golden numbers unchanged). Defers the cyclic GC for the loop (8,760 decide() calls allocate many short-lived
     actions; refcounting still frees them) and restores its previous state. scheduler.decide() itself
     never touches GC (#21 review)."""
     was = gc.isenabled()
     gc.disable()
     try:
-        return _simulate(profile, a, servers, policy, slack_h, load, seed, a_hash, hourly, admission)
+        return _simulate(profile, a, servers, policy, slack_h, load, seed, a_hash, hourly, ballast, admission)
     finally:
         if was:
             gc.enable()
 
 
 def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h: float, load: float,
-              seed: int, a_hash: str, hourly: bool, admission: bool = False) -> tuple[dict, pd.DataFrame | None]:
+              seed: int, a_hash: str, hourly: bool, ballast: bool = False,
+              admission: bool = False) -> tuple[dict, pd.DataFrame | None]:
+    validate_assumptions(a)  # typed ConfigError for missing/invalid keys (#38/#39, red team F13-F16)
     if policy not in POLICIES:
         raise ValueError(f"policy {policy!r} not in {POLICIES}")
     if servers < 0 or load < 0 or slack_h < 0:
@@ -87,14 +121,18 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
     unit_h = float(sch["unit_minutes"]) / 60.0
     unit_kwh = kw * unit_h
 
-    ballast = ballast_type(a)
-    if load > 0 and ballast is None:
+    ballast_t = ballast_type(a)
+    if load > 0 and ballast_t is None:
         raise ValueError("load > 0 needs a public interruptible job type in assumptions.yaml `jobs:`")
-    bid = ballast.price_chf_per_h if ballast else 0.0
-    job_class = ballast.name if ballast else "none"
-    access = ballast.access_class if ballast else "public"
+    bid = ballast_t.price_chf_per_h if ballast_t else 0.0
+    job_class = ballast_t.name if ballast_t else "none"
+    access = ballast_t.access_class if ballast_t else "public"
 
     params = Params.from_assumptions(a, policy=policy, slack_enabled=slack_h > 0)
+    use_ballast = ballast and policy == "merit"
+    b_bid, b_access = ballast_bid(a, check=use_ballast)
+    units_per_server_h = math.ceil(1.0 / unit_h - 1e-9)  # never under-offer filler (unit_minutes not dividing 60)
+    far = 10 ** 9  # filler deadline: never forced, never missed
 
     space = profile["space_heat_kw"].to_numpy(float)
     dhw = profile["hot_water_kw"].to_numpy(float)
@@ -133,23 +171,44 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
             queue.append(u)
         history.append(used_capacity_kwh_el(site))
         # 3. decide + apply
-        dec = decide([site], queue, h, params, seed=seed)
-        on = next(x.servers_on for x in dec.actions if isinstance(x, SetPower))
-        r = next(x for x in dec.actions if isinstance(x, Route))
+        offer = queue
+        filler_ids: set[str] = set()
+        if use_ballast and servers > 0:
+            filler = [Unit(f"ballast-{h}-{i}", f"ballast-{h}-{i}", "ballast", b_access, unit_kwh, b_bid, far, float(far),
+                           True) for i in range(servers * units_per_server_h)]
+            filler_ids = {u.unit_id for u in filler}
+            offer = queue + filler
+            site = SiteState(site.site_id, site.hour_index, site.demand_kw, site.tank_level_kwh, site.tank_cap_kwh,
+                             site.servers, site.server_kw_el, site.heat_recovery, site.p_el_chf_kwh,
+                             site.heat_value_chf_kwh, site.eligible_classes | {b_access}, site.night_cap_kw,
+                             site.has_dump, site.band_low_kwh, site.band_high_kwh, site.mode_running,
+                             site.dhw_demand_kw)
+        dec = decide([site], offer, h, params, seed=seed)
+        on = next((x.servers_on for x in dec.actions if isinstance(x, SetPower) and x.site_id == "house"), None)
+        r = next((x for x in dec.actions if isinstance(x, Route) and x.site_id == "house"), None)
+        if on is None or r is None:
+            raise DecisionError(f"hour {h}: decide() returned no {'SetPower' if on is None else 'Route'} for the site")
         done = {x.unit_id for x in dec.actions if isinstance(x, Assign)}
+        n_ballast = len(done & filler_ids) if filler_ids else 0
+        if n_ballast:
+            t.ballast_kwh += n_ballast * unit_kwh
+            done -= filler_ids
         if dec.next_mode["house"] != mode:
             t.transitions += 1
         mode = dec.next_mode["house"]
         # 4. tank + backup, with conservation asserts (robustness req. 2)
         produced = on * kw * rec
-        assert abs(r.space_kwh + r.dhw_kwh + r.tank_kwh + r.dump_kwh - produced) < TOL, h
+        if not abs(r.space_kwh + r.dhw_kwh + r.tank_kwh + r.dump_kwh - produced) < TOL:
+            raise ConservationError(f"hour {h}: routed heat != produced heat ({produced:.6f} kWh)")
         lvl += r.tank_kwh
         unmet = dem - r.space_kwh - r.dhw_kwh
         draw = min(lvl, max(0.0, unmet))
         lvl -= draw
         backup = max(0.0, unmet - draw)
-        assert abs(r.space_kwh + r.dhw_kwh + draw + backup - dem) < TOL, h
-        assert -TOL <= lvl <= cap + TOL, (h, lvl)
+        if not abs(r.space_kwh + r.dhw_kwh + draw + backup - dem) < TOL:
+            raise ConservationError(f"hour {h}: demand not balanced by space+dhw+tank draw+backup")
+        if not -TOL <= lvl <= cap + TOL:
+            raise ConservationError(f"hour {h}: tank level {lvl} outside [0, {cap}]")
         # 5. queue bookkeeping
         queue = [u for u in queue if u.unit_id not in done]
         late = sum(1 for u in queue if u.deadline_hour <= h)
@@ -158,6 +217,8 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
 
         t.used += r.space_kwh + r.dhw_kwh + r.tank_kwh
         t.dump += r.dump_kwh
+        if n_ballast and r.dump_kwh > TOL:
+            t.ballast_dump_hours += 1  # must stay 0: filler bid < MC_dump (golden check, #37 review)
         t.backup += backup
         t.run_h += on
         t.units_done += len(done)
@@ -170,7 +231,18 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
             modes[h] = mode
     t.units_in = k
 
-    bal = _balance(a, servers, policy, slack_h, load, seed, a_hash, H, space, dhw, t, bid, unit_h, ballast is not None)
+    bal = _balance(a, servers, policy, slack_h, load, seed, a_hash, H, space, dhw, t, bid, unit_h, ballast_t is not None)
+    paid_run_h = t.units_done * unit_h
+    bal["ballast"] = use_ballast
+    bal["paid_run_h"] = _r(paid_run_h, 3)
+    # thermostat/always_on run servers without paid work: that is implicit ballast
+    # merit+ballast: measured filler hours. thermostat/always_on: implicit ballast = run - paid (they run servers
+    # for heat without paid work); they never SELL it, so ballast_income_chf is None for them.
+    bal["ballast_run_h"] = _r(t.ballast_kwh / kw if use_ballast else max(0.0, t.run_h - paid_run_h), 3)
+    bal["ballast_income_chf"] = _r(t.ballast_kwh / kw * b_bid, 3) if use_ballast else None
+    bal["ballast_hours_with_dump"] = t.ballast_dump_hours
+    # Note: compute_income_chf / pays_off cover PAID work only; electricity_cost and break_even include every
+    # server-hour run (paid + ballast). Total income with filler = compute_income_chf + ballast_income_chf.
     bal["admission"] = admission
     df = None
     if hourly:

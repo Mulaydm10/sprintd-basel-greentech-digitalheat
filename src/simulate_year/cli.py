@@ -14,6 +14,7 @@ import argparse
 import csv
 import json
 import os
+import sys
 from concurrent.futures import ProcessPoolExecutor
 from itertools import product
 from pathlib import Path
@@ -33,9 +34,11 @@ def _default_load(a: dict) -> float:
     return float((a.get("simulate_year") or {}).get("default_load", 0.0))
 
 
-def _run_id(servers, policy, slack_h, load, seed) -> str:
-    lt = load if isinstance(load, str) else f"{load:g}"
-    return f"{policy}-n{servers}-slack{slack_h:g}-load{lt}-seed{seed}"
+def _run_id(servers, policy, slack_h, load, seed, ballast: bool = False, admission: bool = False) -> str:
+    """Collision-free run folder name (#39, red team F12): floats in full precision (repr), every flag."""
+    lt = load if isinstance(load, str) else repr(float(load))
+    flags = ("-ballast" if ballast else "") + ("-admission" if admission else "")
+    return f"{policy}-n{servers}-slack{float(slack_h)!r}-load{lt}-seed{seed}{flags}"
 
 
 def _write_json(path: Path, obj: dict) -> None:
@@ -55,12 +58,12 @@ def resolve_load(load: str | float | None, a: dict, profile, servers: int) -> tu
 
 
 def run_one(servers: int, policy: str, slack_h: float, load: str | float | None, seed: int, out: Path | None,
-            hourly: bool = True, admission: bool = False) -> dict:
+            hourly: bool = True, ballast: bool = False, admission: bool = False) -> dict:
     a = load_assumptions()
     profile = load_reference_profile(assumptions=a)
     load_f, basis = resolve_load(load, a, profile, servers)
     bal, df = simulate(profile, a, servers, policy, slack_h, load_f, seed, a_hash=assumptions_hash(), hourly=hourly,
-                       admission=admission)
+                       ballast=ballast, admission=admission)
     bal["load_basis"] = basis
     if out is not None:
         out.mkdir(parents=True, exist_ok=True)
@@ -76,20 +79,37 @@ def _sweep_cell(args) -> dict:
     return run_one(servers, policy, slack_h, load, seed, out=None, hourly=False)
 
 
+CELL_KEYS = ("servers_per_house", "policy", "slack_h", "load", "seed")
+
+
 def sweep(out: Path, seed: int, workers: int | None) -> Path:
+    """One row per cell. A crashing cell does not kill the sweep (#39, red team F17): it becomes a row with
+    its inputs and an `error` message, every other cell still runs, and `sweep.failed` counts the failures."""
     cells = [(n, p, float(s), float(l), seed) for n, p, s, l in product(SWEEP_SERVERS, POLICIES, SWEEP_SLACK_H, SWEEP_LOAD)]
+    rows: list[dict] = []
     with ProcessPoolExecutor(max_workers=workers or os.cpu_count()) as ex:
-        rows = list(ex.map(_sweep_cell, cells, chunksize=1))
+        futs = [ex.submit(_sweep_cell, c) for c in cells]
+        for c, f in zip(cells, futs):
+            try:
+                rows.append({**f.result(), "error": ""})
+            except Exception as e:  # noqa: BLE001 - isolate any cell failure, report it in the row
+                rows.append({**dict(zip(CELL_KEYS, c)), "error": f"{type(e).__name__}: {e}"})
+    sweep.failed = sum(1 for r in rows if r["error"])
     out.mkdir(parents=True, exist_ok=True)
-    keys = [k for k in rows[0] if k != "break_even_incl_hardware_table"]
-    table_keys = sorted(rows[0]["break_even_incl_hardware_table"])
+    ok = next((r for r in rows if not r["error"]), None)
+    keys = [k for k in (ok or rows[0]) if k not in ("break_even_incl_hardware_table", "error")]
+    table_keys = sorted(ok["break_even_incl_hardware_table"]) if ok else []
     path = out / "sweep.csv"
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(keys + [f"be_hw_{k}" for k in table_keys])
+        w.writerow(keys + [f"be_hw_{k}" for k in table_keys] + ["error"])
         for r in rows:
-            w.writerow([r[k] for k in keys] + [r["break_even_incl_hardware_table"][k] for k in table_keys])
+            tbl = r.get("break_even_incl_hardware_table") or {}
+            w.writerow([r.get(k, "") for k in keys] + [tbl.get(k, "") for k in table_keys] + [r["error"]])
     return path
+
+
+sweep.failed = 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -100,19 +120,28 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--load", default=None,
                     help="paid work as a fraction of server capacity, or 'thermostat' for a like-for-like A/B")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--ballast", action="store_true",
+                    help="merit: add unlimited heat-backed filler work at ballast.bid (#37)")
     ap.add_argument("--admission", action="store_true", help="gate arriving jobs with scheduler.admit (v2.2)")
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--sweep", action="store_true")
+    ap.add_argument("--force", action="store_true", help="overwrite an existing run folder")
     ap.add_argument("--workers", type=int, default=None)
     ns = ap.parse_args(argv)
 
     if ns.sweep:
         out = ns.out or ROOT / "runs" / f"sweep-seed{ns.seed}"
         print(f"wrote {sweep(out, ns.seed, ns.workers)}")
+        if sweep.failed:
+            print(f"{sweep.failed} cell(s) failed; see the `error` column", file=sys.stderr)
+            return 1
         return 0
     tag = ns.load if ns.load is not None else _default_load(load_assumptions())
-    out = ns.out or ROOT / "runs" / _run_id(ns.servers, ns.policy, ns.slack_h, tag, ns.seed)
-    bal = run_one(ns.servers, ns.policy, ns.slack_h, ns.load, ns.seed, out, admission=ns.admission)
+    out = ns.out or ROOT / "runs" / _run_id(ns.servers, ns.policy, ns.slack_h, tag, ns.seed, ns.ballast, ns.admission)
+    if (out / "balance.json").exists() and not ns.force:
+        raise SystemExit(f"{out} already holds a run; pass --force to overwrite (#39, F12)")
+    bal = run_one(ns.servers, ns.policy, ns.slack_h, ns.load, ns.seed, out, ballast=ns.ballast,
+                  admission=ns.admission)
     print(json.dumps({k: bal[k] for k in ("share_covered", "utilisation", "heat_dumped_kwh",
                                            "break_even_chf_per_server_h", "missed_deadline_pct", "admitted_units",
                                            "rejected_units")}))

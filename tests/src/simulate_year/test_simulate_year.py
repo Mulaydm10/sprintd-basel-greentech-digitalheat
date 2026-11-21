@@ -122,7 +122,8 @@ def test_req4_seed_changes_only_arrival_driven_keys():
     b1, _ = run(SYN, 3, "thermostat", 0, 0.6, seed=1)
     b2, _ = run(SYN, 3, "thermostat", 0, 0.6, seed=2)
     diff = {k for k in b1 if b1[k] != b2[k]}
-    assert diff <= {"seed", "jobs_total", "units_done", "missed_deadline_pct", "compute_income_chf"}
+    assert diff <= {"seed", "jobs_total", "units_done", "missed_deadline_pct", "compute_income_chf",
+                    "paid_run_h", "ballast_run_h", "ballast_income_chf"}  # implicit ballast = run - paid
     m1, _ = run(SYN, 3, "merit", 24, 0.6, seed=1)
     m2, _ = run(SYN, 3, "merit", 24, 0.6, seed=2)
     assert all(m1[k] == m2[k] for k in fixed)
@@ -243,6 +244,73 @@ def test_simulate_restores_gc_state():
             gc.enable()
 
 
+# ------------------------------------------------------------------ #37 heat-backed ballast (fairness)
+from simulate_year.sim import ballast_bid  # noqa: E402
+
+
+def test_ballast_bid_band_enforced():
+    b, acc = ballast_bid(A)
+    p, kw = A["price"]["chf_per_kwh"], A["server"]["electric_kw"]
+    mc_used = p * kw - REC * kw * p / A["price"]["heat_value_divisor"]
+    assert mc_used <= b < p * kw and acc == "public"
+    for bad in (mc_used - 0.01, p * kw):
+        with pytest.raises(ValueError, match="MC_used"):
+            ballast_bid({**A, "ballast": {"bid_chf_per_server_h": bad}})
+    with pytest.raises(ValueError, match="ballast.bid"):
+        ballast_bid({k: v for k, v in A.items() if k != "ballast"})
+    assert ballast_bid({k: v for k, v in A.items() if k != "ballast"}, check=False) == (None, "public")
+
+
+def test_ballast_off_is_default_and_unchanged():
+    b0, _ = run(SYN, 3, "merit", 24, 0.6)
+    b1, _ = simulate(SYN, A, 3, "merit", 24, 0.6, 0, hourly=False, ballast=False)
+    assert b0 == b1 and b0["ballast"] is False and b0["ballast_run_h"] == 0
+
+
+def test_ballast_raises_coverage_keeps_paid_deadlines_and_never_runs_on_dump():
+    off, _ = run(SYN, 3, "merit", 24, 0.3)
+    on, df = simulate(SYN, A, 3, "merit", 24, 0.3, 0, hourly=True, ballast=True)
+    assert on["share_covered"] > off["share_covered"]
+    assert on["missed_deadline_pct"] == off["missed_deadline_pct"] == 0
+    assert on["paid_run_h"] == off["paid_run_h"]
+    assert on["ballast_run_h"] > 0
+    assert on["run_h"] == pytest.approx(on["paid_run_h"] + on["ballast_run_h"], abs=1e-3)
+    assert on["ballast_income_chf"] == pytest.approx(on["ballast_run_h"] * ballast_bid(A)[0], abs=1e-3)
+    assert on["ballast_hours_with_dump"] == 0 and off["ballast_income_chf"] is None
+    # filler bid < MC_dump: where heat has nowhere to go (warm half, full tank) filler adds no dump
+    warm = synthetic(days=20, flat_temp=25.0)
+    w_off, _ = simulate(warm, A, 3, "merit", 0, 0.0, 0, hourly=False)
+    w_on, _ = simulate(warm, A, 3, "merit", 0, 0.0, 0, hourly=False, ballast=True)
+    assert w_on["heat_dumped_kwh"] == w_off["heat_dumped_kwh"] == 0
+    assert w_on["share_covered"] >= w_off["share_covered"]
+
+
+def test_baselines_report_implicit_ballast():
+    th, _ = run(SYN, 3, "thermostat", 24, 0.3)
+    assert th["ballast"] is False  # flag is merit-only
+    assert th["run_h"] == pytest.approx(th["paid_run_h"] + th["ballast_run_h"], abs=1e-3)
+    assert th["ballast_run_h"] > 0  # the thermostat runs servers without paid work: implicit ballast
+
+
+def test_like_for_like_fairness_on_the_real_year(year):
+    """#37 acceptance AS AMENDED BY DESIGN on PR #42 ("accepted"): same paid stream (load = thermostat
+    utilisation, N=4). Merit + ballast meets every paid deadline while the thermostat misses ~31%; coverage is
+    57.35% vs the thermostat's 58.03% (-0.7 pt, tank-band hysteresis headroom; closing it is contract v2.3,
+    #44). Do NOT pitch "matches the thermostat": pitch "same heat within 0.7 pt, 0 missed vs 31% missed".
+    Filler never runs into dump (ballast_hours_with_dump == 0). Total dump still rises by ~124 kWh vs no
+    ballast, indirectly: filler fills the tank earlier, leaving deadline-forced paid work less room."""
+    lf = thermostat_load(year, A, 4)
+    th, _ = run(year, 4, "thermostat", 24, lf)
+    me, _ = simulate(year, A, 4, "merit", 24, lf, 0, hourly=False, ballast=True)
+    assert me["missed_deadline_pct"] == 0 < th["missed_deadline_pct"]
+    assert me["share_covered"] >= th["share_covered"] - 0.01
+    assert me["paid_run_h"] >= th["paid_run_h"]
+    assert me["ballast_hours_with_dump"] == 0
+    off, _ = simulate(year, A, 4, "merit", 24, lf, 0, hourly=False)
+    assert 0 <= me["heat_dumped_kwh"] - off["heat_dumped_kwh"] <= 0.05 * off["heat_dumped_kwh"]
+    assert th["ballast_income_chf"] is None and me["ballast_income_chf"] > 0
+
+
 # ------------------------------------------------------------------ #33 admission (contract v2.2)
 def test_admission_off_is_default_and_counts_everything():
     b, _ = run(SYN, 2, "merit", 24, 0.6)
@@ -286,3 +354,46 @@ def test_cli_admission_flag(tmp_path):
                  "--out", str(tmp_path)]) == 0
     b = json.loads((tmp_path / "balance.json").read_text())
     assert b["admission"] is True and b["admitted_units"] + b["rejected_units"] == b["jobs_total"]
+
+
+# ------------------------------------------------------------------ #39 hardening (red team F12-F19)
+def test_run_id_full_precision_and_flags():
+    from simulate_year.cli import _run_id
+    assert _run_id(1, "merit", 0, 0.4, 0) != _run_id(1, "merit", 0, 0.4000001, 0)
+    assert _run_id(1, "merit", 24, 0.4, 0) != _run_id(1, "merit", 24, 0.4, 0, ballast=True)
+    assert _run_id(1, "merit", 24, 0.4, 0, admission=True).endswith("-admission")
+    assert "thermostat" in _run_id(4, "merit", 24, "thermostat", 0)
+
+
+def test_existing_run_dir_needs_force(tmp_path):
+    args = ["--servers", "1", "--policy", "thermostat", "--out", str(tmp_path)]
+    assert main(args) == 0
+    with pytest.raises(SystemExit, match="--force"):
+        main(args)
+    assert main(args + ["--force"]) == 0
+
+
+def test_sweep_isolates_failing_cells_and_exits_nonzero(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "SWEEP_SERVERS", (1,))
+    monkeypatch.setattr(cli, "SWEEP_SLACK_H", (0,))
+    monkeypatch.setattr(cli, "SWEEP_LOAD", (0.4, -1.0))
+    assert main(["--sweep", "--workers", "2", "--out", str(tmp_path)]) == 1
+    rows = pd.read_csv(tmp_path / "sweep.csv", keep_default_na=False)
+    assert len(rows) == 6 and (rows.error != "").sum() == 3
+    assert set(rows[rows.error != ""].load) == {-1.0} and rows[rows.error == ""].share_covered.notna().all()
+
+
+def test_invalid_assumptions_are_typed_config_errors():
+    from common.config import ConfigError
+    bad = copy.deepcopy(A)
+    bad["price"]["heat_value_divisor"] = 0
+    with pytest.raises(ConfigError, match="heat_value_divisor"):
+        run(SYN, 1, "thermostat", a=bad)
+
+
+def test_conservation_error_is_explicit_assertion_subclass():
+    from simulate_year.sim import ConservationError, DecisionError
+    assert issubclass(ConservationError, AssertionError) and issubclass(DecisionError, ValueError)
+    import inspect
+    import simulate_year.sim as sim_mod
+    assert "\n        assert " not in inspect.getsource(sim_mod._simulate)  # survives python -O

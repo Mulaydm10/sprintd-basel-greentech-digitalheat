@@ -12,8 +12,8 @@ from fastapi.testclient import TestClient
 
 from common.config import ROOT, load_assumptions
 from jobs.catalogue import load_catalogue
-from tools.pitch.numbers import (RUN_KEYS, assumed_paths, depends, fmt, numbers_for_run, render_markdown,
-                                 section_assumed)
+from tools.pitch.numbers import (RUN_KEYS, assumed_paths, depends, fmt, numbers_for_card, numbers_for_run,
+                                 render_markdown, section_assumed)
 
 YAML = (ROOT / "data" / "assumptions.yaml").read_text()
 SAMPLE = """\
@@ -49,6 +49,7 @@ def test_depends_rules():
     th = {"policy": "thermostat", "ballast": False}
     assert "jobs" not in depends(th, "share_covered") and "jobs" in depends(th, "missed_deadline_pct")
     assert "hardware" in depends(th, "break_even_incl_hardware_chf_per_server_h")
+    assert {"hardware", "jobs"} <= set(depends(th, "pays_off_above_chf_per_server_h"))
     assert "ballast" not in depends(th, "ballast_run_h")  # implicit ballast: no bid involved
     me = {"policy": "merit", "ballast": True}
     assert {"jobs", "ballast"} <= set(depends(me, "share_covered"))
@@ -76,7 +77,9 @@ def test_pitch_numbers_equal_balance_and_flags(runs):
         for n in nums:
             assert n.value == b[n.key] and n.run_id == d.name and n.assumptions_hash == b["assumptions_hash"]
         by_key = {n.key: n for n in nums}
-        assert by_key["break_even_incl_hardware_chf_per_server_h"].assumed  # capex is ASSUMED
+        assert "break_even_incl_hardware_chf_per_server_h" not in by_key  # #50: quote pays_off_above instead
+        assert by_key["pays_off_above_chf_per_server_h"].assumed  # capex is ASSUMED
+        assert {"hardware", "jobs[0]"} <= set(by_key["pays_off"].assumed_inputs) | {"jobs[0]"}
         if name == "thermo":
             assert not by_key["share_covered"].assumed  # heat physics only: not ASSUMED
             assert not by_key["heat_demand_kwh"].assumed
@@ -113,12 +116,23 @@ def test_like_for_like_view_matches_runs(runs, monkeypatch):
 
 def test_fmt():
     assert fmt(0.5803, "pct") == "58.03%" and fmt(None, "pct") == "n/a" and fmt(9910.4, "kwh") == "9,910 kWh"
+    assert fmt(True, "bool") == "yes" and fmt(False, "bool") == "no"
+
+
+def test_card_numbers_trace_and_are_assumed(tmp_path):
+    card = {"recommended_n": 1, "pays_off_above_chf_per_server_h": 0.5303, "assumptions_hash": "h", "basis": "x"}
+    p = tmp_path / "pitch" / "decision_card.json"
+    p.parent.mkdir()
+    p.write_text(json.dumps(card))
+    nums = numbers_for_card(p, assumed_paths(YAML), "sha")
+    assert [(n.key, n.value) for n in nums] == [("recommended_n", 1), ("pays_off_above_chf_per_server_h", 0.5303)]
+    assert all(n.assumed and n.run_id == "pitch" and n.file == "decision_card.json" for n in nums)
 
 
 def test_cli_writes_markdown(tmp_path, monkeypatch):
     import tools.pitch.__main__ as pm
     monkeypatch.setattr(pm, "CANON", [("thermostat", "thermostat", False)])
     out = tmp_path / "PITCH.md"
-    assert pm.main(["--out", str(out), "--runs", str(tmp_path / "runs"), "--servers", "1"]) == 0
+    assert pm.main(["--out", str(out), "--runs", str(tmp_path / "runs"), "--servers", "1", "--no-card"]) == 0
     text = out.read_text()
     assert "annual heat demand" in text and "code sha" in text and "thermostat-n1" in text

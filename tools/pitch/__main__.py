@@ -14,7 +14,7 @@ from pathlib import Path
 
 from common.config import ROOT, load_assumptions
 
-from .numbers import PitchNumber, assumed_paths, numbers_for_run, render_markdown
+from .numbers import PitchNumber, assumed_paths, numbers_for_card, numbers_for_run, render_markdown
 
 SLACK_H = 24.0  # the pitch's reference patience (Run B); stated in the output header
 CANON = [  # (title, policy, ballast)
@@ -43,12 +43,13 @@ def run_canonical(runs_root: Path, servers: int, seed: int = 0) -> list[tuple[st
         d = runs_root / f"{policy}{'-ballast' if ballast else ''}-n{servers}-slack{SLACK_H!r}-loadthermostat-seed{seed}"
         if d.exists():
             shutil.rmtree(d)
+        d.parent.mkdir(parents=True, exist_ok=True)
         run_one(servers, policy, SLACK_H, "thermostat", seed, d, ballast=ballast)
         out.append((title, d))
     return out
 
 
-def build(runs_root: Path, servers: int, with_sweep: bool) -> tuple[list[PitchNumber], dict]:
+def build(runs_root: Path, servers: int, with_sweep: bool, with_card: bool = True) -> tuple[list[PitchNumber], dict]:
     sha, dirty = code_sha()
     text = (ROOT / "data" / "assumptions.yaml").read_text()
     assumed = assumed_paths(text)
@@ -61,11 +62,16 @@ def build(runs_root: Path, servers: int, with_sweep: bool) -> tuple[list[PitchNu
         from simulate_year.cli import sweep
         p = sweep(runs_root / "sweep", 0, None)
         notes.append(f"Sweep: `{p.relative_to(ROOT) if p.is_relative_to(ROOT) else p}` ({sweep.failed} failed cells).")
-    try:
-        from simulate_year import analysis  # noqa: F401  (#31)
-        notes.append("Decision card: run `python -m simulate_year --decision-card` (#31) and add its numbers here.")
-    except ImportError:
-        notes.append("Decision card: pending #31 (simulate_year.analysis not on main yet).")
+    if with_card:
+        import json as _json
+        from simulate_year import analysis
+        card = analysis.decision_card(0)
+        path = runs_root / "decision_card.json"
+        path.write_text(_json.dumps(card, indent=2, sort_keys=True) + "\n")
+        nums += numbers_for_card(path, assumed, sha[:12])
+        notes.append(f"Decision card: `{path.name}` ({card.get('basis', '')}). Definition: {card.get('metric_definition', '')}.")
+    notes.append("Pay-off test = pays_off_above_chf_per_server_h (paid-work price incl. hardware, net of ballast "
+                 "income, per PAID server-hour; #50). The case break-even is a cost per server-hour run, not a price test.")
     import hashlib
     header = {"code_sha": sha, "dirty": dirty, "assumptions_hash": hashlib.sha256(text.encode()).hexdigest(),
               "runs_root": str(runs_root.relative_to(ROOT) if runs_root.is_relative_to(ROOT) else runs_root),
@@ -79,9 +85,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--runs", type=Path, default=ROOT / "runs" / "pitch")
     ap.add_argument("--servers", type=int, default=4)
     ap.add_argument("--sweep", action="store_true", help="also run the full sweep (~4 min)")
+    ap.add_argument("--no-card", action="store_true", help="skip the decision card (#31)")
     ns = ap.parse_args(argv)
     load_assumptions()  # validates (ConfigError) before any run
-    nums, header = build(ns.runs, ns.servers, ns.sweep)
+    nums, header = build(ns.runs, ns.servers, ns.sweep, with_card=not ns.no_card)
     ns.out.parent.mkdir(parents=True, exist_ok=True)
     ns.out.write_text(render_markdown(nums, header))
     n_assumed = sum(n.assumed for n in nums)

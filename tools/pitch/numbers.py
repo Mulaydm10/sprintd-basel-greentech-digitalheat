@@ -70,8 +70,10 @@ def depends(balance: dict, key: str) -> list[str]:
     # implicit ballast hours (run - paid) do not depend on it
     if balance.get("ballast") or key == "ballast_income_chf":
         deps.append("ballast")
-    if "hardware" in key or key == "pays_off":
+    if "hardware" in key or key.startswith("pays_off"):
         deps.append("hardware")
+    if key.startswith("pays_off") and "jobs" not in deps:
+        deps.append("jobs")  # paid server-hours and the paid price come from the paid stream
     return deps
 
 
@@ -101,8 +103,9 @@ RUN_KEYS = [
     ("paid server-hours", "paid_run_h", "h"),
     ("ballast server-hours", "ballast_run_h", "h"),
     ("on/off transitions per day", "transitions_per_day", "num"),
-    ("break-even (case formula)", "break_even_chf_per_server_h", "chf"),
-    ("break-even incl. hardware", "break_even_incl_hardware_chf_per_server_h", "chf"),
+    ("cost per server-hour run (case break-even formula)", "break_even_chf_per_server_h", "chf"),
+    ("paid price needed to pay off incl. hardware", "pays_off_above_chf_per_server_h", "chf"),
+    ("pays off at the paid price", "pays_off", "bool"),
 ]
 
 
@@ -117,6 +120,8 @@ def fmt(v, kind: str) -> str:
         return f"{v:,.0f} kWh"
     if kind == "h":
         return f"{v:,.0f} h"
+    if kind == "bool":
+        return "yes" if v else "no"
     if kind == "chf":
         return f"{v:.4f} CHF/server-h"
     return f"{v:.3f}" if isinstance(v, float) else str(v)
@@ -139,10 +144,22 @@ def numbers_for_run(run_dir: Path, title: str, assumed: set[str], code_sha: str,
     return out
 
 
+# Decision card (#31): numbers quoted from decision_card.json; it depends on every input section.
+CARD_KEYS = [("decision card: recommended servers per house", "recommended_n", "num"),
+             ("decision card: paid price needed to pay off incl. hardware", "pays_off_above_chf_per_server_h", "chf")]
+
+
+def numbers_for_card(card_path: Path, assumed: set[str], code_sha: str) -> list[PitchNumber]:
+    c = json.loads(card_path.read_text())
+    inputs = sorted(p for s in (*PHYSICS, "jobs", "ballast", "hardware") for p in section_assumed(assumed, s))
+    return [PitchNumber(label, c[key], card_path.name, key, card_path.parent.name, c.get("assumptions_hash", ""),
+                        code_sha, inputs) for label, key, _k in CARD_KEYS if key in c]
+
+
 def kind_of(key: str) -> str:
     if key == "heat_demand_kwh":
         return "kwh"
-    return next((k for _l, kk, k in RUN_KEYS if kk == key), "num")
+    return next((k for _l, kk, k in RUN_KEYS + CARD_KEYS if kk == key), "num")
 
 
 def render_markdown(nums: list[PitchNumber], header: dict) -> str:

@@ -1,3 +1,5 @@
 *
 !.gitignore
 !assumptions.yaml
+!raw/
+!raw/basel_2025_hourly.csv

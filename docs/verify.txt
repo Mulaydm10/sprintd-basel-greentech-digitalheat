@@ -13,3 +13,4 @@ research/realtime: test -s research/realtime/REPORT.md
 src/common: python3 -m pytest tests/src/common -q
 tools/pitch: python3 -m pytest tests/tools -q
 src/coordinator: python3 -m pytest tests/src/coordinator -q
+src/portal: python3 -m pytest tests/src/portal -q

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import time
 
 import numpy as np
@@ -240,3 +241,48 @@ def test_simulate_restores_gc_state():
             assert gc.isenabled() is enabled
         finally:
             gc.enable()
+
+
+# ------------------------------------------------------------------ #33 admission (contract v2.2)
+def test_admission_off_is_default_and_counts_everything():
+    b, _ = run(SYN, 2, "merit", 24, 0.6)
+    assert b["admission"] is False and b["rejected_units"] == 0 and b["admitted_units"] == b["jobs_total"]
+
+
+def test_admission_on_with_all_admissible_changes_nothing_physical(monkeypatch):
+    """Golden numbers must not move when every job is admissible: with an ample forecast every unit is
+    admitted and the run is identical to admission off (only the `admission` flag differs)."""
+    import simulate_year.sim as sim
+    monkeypatch.setattr(sim, "persistence_forecast", lambda hist, horizon: [1e9] * horizon)
+    off, _ = simulate(SYN, A, 2, "merit", 24, 0.6, 0, hourly=False)
+    on, _ = simulate(SYN, A, 2, "merit", 24, 0.6, 0, hourly=False, admission=True)
+    assert on["rejected_units"] == 0
+    assert {k: v for k, v in on.items() if k != "admission"} == {k: v for k, v in off.items() if k != "admission"}
+
+
+def test_admission_cold_start_rejects_only_first_hour():
+    """No history yet -> persistence forecast is 0 (never optimistic) -> hour-0 arrivals are rejected;
+    from hour 1 on, ample cold-weather capacity admits everything."""
+    cold = synthetic(days=20, flat_temp=0.0)
+    n, load = 2, 0.3
+    on, _ = simulate(cold, A, n, "merit", 168, load, 0, hourly=False, admission=True)
+    per_h = n * 60 / A["scheduler"]["unit_minutes"] * load
+    assert 0 < on["rejected_units"] <= math.ceil(per_h) + 1
+
+
+def test_admission_rejects_instead_of_missing():
+    """Overload with zero slack: without admission units miss deadlines; with admission they are rejected
+    at submit and are not counted as missed."""
+    off, _ = run(SYN, 1, "merit", 0, 1.5)
+    on, _ = simulate(SYN, A, 1, "merit", 0, 1.5, 0, hourly=False, admission=True)
+    assert off["missed_deadline_pct"] > 0
+    assert on["rejected_units"] > 0
+    assert on["admitted_units"] + on["rejected_units"] == on["jobs_total"]
+    assert on["missed_deadline_pct"] <= off["missed_deadline_pct"]
+
+
+def test_cli_admission_flag(tmp_path):
+    assert main(["--servers", "1", "--policy", "merit", "--slack-h", "24", "--load", "0.5", "--admission",
+                 "--out", str(tmp_path)]) == 0
+    b = json.loads((tmp_path / "balance.json").read_text())
+    assert b["admission"] is True and b["admitted_units"] + b["rejected_units"] == b["jobs_total"]

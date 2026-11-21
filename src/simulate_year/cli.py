@@ -55,11 +55,12 @@ def resolve_load(load: str | float | None, a: dict, profile, servers: int) -> tu
 
 
 def run_one(servers: int, policy: str, slack_h: float, load: str | float | None, seed: int, out: Path | None,
-            hourly: bool = True) -> dict:
+            hourly: bool = True, admission: bool = False) -> dict:
     a = load_assumptions()
     profile = load_reference_profile(assumptions=a)
     load_f, basis = resolve_load(load, a, profile, servers)
-    bal, df = simulate(profile, a, servers, policy, slack_h, load_f, seed, a_hash=assumptions_hash(), hourly=hourly)
+    bal, df = simulate(profile, a, servers, policy, slack_h, load_f, seed, a_hash=assumptions_hash(), hourly=hourly,
+                       admission=admission)
     bal["load_basis"] = basis
     if out is not None:
         out.mkdir(parents=True, exist_ok=True)
@@ -99,6 +100,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--load", default=None,
                     help="paid work as a fraction of server capacity, or 'thermostat' for a like-for-like A/B")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--admission", action="store_true", help="gate arriving jobs with scheduler.admit (v2.2)")
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--sweep", action="store_true")
     ap.add_argument("--workers", type=int, default=None)
@@ -110,9 +112,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     tag = ns.load if ns.load is not None else _default_load(load_assumptions())
     out = ns.out or ROOT / "runs" / _run_id(ns.servers, ns.policy, ns.slack_h, tag, ns.seed)
-    bal = run_one(ns.servers, ns.policy, ns.slack_h, ns.load, ns.seed, out)
+    bal = run_one(ns.servers, ns.policy, ns.slack_h, ns.load, ns.seed, out, admission=ns.admission)
     print(json.dumps({k: bal[k] for k in ("share_covered", "utilisation", "heat_dumped_kwh",
-                                           "break_even_chf_per_server_h", "missed_deadline_pct")}))
+                                           "break_even_chf_per_server_h", "missed_deadline_pct", "admitted_units",
+                                           "rejected_units")}))
     print(f"wrote {out}/balance.json")
     return 0
 

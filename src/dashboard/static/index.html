@@ -38,12 +38,16 @@ svg{width:100%;height:auto;display:block}svg text{fill:var(--muted);font-size:10
   <section class="card"><h2>Key figures</h2><div class="grid" id="figs"></div></section>
   <section class="card"><h2>Does it pay off?</h2><div id="decision"></div></section>
   <section class="card"><h2>Three scheduling policies, same year</h2><div id="ab"></div></section>
+  <section class="card"><h2>Like-for-like: same paid work for every policy</h2><p class="sub">Each policy sells exactly the server-hours the thermostat runs, so the comparison is fair.</p><div id="lfl"></div></section>
+  <section class="card"><h2>What moves the result</h2><p class="sub">Each bar shows how far the metric moves when one input swings from its low to its high value.</p><div id="sens"></div></section>
+  <section class="card"><h2>Decision card</h2><div id="card"></div></section>
   <section class="card"><h2>Day replay</h2>
     <div class="days"><div id="day-january"></div><div id="day-july"></div></div>
     <div class="legend"><span><i style="background:var(--space)"></i>space heating</span><span><i style="background:var(--dhw)"></i>hot water</span><span><i style="background:var(--tank)"></i>into tank</span><span><i style="background:var(--dump)"></i>dumped</span><span><i style="background:var(--backup)"></i>backup heater</span><span>line: demand</span></div>
   </section>
   <section class="card"><h2>Trust layer <span class="pill mock">MOCK attestation</span></h2><div id="trust"></div></section>
   <section class="card"><h2>Live nodes</h2><div id="nodes"></div></section>
+  <section class="card"><h2>Where these numbers come from</h2><div id="prov" class="mono"></div></section>
 </main>
 <script>
 const $ = id => document.getElementById(id);
@@ -58,16 +62,21 @@ const fmt = (v, kind) => {
   if (kind === "kwh") return Math.round(v).toLocaleString("en-CH") + " kWh";
   return v.toLocaleString("en-CH");
 };
-const val = (obj, key, kind) => `<span data-key="balance.json: ${esc(key)}" title="balance.json: ${esc(key)}">${esc(fmt(obj[key], kind))}</span>`;
+let PROV = "";
+const tip = (file, key) => `${file}: ${key}${PROV}`;
+const val = (obj, key, kind) => `<span data-key="balance.json: ${esc(key)}" title="${esc(tip("balance.json", key))}">${esc(fmt(obj[key], kind))}</span>`;
 async function get(u){ const r = await fetch(u); if(!r.ok) throw new Error(u + " " + r.status); return r.json(); }
 
 async function main(){
+  const pv = await get("api/provenance");
+  PROV = ` · run ${pv.run_id} · assumptions ${String(pv.assumptions_hash).slice(0, 12)} · code ${pv.code_commit ? pv.code_commit.slice(0, 8) : "n/a"}`;
+  $("prov").innerHTML = `run folder: ${esc(pv.run_dir)}<br>produced by: ${esc(pv.producer)}<br>assumptions_hash: ${esc(pv.assumptions_hash)}<br>code commit: ${esc(pv.code_commit || "n/a")}<br>load basis: ${esc(pv.load_basis || "n/a")}<br>files: ${esc(pv.files.join(", "))}`;
   const src = await get("api/source");
   $("source").textContent = "run: " + src.run_dir; $("fixture").hidden = !src.fixture;
   const b = await get("api/balance");
   const figs = [["share_covered","pct","of the house's heat comes from the servers"],["backup_heat_kwh","kwh","still needed from the backup heater"],
-    ["heat_dumped_kwh","kwh","server heat thrown away"],["break_even_chf_per_server_h","chf","break-even per server-hour (case formula)"],
-    ["break_even_incl_hardware_chf_per_server_h","chf","break-even incl. hardware (ASSUMED capex)"],["utilisation","pct","server utilisation"],
+    ["heat_dumped_kwh","kwh","server heat thrown away"],["break_even_chf_per_server_h","chf","cost per server-hour run (case formula)"],
+    ["pays_off_above_chf_per_server_h","chf","paid price needed to pay off incl. hardware (ASSUMED capex)"],["utilisation","pct","server utilisation"],
     ["missed_deadline_pct","pct100","jobs past deadline"]];
   $("figs").innerHTML = figs.map(([k,kind,l]) => `<div class="fig"><div class="v">${val(b,k,kind)}</div><div class="l">${l}</div></div>`).join("")
     + `<div class="fig"><div class="v">${val(b,"servers_per_house")}</div><div class="l">servers in the house, policy ${val(b,"policy")}</div></div>`;
@@ -77,13 +86,14 @@ async function main(){
   $("decision").innerHTML = `<p><span class="pill ${d.pays_off ? "yes" : "no"}" data-key="balance.json: pays_off" title="balance.json: pays_off">${d.pays_off ? "pays off" : "does NOT pay off"}</span>
     <span data-key="balance.json: pays_off_conditions" title="balance.json: pays_off_conditions">${esc(d.pays_off_conditions)}</span></p>`
     + (c ? `<p>Best server count for the merit policy: <b title="sweep.csv: servers_per_house" data-key="sweep.csv: servers_per_house">${esc(c.servers_per_house)}</b> servers,
-      covering <span title="sweep.csv: share_covered" data-key="sweep.csv: share_covered">${fmt(c.share_covered,"pct")}</span> of the heat at
-      <span title="sweep.csv: break_even_incl_hardware_chf_per_server_h" data-key="sweep.csv: break_even_incl_hardware_chf_per_server_h">${fmt(c.break_even_incl_hardware_chf_per_server_h,"chf")}</span> per server-hour incl. hardware.</p>
+      covering <span title="sweep.csv: share_covered" data-key="sweep.csv: share_covered">${fmt(c.share_covered,"pct")}</span> of the heat; paid work must sell for at least
+      <span title="sweep.csv: pays_off_above_chf_per_server_h" data-key="sweep.csv: pays_off_above_chf_per_server_h">${fmt(c.pays_off_above_chf_per_server_h,"chf")}</span> per server-hour incl. hardware
+      (<span title="sweep.csv: pays_off" data-key="sweep.csv: pays_off">${String(c.pays_off) === "true" || c.pays_off === true ? "pays off" : "does NOT pay off"}</span> at the paid price).</p>
       <p class="sub">Rule: ${esc(d.rule)}.</p>` : `<p class="sub">No sweep.csv yet.</p>`);
 
   const ab = await get("api/ab");
   const cols = [["share_covered","pct","heat covered"],["heat_dumped_kwh","kwh","heat dumped"],["break_even_chf_per_server_h","chf","break-even"],
-    ["break_even_incl_hardware_chf_per_server_h","chf","break-even incl. hw"],["missed_deadline_pct","pct100","missed deadlines"]];
+    ["pays_off_above_chf_per_server_h","chf","paid price to pay off incl. hw"],["missed_deadline_pct","pct100","missed deadlines"]];
   $("ab").innerHTML = ab.rows.length ? `<table><thead><tr><th>policy (N = ${esc(ab.servers_per_house)})</th>${cols.map(c=>`<th class="n">${c[2]}</th>`).join("")}</tr></thead><tbody>`
     + ab.rows.map(r => `<tr><td>${esc(r.policy)}</td>${cols.map(([k,kind]) => `<td class="n" title="sweep.csv: ${k}" data-key="sweep.csv: ${k}">${fmt(r[k],kind)}</td>`).join("")}</tr>`).join("")
     + `</tbody></table>` : `<p class="sub">No sweep.csv yet.</p>`;
@@ -98,8 +108,50 @@ async function main(){
     + t.entries.map(e => { const ev = e.event; const det = Object.entries(ev).filter(([k]) => k !== "type").map(([k,v]) => `${k}=${v}`).join(", ");
       return `<tr><td>${e.index}</td><td>${ev.type === "deny" ? `<span class="pill no">denied</span>` : esc(ev.type)}</td><td class="mono">${esc(det)}</td></tr>`; }).join("") + `</tbody></table>`;
 
+  const lf = await get("api/ab_like_for_like");
+  const lcols = [["share_covered","pct","heat covered"],["heat_dumped_kwh","kwh","heat dumped"],["backup_heat_kwh","kwh","backup heat"],
+    ["break_even_chf_per_server_h","chf","break-even"],["missed_deadline_pct","pct100","missed deadlines"]];
+  $("lfl").innerHTML = lf.rows.length
+    ? `<table><thead><tr><th>policy (N = ${esc(lf.servers_per_house)})</th><th>run</th>${lcols.map(c => `<th class="n">${c[2]}</th>`).join("")}</tr></thead><tbody>`
+      + lf.rows.map(r => `<tr><td>${esc(r.policy)}</td><td class="mono">${esc(r.run_id)}</td>${lcols.map(([k, kind]) => `<td class="n" title="${esc("runs/" + r.run_id + "/balance.json: " + k)}" data-key="balance.json: ${k}">${fmt(r[k], kind)}</td>`).join("")}</tr>`).join("")
+      + `</tbody></table>` + (lf.note ? `<p class="sub">${esc(lf.note)}</p>` : "")
+    : `<p class="sub">${esc(lf.note || "No runs yet.")}</p>`;
+
+  drawTornado(await get("api/sensitivity"));
+  const dc = await get("api/decision_card");
+  const keys = Object.keys(dc.card || {});
+  $("card").innerHTML = (dc.fixture ? `<p class="banner">FIXTURE until #31 writes decision_card.json</p>` : "")
+    + (keys.length
+      ? `<table><tbody>${keys.map(k => {
+          const v = dc.card[k];
+          const item = x => (x !== null && typeof x === "object") ? JSON.stringify(x) : x;  // #31 nests objects
+          const shown = Array.isArray(v) ? `<ul style="margin:0;padding-left:18px">${v.map(x => `<li>${esc(item(x))}</li>`).join("")}</ul>`
+            : (v !== null && typeof v === "object") ? `<code class="mono">${esc(JSON.stringify(v))}</code>` : esc(fmt(v));
+          return `<tr><th title="${esc(tip(dc.source || "decision_card.json", k))}" data-key="decision_card.json: ${esc(k)}">${esc(k.replaceAll("_", " "))}</th><td>${shown}</td></tr>`;
+        }).join("")}</tbody></table>`
+      : `<p class="sub">${esc(dc.note || "")}</p>`);
+
   const n = await get("api/nodes");
   $("nodes").innerHTML = `<p class="sub">${n.enabled ? "" : "Disabled. "}${esc(n.note)}</p>`;
+}
+
+function drawTornado(se){
+  const rows = (se.rows || []).filter(r => typeof r.metric_low === "number" && typeof r.metric_high === "number");
+  if (!rows.length) { $("sens").innerHTML = `<p class="sub">${esc(se.note || "No sensitivity data yet.")}</p>`; return; }
+  const base = rows[0].metric_base;
+  const lo = Math.min(base, ...rows.map(r => Math.min(r.metric_low, r.metric_high)));
+  const hi = Math.max(base, ...rows.map(r => Math.max(r.metric_low, r.metric_high)));
+  const W = 640, L = 150, R = 20, rh = 26, H = rows.length * rh + 34;
+  const sx = v => L + (v - lo) / ((hi - lo) || 1) * (W - L - R);
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Sensitivity tornado">`;
+  s += `<line x1="${sx(base)}" x2="${sx(base)}" y1="4" y2="${H - 24}" stroke="var(--ink)"/><text x="${sx(base)}" y="${H - 8}" text-anchor="middle">base ${base}</text>`;
+  rows.forEach((r, i) => {
+    const y = 8 + i * rh, a = sx(Math.min(r.metric_low, r.metric_high)), b = sx(Math.max(r.metric_low, r.metric_high));
+    s += `<text x="${L - 8}" y="${y + 13}" text-anchor="end" style="fill:var(--ink2);font-size:11px">${esc(r.parameter)}</text>`;
+    s += `<rect x="${a.toFixed(1)}" y="${y}" width="${Math.max(1, b - a).toFixed(1)}" height="16" rx="3" fill="var(--space)"><title>${esc(r.parameter)}: ${esc(r.low)} gives ${r.metric_low}, ${esc(r.high)} gives ${r.metric_high} (${esc(r.metric)}; ${esc(se.source || "sensitivity.csv")})</title></rect>`;
+  });
+  s += `</svg>`;
+  $("sens").innerHTML = (se.fixture ? `<p class="banner">FIXTURE until #31 writes sensitivity.csv</p>` : "") + `<p class="sub">metric: ${esc(rows[0].metric)}</p>` + s;
 }
 
 function drawDay(which, d){

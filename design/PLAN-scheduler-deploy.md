@@ -152,3 +152,6 @@ Metrics:
 1. OK to keep the 1 kW reference house as the graded core and use the teammates' fleet as the scale layer?
 2. Is the scheduler on the Mac the first job (S1 → S3 now)?
 3. Add a `trust` lane for a teammate?
+
+## Deployment requirements added by research #29 (fit-reviewed)
+Leases with renewal at ~1/3 of lease length (HTCondor JobLeaseDuration 40 min as reference); lease timers frozen across a coordinator restart; degraded mode when the weather feed fails (persistence forecast, slack off, no new dumping on stale data, flagged in trace); BOINC-style backpressure / work-fetch stop; heartbeats; vacate→drain, kill→kill mapping.

@@ -3,14 +3,22 @@
 Pure: no I/O, no clocks, no process control; randomness only from the passed seed.
 One function, three policies (merit / thermostat / always_on) over the same types, so an A/B
 comparison runs one job stream. The simulator (#7) and the live agent (#8) both call decide().
+
+#21 hardening: decide() validates its input (raises InvalidInput) and runs in O(U log U + U·B_c + S),
+where B_c is the number of capacity blocks eligible for a unit's access class: sites and blocks are
+indexed once per tick per access class, exhausted blocks are skipped by a moving pointer, and once a
+class has no capacity left its remaining units are held in O(1) each (one aggregated trace line).
+decide() touches no process-global state (it runs inside #8's threaded server); callers that run many
+big ticks may defer the cyclic GC around their own loop (simulate_year does).
 """
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .actions import Action, Assign, Decision, Hold, Refuse, Route, SetPower
 from .types import Params, SiteState, Unit
+from .validate import validate_params, validate_queue, validate_sites
 
 STEP_H = 1.0  # decide() is one tick = one hour (definition of the tick, not an assumption)
 EPS = 1e-9  # float tolerance
@@ -55,9 +63,13 @@ def used_capacity_kwh_el(s: SiteState) -> float:
 
 # ---------------------------------------------------------------- hysteresis (rule 5)
 def next_mode_hysteresis(s: SiteState) -> bool:
+    """Rule 5 (contract v2.3): running -> idle at tank >= band_high; idle -> running at tank <= band_low,
+    OR when space heat is wanted (demand_kw > 0) and the tank is below band_high (wake on space demand, #44).
+    One evaluation per tick, so at most one transition per site per hour."""
     if s.mode_running and s.tank_level_kwh >= s.band_high_kwh:
         return False
-    if not s.mode_running and s.tank_level_kwh <= s.band_low_kwh:
+    if not s.mode_running and (s.tank_level_kwh <= s.band_low_kwh
+                               or (s.demand_kw > 0 and s.tank_level_kwh < s.band_high_kwh)):
         return True
     return s.mode_running
 
@@ -72,7 +84,7 @@ def route(s: SiteState, servers_on: float) -> Route:
     return Route(s.site_id, space, dhw, tank, max(0.0, dump))
 
 
-# ---------------------------------------------------------------- helpers
+# ---------------------------------------------------------------- per-tick indices
 @dataclass
 class _Block:
     mc: float
@@ -85,19 +97,45 @@ class _Block:
         return (self.mc, self.kind, self.site_id, self.tie)
 
 
+@dataclass
+class _ClassIndex:
+    """Everything one access class needs, built once per tick on first use."""
+    elig: list[SiteState]
+    inelig: list[SiteState]
+    blocks: list  # merit: _Block in merit order; baselines: [site_id, remaining_kwh] in site order
+    slowest_kw: float = 0.0
+    start: int = 0  # first block that may still have capacity
+    exhausted: bool = False
+    held_no_cap: int = field(default=0)
+
+
+def _class_index(c: str, sites: list[SiteState], blocks: list) -> _ClassIndex:
+    elig = [s for s in sites if c in s.eligible_classes]
+    ids = {s.site_id for s in elig}
+    return _ClassIndex(
+        elig=elig,
+        inelig=[s for s in sites if c not in s.eligible_classes],
+        blocks=[b for b in blocks if (b.site_id if isinstance(b, _Block) else b[0]) in ids],
+        slowest_kw=min((s.server_kw_el for s in elig), default=0.0),
+    )
+
+
 def _order_units(queue: list[Unit]) -> list[Unit]:
+    # unit_ids are unique (validated), so this key is a total order: input order never matters.
     return sorted(queue, key=lambda u: (u.deadline_hour, -u.bid_chf_per_server_h, u.unit_id))
 
 
-def _eligibility(u: Unit, sites: list[SiteState], actions: list[Action], trace: list[str]) -> list[SiteState]:
-    elig = []
-    for s in sites:
-        if u.access_class in s.eligible_classes:
-            elig.append(s)
-        else:
-            actions.append(Refuse(u.unit_id, s.site_id, R_NOT_ELIGIBLE))
-            trace.append(f"refuse {u.unit_id} at {s.site_id}: {u.access_class} not in {sorted(s.eligible_classes)}")
-    return elig
+def _refuse(u: Unit, ci: _ClassIndex, actions: list[Action], trace: list[str]) -> None:
+    for s in ci.inelig:
+        actions.append(Refuse(u.unit_id, s.site_id, R_NOT_ELIGIBLE))
+        trace.append(f"refuse {u.unit_id} at {s.site_id}: {u.access_class} not in {sorted(s.eligible_classes)}")
+
+
+def _aggregate_no_cap(index: dict[str, _ClassIndex], trace: list[str]) -> None:
+    for c in sorted(index):
+        n = index[c].held_no_cap
+        if n:
+            trace.append(f"hold {n} unit(s) of class {c}: {R_NO_CAP} (all eligible capacity used)")
 
 
 def _finish(
@@ -137,48 +175,119 @@ def _decide_merit(sites: list[SiteState], queue: list[Unit], hour: int, p: Param
         blocks.append(_Block(mc_used(s), USED, s.site_id, rng.random(), used))
         blocks.append(_Block(mc_dump(s), DUMP, s.site_id, rng.random(), max(0.0, max_el - used)))
     blocks.sort(key=_Block.key)
+    dump_of = {b.site_id: b for b in blocks if b.kind == DUMP}
 
-    job_kwh: dict[str, float] = {}
-    for u in queue:
-        job_kwh[u.job_id] = job_kwh.get(u.job_id, 0.0) + u.kwh_el
+    job_kwh: dict[str, float] | None = None  # built lazily: only deadline forcing needs it
+    queue_forced: set[str] | None = None
 
+    def is_forced(u: Unit, ci: _ClassIndex) -> bool:
+        """Rule 4 'deadline forces run'. Remaining run time counts (a) the unit's own job and (b) all work queued
+        AHEAD of it in deadline order on the capacity eligible for its class (#54, red team F20): without (b),
+        a backlog deferred while heat was unwanted turns urgent all at once and cannot fit."""
+        nonlocal job_kwh, queue_forced
+        if job_kwh is None:
+            job_kwh = {}
+            for q in queue:
+                job_kwh[q.job_id] = job_kwh.get(q.job_id, 0.0) + q.kwh_el
+        if hour + job_kwh[u.job_id] / ci.slowest_kw >= u.deadline_hour - p.deadline_safety_h:
+            return True
+        if queue_forced is None:
+            queue_forced = set()
+            cap: dict[str, float] = {}
+            cum: dict[str, float] = {}
+            for q in _order_units(queue):  # EDF order: deadlines non-decreasing
+                c = q.access_class
+                if c not in cap:
+                    cap[c] = sum(max_servers(s) * s.server_kw_el * STEP_H for s in sites if c in s.eligible_classes)
+                cum[c] = cum.get(c, 0.0) + q.kwh_el
+                if cap[c] > EPS and hour + cum[c] / cap[c] >= q.deadline_hour - p.deadline_safety_h:
+                    queue_forced.add(q.unit_id)
+        return u.unit_id in queue_forced
+
+    index: dict[str, _ClassIndex] = {}
     site_el = {s.site_id: 0.0 for s in sites}
     unit_actions: list[Action] = []
+    append = unit_actions.append
     for u in _order_units(queue):
-        elig = _eligibility(u, sites, unit_actions, trace)
-        if not elig:
-            unit_actions.append(Hold(u.unit_id, R_NO_ELIGIBLE))
+        ci = index.get(u.access_class)
+        if ci is None:
+            ci = index[u.access_class] = _class_index(u.access_class, sites, blocks)
+        if ci.exhausted:  # not considered against any site any more: no Refuse, O(1)
+            append(Hold(u.unit_id, R_NO_CAP))
+            ci.held_no_cap += 1
+            continue
+        if ci.inelig:
+            _refuse(u, ci, unit_actions, trace)
+        if not ci.elig:
+            append(Hold(u.unit_id, R_NO_ELIGIBLE))
             trace.append(f"hold {u.unit_id}: {R_NO_ELIGIBLE}")
             continue
-        elig_ids = {s.site_id for s in elig}
-        slowest_kw = min(s.server_kw_el for s in elig)
-        remaining_h = job_kwh[u.job_id] / slowest_kw
-        forced = hour + remaining_h >= u.deadline_hour - p.deadline_safety_h
 
-        fits = [b for b in blocks if b.site_id in elig_ids and b.rem_kwh_el >= u.kwh_el - EPS]
-        cands = [b for b in fits if next_mode[b.site_id] or forced]
-        if not cands:
-            reason = R_IDLE if fits else R_NO_CAP
-            unit_actions.append(Hold(u.unit_id, reason))
+        bl = ci.blocks
+        while ci.start < len(bl) and bl[ci.start].rem_kwh_el <= EPS:
+            ci.start += 1
+        if ci.start >= len(bl):
+            ci.exhausted = True
+            append(Hold(u.unit_id, R_NO_CAP))
+            ci.held_no_cap += 1
+            continue
+
+        need = u.kwh_el - EPS
+        forced: bool | None = None
+        best = None
+        spill = None  # a USED block remainder the unit tops up from the same site's DUMP block (#54)
+        fits_any = False
+        for i in range(ci.start, len(bl)):
+            b = bl[i]
+            cand, cand_spill = b, None
+            if b.rem_kwh_el < need:
+                # fragmentation: a unit that does not fit the heat-used remainder may straddle into the same
+                # site's dump block (priced as dump); otherwise a server-hour is stranded every hour
+                d = dump_of.get(b.site_id)
+                if not (b.kind == USED and b.rem_kwh_el > EPS and d is not None
+                        and d.rem_kwh_el >= u.kwh_el - b.rem_kwh_el - EPS):
+                    continue
+                cand, cand_spill = d, b
+            fits_any = True
+            b = cand
+            if next_mode[b.site_id]:
+                best, spill = b, cand_spill
+                break
+            if forced is None:
+                forced = is_forced(u, ci)
+            if forced:
+                best, spill = b, cand_spill
+                break
+        if best is None:
+            reason = R_IDLE if fits_any else R_NO_CAP
+            append(Hold(u.unit_id, reason))
             trace.append(f"hold {u.unit_id}: {reason}")
             continue
-        best = cands[0]
         if u.bid_chf_per_server_h < best.mc - EPS:
-            unit_actions.append(Hold(u.unit_id, R_BID))
+            append(Hold(u.unit_id, R_BID))
             trace.append(f"hold {u.unit_id}: bid {u.bid_chf_per_server_h:.4f} < MC {best.mc:.4f} at {best.site_id}")
             continue
-        if p.slack_enabled and u.slack_h > 0 and best.kind == DUMP and not forced:
-            unit_actions.append(Hold(u.unit_id, R_WAIT_HEAT))
-            trace.append(f"hold {u.unit_id}: {R_WAIT_HEAT} (slack {u.slack_h} h, deadline h{u.deadline_hour})")
-            continue
-        best.rem_kwh_el -= u.kwh_el
+        if p.slack_enabled and u.slack_h > 0 and best.kind == DUMP:
+            if forced is None:
+                forced = is_forced(u, ci)
+            if not forced:
+                append(Hold(u.unit_id, R_WAIT_HEAT))
+                trace.append(f"hold {u.unit_id}: {R_WAIT_HEAT} (slack {u.slack_h} h, deadline h{u.deadline_hour})")
+                continue
+        if spill is not None:
+            take = spill.rem_kwh_el
+            spill.rem_kwh_el = 0.0
+            best.rem_kwh_el -= u.kwh_el - take
+        else:
+            best.rem_kwh_el -= u.kwh_el
         site_el[best.site_id] += u.kwh_el
-        unit_actions.append(Assign(u.unit_id, best.site_id))
+        append(Assign(u.unit_id, best.site_id))
         why = "heat used" if best.kind == USED else "heat dumped"
         if forced and (best.kind == DUMP or not next_mode[best.site_id]):
             why += ", deadline forces run"
         trace.append(f"assign {u.unit_id} -> {best.site_id} ({why}, MC {best.mc:.4f} <= bid {u.bid_chf_per_server_h:.4f})")
 
+    _aggregate_no_cap(index, trace)
     servers_on = {s.site_id: site_el[s.site_id] / (s.server_kw_el * STEP_H) for s in sites}
     return _finish(sites, servers_on, unit_actions, next_mode, trace)
 
@@ -188,22 +297,44 @@ def _decide_fixed_capacity(
 ) -> tuple[list[Action], list[str]]:
     """Baselines: fill given electric capacity in deadline order, ignoring bids and slack."""
     trace: list[str] = []
-    rem = dict(capacity_el)
+    cells = [[s.site_id, capacity_el[s.site_id]] for s in sites]  # shared, mutable remaining capacity
+    index: dict[str, _ClassIndex] = {}
     unit_actions: list[Action] = []
+    append = unit_actions.append
     for u in _order_units(queue):
-        elig = _eligibility(u, sites, unit_actions, trace)
-        if not elig:
-            unit_actions.append(Hold(u.unit_id, R_NO_ELIGIBLE))
+        ci = index.get(u.access_class)
+        if ci is None:
+            ci = index[u.access_class] = _class_index(u.access_class, sites, cells)
+        if ci.exhausted:  # not considered against any site any more: no Refuse, O(1)
+            append(Hold(u.unit_id, hold_reason))
+            ci.held_no_cap += 1
+            continue
+        if ci.inelig:
+            _refuse(u, ci, unit_actions, trace)
+        if not ci.elig:
+            append(Hold(u.unit_id, R_NO_ELIGIBLE))
             trace.append(f"hold {u.unit_id}: {R_NO_ELIGIBLE}")
             continue
-        site = next((s for s in elig if rem[s.site_id] >= u.kwh_el - EPS), None)
-        if site is None:
-            unit_actions.append(Hold(u.unit_id, hold_reason))
+        cl = ci.blocks
+        while ci.start < len(cl) and cl[ci.start][1] <= EPS:
+            ci.start += 1
+        if ci.start >= len(cl):
+            ci.exhausted = True
+            append(Hold(u.unit_id, hold_reason))
+            ci.held_no_cap += 1
+            continue
+        need = u.kwh_el - EPS
+        cell = next((c for c in cl[ci.start:] if c[1] >= need), None)
+        if cell is None:
+            append(Hold(u.unit_id, hold_reason))
             trace.append(f"hold {u.unit_id}: {hold_reason}")
             continue
-        rem[site.site_id] -= u.kwh_el
-        unit_actions.append(Assign(u.unit_id, site.site_id))
-        trace.append(f"assign {u.unit_id} -> {site.site_id}")
+        cell[1] -= u.kwh_el
+        append(Assign(u.unit_id, cell[0]))
+        trace.append(f"assign {u.unit_id} -> {cell[0]}")
+    for c in sorted(index):
+        if index[c].held_no_cap:
+            trace.append(f"hold {index[c].held_no_cap} unit(s) of class {c}: {hold_reason} (all eligible capacity used)")
     return unit_actions, trace
 
 
@@ -226,9 +357,12 @@ def _decide_always_on(sites: list[SiteState], queue: list[Unit]) -> Decision:
 
 
 def decide(sites: list[SiteState], queue: list[Unit], hour: int, params: Params, seed: int = 0) -> Decision:
-    """One tick. Same inputs + seed -> identical Decision, independent of input list order."""
+    """One tick. Raises InvalidInput on bad input. Same inputs + seed -> identical Decision,
+    independent of input list order."""
+    validate_params(params)
+    validate_sites(sites)
+    validate_queue(queue)
     sites = sorted(sites, key=lambda s: s.site_id)
-    queue = sorted(queue, key=lambda u: u.unit_id)
     if params.policy == "thermostat":
         return _decide_thermostat(sites, queue)
     if params.policy == "always_on":

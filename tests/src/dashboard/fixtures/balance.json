@@ -46,5 +46,6 @@
  },
  "assumptions_hash": "fixture-not-a-real-hash",
  "pays_off": false,
- "pays_off_conditions": "FIXTURE TEXT: pays off only if compute sells above break-even incl. hardware"
+ "pays_off_conditions": "FIXTURE TEXT: pays off only if compute sells above break-even incl. hardware",
+ "pays_off_above_chf_per_server_h": 0.5129
 }

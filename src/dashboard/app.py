@@ -15,7 +15,7 @@ from typing import Any
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from trust import KeyBroker, attest
 
@@ -27,6 +27,34 @@ JAN_HOURS = range(0, 31 * HOURS_PER_DAY)
 JUL_HOURS = range(181 * HOURS_PER_DAY, 212 * HOURS_PER_DAY)  # non-leap year: Jul 1 = day 182
 
 app = FastAPI(title="DigitalHeat dashboard")
+
+
+@app.exception_handler(Exception)
+async def _unhandled(_req, e: Exception):  # safety net (#55): a bad input must never surface as a bare 500
+    return JSONResponse({"detail": f"run data could not be read ({type(e).__name__})"}, status_code=422)
+
+
+def _incomplete(what: str, e: Exception | None = None) -> HTTPException:
+    """Corrupt, empty or half-written run output -> 422 with a clear message (red team F26-F29)."""
+    why = f" ({type(e).__name__})" if e is not None else ""
+    return HTTPException(422, f"run incomplete or corrupt: {what}{why}")
+
+
+def read_json_file(p: Path, what: str, want: type = dict) -> Any:
+    try:
+        v = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as e:
+        raise _incomplete(what, e) from e
+    if not isinstance(v, want):
+        raise _incomplete(f"{what} is a {type(v).__name__}, expected a {want.__name__}")
+    return v
+
+
+def read_csv_file(p: Path, what: str) -> pd.DataFrame:
+    try:
+        return pd.read_csv(p)
+    except (OSError, UnicodeDecodeError, ValueError, pd.errors.ParserError, pd.errors.EmptyDataError) as e:
+        raise _incomplete(what, e) from e
 
 
 def run_dir() -> Path:
@@ -47,7 +75,7 @@ def load_balance(d: Path) -> dict[str, Any]:
     p = d / "balance.json"
     if not p.exists():
         raise HTTPException(404, f"no balance.json in {d}")
-    return json.loads(p.read_text(encoding="utf-8"))
+    return read_json_file(p, "balance.json")
 
 
 def load_hourly(d: Path) -> pd.DataFrame:
@@ -57,15 +85,21 @@ def load_hourly(d: Path) -> pd.DataFrame:
             df = pd.read_parquet(pq)  # needs pyarrow or fastparquet
         except Exception as e:  # no engine (ImportError) or unreadable file (e.g. ArrowInvalid)
             if not csv.exists():
-                raise HTTPException(500, f"cannot read hourly.parquet ({type(e).__name__}) and no hourly.csv fallback") from e
-            df = pd.read_csv(csv)
+                raise _incomplete("hourly.parquet unreadable and no hourly.csv fallback", e) from e
+            df = read_csv_file(csv, "hourly.csv")
     elif csv.exists():
-        df = pd.read_csv(csv)
+        df = read_csv_file(csv, "hourly.csv")
     else:
         raise HTTPException(404, f"no hourly.parquet/hourly.csv in {d}")
+    missing = [c for c in ("demand", "dump") if c not in df.columns]
+    if missing:
+        raise _incomplete(f"hourly data lacks column(s) {missing}")
     if "hour" not in df.columns:
         df = df.reset_index(drop=True)
         df.insert(0, "hour", df.index)
+    for c in ("hour", "demand", "dump"):
+        if not pd.api.types.is_numeric_dtype(df[c]):
+            raise _incomplete(f"hourly column {c!r} is not numeric")
     return df
 
 
@@ -108,7 +142,7 @@ def sweep() -> list[dict[str, Any]]:
     p = run_dir() / "sweep.csv"
     if not p.exists():
         return []
-    return _records(pd.read_csv(p))
+    return _records(read_csv_file(p, "sweep.csv"))
 
 
 @app.get("/api/ab")
@@ -117,7 +151,7 @@ def ab() -> dict[str, Any]:
     b = load_balance(run_dir())
     rows = sweep()
     keep = ("policy", "servers_per_house", "share_covered", "heat_dumped_kwh", "break_even_chf_per_server_h",
-            "break_even_incl_hardware_chf_per_server_h", "missed_deadline_pct")
+            "break_even_incl_hardware_chf_per_server_h", "pays_off_above_chf_per_server_h", "missed_deadline_pct")
     out = []
     for pol in ("thermostat", "always_on", "merit"):
         cand = [r for r in rows if r.get("policy") == pol and r.get("servers_per_house") == b.get("servers_per_house")]
@@ -153,29 +187,32 @@ def trust_panel() -> dict[str, Any]:
 
 @app.get("/api/decision")
 def decision() -> dict[str, Any]:
-    """Decision card: N with the lowest break-even incl. hardware for the merit policy (rule stated in
-    the output), plus the run's pays_off verdict and its computed conditions."""
+    """Decision card: N with the lowest PAID price needed to pay off incl. hardware (pays_off_above, the #50
+    definition: filler and heat-led hours do not earn the paid price) among the merit rows, and that row's own
+    pays_off verdict, so the page can never say 'pays' where balance.json says it does not (red team F30)."""
     b = load_balance(run_dir())
     rows = [r for r in sweep() if r.get("policy") == "merit"]
+    key = "pays_off_above_chf_per_server_h"
 
-    def hw(r: dict[str, Any]) -> float:
-        v = r.get("break_even_incl_hardware_chf_per_server_h")
-        if isinstance(v, str):
-            try:
-                v = json.loads(v.replace("'", '"')).get("value")
-            except (ValueError, AttributeError):
-                v = None
-        if isinstance(v, dict):
-            v = v.get("value")
-        return float(v) if v is not None else float("inf")
+    def num(v: Any) -> float:
+        try:
+            x = float(v)
+        except (TypeError, ValueError):
+            return float("inf")
+        return x if math.isfinite(x) else float("inf")
 
-    best = min(rows, key=hw) if rows else None
+    have = [r for r in rows if num(r.get(key)) < float("inf")]
+    best = min(have, key=lambda r: num(r.get(key))) if have else None
+    rule = f"lowest {key} (paid price needed to pay off incl. hardware, #50) among merit rows of sweep.csv"
+    if rows and not have:
+        rule += f"; this sweep.csv predates #50 (no {key} column), so no N is ranked: re-run the sweep"
     return {
-        "rule": "lowest break_even_incl_hardware_chf_per_server_h among merit rows of sweep.csv",
+        "rule": rule,
         "chosen": None if best is None else {k: best.get(k) for k in ("servers_per_house", "share_covered",
-                                                                       "heat_dumped_kwh", "missed_deadline_pct")}
-        | {"break_even_incl_hardware_chf_per_server_h": hw(best)},
+                                                                       "heat_dumped_kwh", "missed_deadline_pct",
+                                                                       "pays_off")} | {key: num(best.get(key))},
         "pays_off": b.get("pays_off"),
+        "pays_off_above_chf_per_server_h": b.get(key),
         "pays_off_conditions": b.get("pays_off_conditions"),
     }
 
@@ -185,3 +222,109 @@ def nodes() -> dict[str, Any]:
     """Live nodes from #8 (GET /status). Stubbed behind DH_LIVE_NODES until #8 lands."""
     enabled = os.environ.get("DH_LIVE_NODES") == "1"
     return {"enabled": enabled, "nodes": [], "note": "stub until #8 live_agent exposes GET /status"}
+
+
+# ================================================================ v3 (claim/9-v3): real runs, like-for-like A/B,
+# sensitivity, decision card, per-number provenance. #31 outputs fall back to fixtures until it lands.
+def _runs_root(d: Path) -> Path:
+    """Where sibling runs live: the fixture's runs/ folder, else the run's parent (runs/)."""
+    return FIXTURE_DIR / "runs" if d.resolve() == FIXTURE_DIR.resolve() else d.parent
+
+
+def _git_commit() -> str | None:
+    """HEAD commit read from .git files (no subprocess). Works for plain checkouts and worktrees."""
+    git = ROOT / ".git"
+    try:
+        if git.is_file():  # worktree: "gitdir: <path>"
+            git = Path(git.read_text().split(":", 1)[1].strip())
+        head = (git / "HEAD").read_text().strip()
+        if not head.startswith("ref:"):
+            return head
+        ref = head.split(" ", 1)[1]
+        for base in (git, git.parent.parent if git.parent.name == "worktrees" else git):
+            p = base / ref
+            if p.exists():
+                return p.read_text().strip()
+        packed = (git.parent.parent if git.parent.name == "worktrees" else git) / "packed-refs"
+        for line in packed.read_text().splitlines() if packed.exists() else []:
+            if line.endswith(" " + ref):
+                return line.split(" ", 1)[0]
+    except OSError:
+        return None
+    return None
+
+
+@app.get("/api/provenance")
+def provenance() -> dict[str, Any]:
+    """Where every number on the page comes from: run folder, assumptions hash, code commit, input files."""
+    d = run_dir()
+    b = load_balance(d)
+    files = {p.name: p.stat().st_mtime for p in sorted(d.iterdir()) if p.is_file()} if d.exists() else {}
+    return {"run_id": d.name, "run_dir": str(d), "fixture": d.resolve() == FIXTURE_DIR.resolve(),
+            "assumptions_hash": b.get("assumptions_hash"), "load_basis": b.get("load_basis"),
+            "code_commit": _git_commit(), "files": sorted(files), "producer": "python -m simulate_year (src/simulate_year)"}
+
+
+@app.get("/api/ab_like_for_like")
+def ab_like_for_like() -> dict[str, Any]:
+    """#25: thermostat vs merit/always_on selling the SAME paid work (load_basis == 'thermostat'), same N."""
+    d = run_dir()
+    n = load_balance(d).get("servers_per_house")
+    keep = ("policy", "servers_per_house", "slack_h", "load", "load_basis", "share_covered", "heat_dumped_kwh",
+            "backup_heat_kwh", "utilisation", "break_even_chf_per_server_h", "missed_deadline_pct", "compute_income_chf")
+    rows, root = [], _runs_root(d)
+    skipped: list[str] = []
+    for p in sorted(root.glob("*/balance.json")) if root.exists() else []:
+        try:
+            b = read_json_file(p, f"{p.parent.name}/balance.json")
+        except HTTPException:
+            skipped.append(p.parent.name)  # half-written or corrupt sibling run: listed, not fatal (F27)
+            continue
+        if b.get("servers_per_house") != n:
+            continue
+        if b.get("policy") == "thermostat" or b.get("load_basis") == "thermostat":
+            rows.append({k: b.get(k) for k in keep} | {"run_id": p.parent.name})
+    order = {"thermostat": 0, "always_on": 1, "merit": 2}
+    rows.sort(key=lambda r: (order.get(r["policy"], 9), r["run_id"]))
+    note = None if any(r["policy"] != "thermostat" for r in rows) else \
+        "no like-for-like run yet: python -m simulate_year --servers N --policy merit --slack-h 24 --load thermostat"
+    return {"servers_per_house": n, "rows": rows, "note": note, "skipped": skipped}
+
+
+def _run_or_fixture(name: str) -> tuple[Path | None, bool]:
+    d = run_dir()
+    p = d / name
+    if p.exists():
+        return p, d.resolve() == FIXTURE_DIR.resolve()
+    f = FIXTURE_DIR / name
+    return (f, True) if f.exists() else (None, True)
+
+
+@app.get("/api/sensitivity")
+def sensitivity() -> dict[str, Any]:
+    """#31 tornado: one row per parameter with the metric at its low and high setting. Sorted by swing.
+    Column names are read as given; expected: parameter, low, high, metric_low, metric_high, metric_base, metric."""
+    p, fixture = _run_or_fixture("sensitivity.csv")
+    if p is None:
+        return {"fixture": True, "rows": [], "note": "no sensitivity.csv yet (#31)"}
+    df = read_csv_file(p, "sensitivity.csv")
+    skipped = 0
+    if {"metric_low", "metric_high"} <= set(df.columns):
+        for c in ("metric_low", "metric_high"):
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+        bad = df["metric_low"].isna() | df["metric_high"].isna()
+        skipped = int(bad.sum())  # non-numeric rows are dropped and counted, not fatal (F29)
+        df = df[~bad]
+        df = df.assign(swing=(df["metric_high"] - df["metric_low"]).abs()).sort_values("swing", ascending=False)
+    return {"fixture": fixture, "source": str(p.relative_to(ROOT)) if p.is_relative_to(ROOT) else str(p),
+            "rows": _records(df), "skipped_rows": skipped}
+
+
+@app.get("/api/decision_card")
+def decision_card() -> dict[str, Any]:
+    """#31 decision_card.json, shown key by key (whatever keys it carries), with its source file."""
+    p, fixture = _run_or_fixture("decision_card.json")
+    if p is None:
+        return {"fixture": True, "card": {}, "note": "no decision_card.json yet (#31)"}
+    return {"fixture": fixture, "source": str(p.relative_to(ROOT)) if p.is_relative_to(ROOT) else str(p),
+            "card": read_json_file(p, "decision_card.json")}

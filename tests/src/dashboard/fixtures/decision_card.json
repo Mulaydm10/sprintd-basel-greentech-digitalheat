@@ -1,0 +1,10 @@
+{
+ "recommended_n": 4,
+ "basis": "FIXTURE: coverage vs hardware break-even",
+ "pays_off_above_chf_per_server_h": 0.446,
+ "does_not_pay_off_when": [
+  "FIXTURE: compute sells below break-even incl. hardware",
+  "FIXTURE: capex 15k over 3 years"
+ ],
+ "first_pilot_measurement": "FIXTURE: buyer patience (slack hours customers accept)"
+}

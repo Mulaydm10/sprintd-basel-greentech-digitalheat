@@ -10,3 +10,6 @@ src/trust: python3 -m pytest tests/src/trust -q
 review: python3 -m pytest tests/review -q
 tests/redteam: python3 -m pytest tests/redteam -q
 research/realtime: test -s research/realtime/REPORT.md
+src/common: python3 -m pytest tests/src/common -q
+tools/pitch: python3 -m pytest tests/tools -q
+src/coordinator: python3 -m pytest tests/src/coordinator -q

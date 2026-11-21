@@ -34,3 +34,10 @@ Leases, WebSocket, real processes (→ #8), yearly balance (→ #7). `Migrate` i
 
 ## v2.1 — input validation (red team #20, fix in #21)
 `decide()` raises `scheduler.types.InvalidInput` for: non-finite or negative numbers, duplicate unit_ids, heat_recovery ∉ [0,1], server_kw_el ≤ 0, band_low > band_high, tank level outside [0, cap]. Performance: 100k units × 50 sites < 50 ms/tick.
+
+## v2.2 — admission check (from research #29, fit-reviewed)
+`scheduler.admit.admit(job_units: list[Unit], sites: list[SiteState], hour: int, capacity_forecast_kwh_el: dict[site_id, list[float]], params) -> Admission(accepted: bool, reason: str, earliest_finish_hour: int|None)`.
+Pure; separate from decide(). Accepts only if eligible sites' *conservative* capacity (persistence forecast: repeat the last 24 h of heat-used capacity, never optimistic) can finish the job by its deadline with ≥ deadline_safety_h margin. Otherwise reject at submit with a reason. Not a cost optimiser (Run B S1-SMART stands). simulate_year counts admitted vs rejected units; rejected units are not "missed".
+
+## v2.3 — wake on space demand (from #42 measurements)
+Rule 5 amended: an idle site also switches to running when `demand_kw > 0` (space heat wanted) and `tank_level_kwh < band_high_kwh`, not only at `band_low`. Still ≤ 1 transition per site per hour. Measured on the like-for-like year (N=4, merit+ballast): coverage 57.35% → 57.88%, transitions/day unchanged 0.071.

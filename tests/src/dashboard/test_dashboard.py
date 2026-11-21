@@ -192,3 +192,82 @@ def test_decision_with_pre_50_sweep_ranks_nothing_and_says_why(broken_run):
                  ).to_csv(broken_run / "sweep.csv", index=False)
     d = TestClient(_dash.app).get("/api/decision").json()
     assert d["chosen"] is None and "predates #50" in d["rule"]
+
+
+# ------------------------------------------------------------------ #78 live nodes from the coordinator
+import httpx as _httpx
+
+FAKE_STATUS = {
+    "version": "coordinator-v1",
+    "nodes": [{"node_id": "node-mac", "site_id": "node-mac", "suspect": False, "degraded": False, "tampered": False,
+               "running_unit": "job-1-u000", "progress": 0.4, "watts": 9.2, "last_error": None, "region": "CH-BS"},
+              {"node_id": "node-demo-tamper", "site_id": "node-demo-tamper", "suspect": True, "degraded": True,
+               "tampered": True, "running_unit": None, "progress": None, "watts": None, "last_error": "key denied"}],
+    "leases": [{"lease_id": "l-1", "unit_id": "job-1-u000", "node_id": "node-mac", "expires_in_s": 12.5}],
+    "sites": [{"site_id": "node-mac", "demand_kw": 5.0, "tank_level_kwh": 5.0, "heat_used_kw": 0.8, "age_s": 0.4,
+               "degraded": False, "ts": 1.0}],
+    "queue": {"leased": 1, "done": 3},
+    "recent_audit": [{"idx": i, "type": "lease", "unit": "job-1-u000", "node": "node-mac"} for i in range(30, 15, -1)],
+    "audit_verifies": True,
+}
+OBS_TOKEN = "observer-token-" + "x" * 30
+
+
+@pytest.fixture
+def live(monkeypatch, tmp_path):
+    import dashboard.app as d
+    tok = tmp_path / "obs"
+    tok.write_text(OBS_TOKEN)
+    monkeypatch.setenv("DH_LIVE_NODES", "1")
+    monkeypatch.setenv("DH_COORDINATOR_URL", "http://coord.test:8710")
+    monkeypatch.setenv("DH_OBSERVER_TOKEN_FILE", str(tok))
+    d._live_cache.update(at=-1e9, data=None)
+    seen = {}
+
+    def use(handler):
+        def wrapped(req):
+            seen["auth"] = req.headers.get("authorization")
+            seen["path"] = req.url.path
+            return handler(req)
+        monkeypatch.setattr(d, "_live_transport", _httpx.MockTransport(wrapped))
+        d._live_cache.update(at=-1e9, data=None)
+
+    return type("Live", (), {"use": staticmethod(use), "seen": seen, "tok": tok})
+
+
+def test_live_nodes_proxies_status_without_leaking_the_token(client, live):
+    live.use(lambda req: _httpx.Response(200, json=FAKE_STATUS))
+    r = client.get("/api/nodes")
+    n = r.json()
+    assert r.status_code == 200 and n["enabled"] and n["ok"]
+    assert live.seen == {"auth": f"Bearer {OBS_TOKEN}", "path": "/v1/status"}
+    assert OBS_TOKEN not in r.text  # the token stays server-side
+    assert [x["node_id"] for x in n["nodes"]] == ["node-mac", "node-demo-tamper"]
+    assert n["nodes"][1]["tampered"] and n["nodes"][0]["progress"] == 0.4 and "region" not in n["nodes"][0]
+    assert n["leases"][0]["expires_in_s"] == 12.5 and n["sites"][0]["heat_used_kw"] == 0.8
+    assert len(n["audit"]) == 10 and n["audit_verifies"] is True and n["queue"] == {"leased": 1, "done": 3}
+
+
+@pytest.mark.parametrize("handler,needle", [
+    (lambda req: (_ for _ in ()).throw(_httpx.ConnectError("refused")), "ConnectError"),
+    (lambda req: _httpx.Response(503, text="down"), "HTTP 503"),
+    (lambda req: _httpx.Response(200, content=b"not json"), "unreadable"),
+    (lambda req: _httpx.Response(200, json=[1, 2]), "unexpected status payload"),
+])
+def test_live_nodes_coordinator_down_is_a_banner_not_a_500(client, live, handler, needle):
+    live.use(handler)
+    r = client.get("/api/nodes")
+    assert r.status_code == 200 and r.json()["enabled"] and r.json()["ok"] is False
+    assert needle in r.json()["error"]
+
+
+def test_live_nodes_missing_token_file(client, live, monkeypatch):
+    monkeypatch.delenv("DH_OBSERVER_TOKEN_FILE")
+    live.use(lambda req: _httpx.Response(200, json=FAKE_STATUS))
+    n = client.get("/api/nodes").json()
+    assert n["ok"] is False and "DH_OBSERVER_TOKEN_FILE" in n["error"]
+
+
+def test_live_nodes_page_polls_every_2s(client):
+    html = client.get("/").text
+    assert "setInterval(drawNodes, 2000)" in html and "drawNodes" in html

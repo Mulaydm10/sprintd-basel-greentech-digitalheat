@@ -131,8 +131,30 @@ async function main(){
         }).join("")}</tbody></table>`
       : `<p class="sub">${esc(dc.note || "")}</p>`);
 
-  const n = await get("api/nodes");
-  $("nodes").innerHTML = `<p class="sub">${n.enabled ? "" : "Disabled. "}${esc(n.note)}</p>`;
+  await drawNodes();
+  setInterval(drawNodes, 2000);  // live view (#78): poll every 2 s
+}
+
+async function drawNodes(){
+  let n;
+  try { n = await get("api/nodes"); } catch (e) { $("nodes").innerHTML = `<p class="banner">dashboard API unreachable</p>`; return; }
+  if (!n.enabled) { $("nodes").innerHTML = `<p class="sub">${esc(n.note)}</p>`; return; }
+  if (!n.ok) { $("nodes").innerHTML = `<p class="banner">LIVE: ${esc(n.error)} (retrying every 2 s)</p>`; return; }
+  const state = x => x.tampered ? `<span class="pill no">tampered</span>` : x.suspect ? `<span class="pill mock">suspect</span>` : `<span class="pill yes">ok</span>`;
+  const pct = v => v == null ? "–" : Math.round(v * 100) + "%";
+  const num = (v, d=2) => v == null ? "–" : Number(v).toFixed(d);
+  const src = `title="coordinator /v1/status (${esc(n.coordinator)})"`;
+  $("nodes").innerHTML =
+    `<p class="sub" ${src}>live from ${esc(n.coordinator)} · queue ${esc(JSON.stringify(n.queue))} · audit chain ${n.audit_verifies ? "verifies" : "<b>DOES NOT verify</b>"}</p>`
+    + `<table><thead><tr><th>node</th><th>state</th><th>site</th><th>running unit</th><th class="n">progress</th><th>degraded</th><th>last error</th></tr></thead><tbody>`
+    + n.nodes.map(x => `<tr><td class="mono">${esc(x.node_id)}</td><td>${state(x)}</td><td class="mono">${esc(x.site_id)}</td><td class="mono">${esc(x.running_unit || "–")}</td><td class="n">${pct(x.progress)}</td><td>${x.degraded ? "yes" : "no"}</td><td class="mono">${esc(x.last_error || "")}</td></tr>`).join("")
+    + `</tbody></table>`
+    + `<h3>Leases</h3>` + (n.leases.length ? `<table><thead><tr><th>lease</th><th>unit</th><th>node</th><th class="n">expires in</th></tr></thead><tbody>`
+      + n.leases.map(x => `<tr><td class="mono">${esc(x.lease_id)}</td><td class="mono">${esc(x.unit_id)}</td><td class="mono">${esc(x.node_id)}</td><td class="n">${num(x.expires_in_s, 1)} s</td></tr>`).join("") + `</tbody></table>` : `<p class="sub">no active leases</p>`)
+    + `<h3>Sites (heat signal)</h3><table><thead><tr><th>site</th><th class="n">demand kW</th><th class="n">tank kWh</th><th class="n">heat used kW</th><th class="n">signal age</th><th>degraded</th></tr></thead><tbody>`
+    + n.sites.map(x => `<tr><td class="mono">${esc(x.site_id)}</td><td class="n">${num(x.demand_kw)}</td><td class="n">${num(x.tank_level_kwh)}</td><td class="n">${num(x.heat_used_kw)}</td><td class="n">${num(x.age_s, 1)} s</td><td>${x.degraded ? "yes" : "no"}</td></tr>`).join("")
+    + `</tbody></table>`
+    + `<h3>Latest audit</h3><table><tbody>` + n.audit.map(e => `<tr><td class="n">${esc(e.idx)}</td><td>${esc(e.type)}</td><td class="mono">${esc(Object.entries(e).filter(([k]) => k !== "type" && k !== "idx").map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : v}`).join(", "))}</td></tr>`).join("") + `</tbody></table>`;
 }
 
 function drawTornado(se){

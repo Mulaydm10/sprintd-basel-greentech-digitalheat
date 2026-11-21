@@ -88,11 +88,11 @@ class SignalIn(Strict):
 
 
 def create_app(state_dir: Path, tokens: dict[str, str] | None = None, clock=time.time,
-               assumptions: dict | None = None) -> FastAPI:
+               assumptions: dict | None = None, monotonic=time.monotonic) -> FastAPI:
     state_dir = Path(state_dir)
     tokens = tokens if tokens is not None else load_tokens(state_dir / "tokens.json")
     coord = Coordinator(state_dir, clock, assumptions)
-    limiter = RateLimiter(RATE, BURST)  # real monotonic clock, never the injected one (v1.1)
+    limiter = RateLimiter(RATE, BURST, clock=monotonic)  # monotonic source, never the injected app clock (v1.1)
     app = FastAPI(title="DigitalHeat coordinator", version=VERSION, docs_url=None, redoc_url=None,
                   openapi_url=None)
     app.state.coord = coord

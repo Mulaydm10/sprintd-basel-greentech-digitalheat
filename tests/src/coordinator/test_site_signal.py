@@ -88,12 +88,15 @@ def test_warm_site_signal_makes_renew_hold(senv):
 
 
 # ------------------------------------------------------------------ rate limiter (red team: app.py:86)
-def test_rate_limiter_ignores_frozen_injected_clock(senv):
-    import time
-    c = senv.c  # senv.clock is frozen: it never advances
+def test_rate_limiter_ignores_frozen_injected_clock(tmp_path):
+    from coordinator.app import create_app
+    app_clock, mono = Clock(), [0.0]  # both frozen: the bucket can only refill when `mono` advances
+    c = TestClient(create_app(tmp_path, tokens=ROLES_S, clock=app_clock, monotonic=lambda: mono[0]))
     codes = [c.get("/v1/status", headers=H("observer")).status_code for _ in range(45)]
-    assert 429 in codes
-    time.sleep(0.2)  # real time refills ~4 tokens at 20/s
+    assert codes[:40] == [200] * 40 and set(codes[40:]) == {429}
+    app_clock.t += 3600  # app clock jumping does not refill the limiter
+    assert c.get("/v1/status", headers=H("observer")).status_code == 429
+    mono[0] += 0.2  # monotonic source refills ~4 tokens at 20/s
     assert c.get("/v1/status", headers=H("observer")).status_code == 200
 
 

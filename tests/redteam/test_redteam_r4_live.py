@@ -31,6 +31,9 @@ T0 = 1_764_000_000.0  # 2025-11-24, a winter hour (same anchor as test_coordinat
 TOK = {"admin": "A" * 40, "observer": "O" * 40, "node-a": "a" * 40, "node-b": "b" * 40}
 ROLES = {TOK["admin"]: "admin", TOK["observer"]: "observer",
          TOK["node-a"]: "node:node-a", TOK["node-b"]: "node:node-b"}
+# v1.2 operator registry: every test node registered, uncertified, all classes as ceiling
+REGISTRY = {n: {"certified": False, "max_classes": ["public", "swiss-only", "certified"], "region": "CH-BS"}
+            for n in TOK if n.startswith("node-")}
 
 
 class Clock:
@@ -50,7 +53,7 @@ def env(tmp_path):
     clock = Clock()
 
     def make():
-        app = create_app(tmp_path, tokens=ROLES, clock=clock)
+        app = create_app(tmp_path, tokens=ROLES, clock=clock, registry=REGISTRY)
         app.state.limiter.clock = clock  # test seam: drive the monotonic limiter with the injected clock
         return app
 
@@ -319,9 +322,10 @@ def test_oversize_body_rejected_before_parsing(env):
 
 # ================================================================== attestation / certified
 def test_mock_attestation_is_forgeable_by_design(env):
-    """DOCUMENTED, not a defect: the attestation layer is a MOCK (trust.py). Its demo signer is derivable
-    from a public string, so any evidence -- including certified=True -- can be signed and registers. This
-    pins that reality; a real-trust upgrade would turn this into a finding and this test would change."""
+    """A08 (fixed in coordinator v1.2): the MOCK attestation can still be forged (its demo signer is derivable
+    from a public string), but the forged evidence certified=True no longer makes a node certified. The operator
+    registry nodes.json decides: here node-a is registered uncertified, so the claim is audited
+    certified_claim_rejected and the certified class is dropped."""
     c = env.client()
     att = trust.attest("node-a", {"measurement": "digitalheat-node-image-v1",
                                   "region": "CH-BL", "certified": True})
@@ -331,7 +335,10 @@ def test_mock_attestation_is_forgeable_by_design(env):
             "node_id": "node-a", "evidence": {"measurement": "digitalheat-node-image-v1",
                                               "region": "CH-BL", "certified": True},
             "signature_b64": base64.b64encode(att.signature).decode(), "mock": True}})
-    assert r.status_code == 200  # mock accepts a well-formed forged attestation -- by design
+    assert r.status_code == 200
+    assert r.json()["certified"] is False and "certified" not in r.json()["eligible_classes"]
+    types = [e.event["type"] for e in c.app.state.coord.broker.audit.entries]
+    assert "certified_claim_rejected" in types
 
 
 def test_bad_signature_and_wrong_measurement_still_rejected(env):

@@ -7,3 +7,4 @@ src/simulate_year: python3 -m pytest tests/src/simulate_year -q
 src/live_agent: python3 -m pytest tests/src/live_agent -q
 src/dashboard: python3 -m pytest tests/src/dashboard -q
 src/trust: python3 -m pytest tests/src/trust -q
+review: python3 -m pytest tests/review -q

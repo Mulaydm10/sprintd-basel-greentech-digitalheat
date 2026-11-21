@@ -123,7 +123,9 @@ async function main(){
     + (keys.length
       ? `<table><tbody>${keys.map(k => {
           const v = dc.card[k];
-          const shown = Array.isArray(v) ? `<ul style="margin:0;padding-left:18px">${v.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : esc(fmt(v));
+          const item = x => (x !== null && typeof x === "object") ? JSON.stringify(x) : x;  // #31 nests objects
+          const shown = Array.isArray(v) ? `<ul style="margin:0;padding-left:18px">${v.map(x => `<li>${esc(item(x))}</li>`).join("")}</ul>`
+            : (v !== null && typeof v === "object") ? `<code class="mono">${esc(JSON.stringify(v))}</code>` : esc(fmt(v));
           return `<tr><th title="${esc(tip(dc.source || "decision_card.json", k))}" data-key="decision_card.json: ${esc(k)}">${esc(k.replaceAll("_", " "))}</th><td>${shown}</td></tr>`;
         }).join("")}</tbody></table>`
       : `<p class="sub">${esc(dc.note || "")}</p>`);

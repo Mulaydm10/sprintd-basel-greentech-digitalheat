@@ -71,3 +71,6 @@ git fetch origin && git worktree add ../wt-$N claim/$N && cd ../wt-$N
 
 When onboarding is done, tell me in 3 lines: handshake issue link, watcher status, which issue design gave you.
 ```
+
+## Session-limit rule (all workers)
+Approaching your usage/session limit? **Before** you hit it: push all work to `claim/<n>` (WIP commits are fine), comment `handoff: done / left / next step / how to verify` on your issue, and add the label `adoptable`. Design reassigns the task to a worker with headroom, who continues on the same branch.

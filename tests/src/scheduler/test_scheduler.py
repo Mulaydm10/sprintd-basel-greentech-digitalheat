@@ -190,7 +190,8 @@ def test_rule5_at_most_one_transition_per_hour_over_a_day():
 
 
 def test_rule5_idle_site_holds_non_urgent_work():
-    d = decide([site(running=False, tank=(LOW + HIGH) / 2, demand_kw=DESIGN_KW)], units(2), HOUR, merit())
+    # v2.3: with space demand an idle site wakes (see test_rule5_v23_*); without it, it stays idle and holds
+    d = decide([site(running=False, tank=(LOW + HIGH) / 2, demand_kw=0.0)], units(2), HOUR, merit())
     assert assigned(d) == {}
     assert set(holds(d).values()) == {R_IDLE}
 
@@ -270,3 +271,28 @@ def test_trace_explains_every_hold_and_assign():
     d = decide(sites, units(3, slack=24.0) + [unit("c1", access="certified")], HOUR, merit())
     for uid in list(assigned(d)) + list(holds(d)):
         assert any(uid in t for t in d.trace), uid
+
+
+
+# ------------------------------------------------------------------ contract v2.3: wake on space demand (#44)
+@pytest.mark.parametrize("demand,tank,expected", [
+    (DESIGN_KW, (LOW + HIGH) / 2, True),   # idle, space heat wanted, tank below band_high -> wake
+    (0.0, (LOW + HIGH) / 2, False),        # idle, no space demand, tank between bands -> stay idle
+    (DESIGN_KW, HIGH, False),              # idle, demand but tank at band_high -> stay idle
+    (DESIGN_KW, LOW, True),                # band_low still wakes
+])
+def test_rule5_v23_wake_on_space_demand(demand, tank, expected):
+    d = decide([site(running=False, demand_kw=demand, tank=tank)], [], HOUR, merit())
+    assert d.next_mode["A"] is expected
+
+
+def test_rule5_v23_still_one_transition_per_hour_and_no_flapping():
+    mode, tank, flips = True, (LOW + HIGH) / 2, []
+    for h in range(96):
+        demand = DESIGN_KW / 3 if (h // 6) % 2 == 0 else 0.0  # 6 h on / 6 h off
+        d = decide([site(demand_kw=demand, tank=tank, running=mode)], units(UNITS_PER_SERVER_H), h, merit())
+        r = routes(d)["A"]
+        flips.append(int(d.next_mode["A"] != mode))
+        mode = d.next_mode["A"]
+        tank = min(TANK, max(0.0, tank + r.tank_kwh - max(0.0, demand - r.space_kwh)))
+    assert max(flips) <= 1 and sum(flips) <= 96 // 6

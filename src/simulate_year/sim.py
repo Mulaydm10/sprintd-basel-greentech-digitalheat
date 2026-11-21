@@ -78,6 +78,7 @@ class _Acc:
     run_h: float = 0.0
     units_in: int = 0
     ballast_kwh: float = 0.0
+    ballast_dump_hours: int = 0
     rejected: int = 0
     units_done: int = 0
     missed: int = 0
@@ -130,7 +131,7 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
     params = Params.from_assumptions(a, policy=policy, slack_enabled=slack_h > 0)
     use_ballast = ballast and policy == "merit"
     b_bid, b_access = ballast_bid(a, check=use_ballast)
-    units_per_server_h = int(round(1.0 / unit_h))
+    units_per_server_h = math.ceil(1.0 / unit_h - 1e-9)  # never under-offer filler (unit_minutes not dividing 60)
     far = 10 ** 9  # filler deadline: never forced, never missed
 
     space = profile["space_heat_kw"].to_numpy(float)
@@ -171,9 +172,11 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
         history.append(used_capacity_kwh_el(site))
         # 3. decide + apply
         offer = queue
+        filler_ids: set[str] = set()
         if use_ballast and servers > 0:
-            filler = [Unit(f"b{h}_{i}", f"ballast{h}_{i}", "ballast", b_access, unit_kwh, b_bid, far, float(far), True)
-                      for i in range(servers * units_per_server_h)]
+            filler = [Unit(f"ballast-{h}-{i}", f"ballast-{h}-{i}", "ballast", b_access, unit_kwh, b_bid, far, float(far),
+                           True) for i in range(servers * units_per_server_h)]
+            filler_ids = {u.unit_id for u in filler}
             offer = queue + filler
             site = SiteState(site.site_id, site.hour_index, site.demand_kw, site.tank_level_kwh, site.tank_cap_kwh,
                              site.servers, site.server_kw_el, site.heat_recovery, site.p_el_chf_kwh,
@@ -186,10 +189,10 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
         if on is None or r is None:
             raise DecisionError(f"hour {h}: decide() returned no {'SetPower' if on is None else 'Route'} for the site")
         done = {x.unit_id for x in dec.actions if isinstance(x, Assign)}
-        n_ballast = sum(1 for uid in done if uid[0] == "b")
+        n_ballast = len(done & filler_ids) if filler_ids else 0
         if n_ballast:
             t.ballast_kwh += n_ballast * unit_kwh
-            done = {uid for uid in done if uid[0] != "b"}
+            done -= filler_ids
         if dec.next_mode["house"] != mode:
             t.transitions += 1
         mode = dec.next_mode["house"]
@@ -214,6 +217,8 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
 
         t.used += r.space_kwh + r.dhw_kwh + r.tank_kwh
         t.dump += r.dump_kwh
+        if n_ballast and r.dump_kwh > TOL:
+            t.ballast_dump_hours += 1  # must stay 0: filler bid < MC_dump (golden check, #37 review)
         t.backup += backup
         t.run_h += on
         t.units_done += len(done)
@@ -231,8 +236,13 @@ def _simulate(profile: pd.DataFrame, a: dict, servers: int, policy: str, slack_h
     bal["ballast"] = use_ballast
     bal["paid_run_h"] = _r(paid_run_h, 3)
     # thermostat/always_on run servers without paid work: that is implicit ballast
-    bal["ballast_run_h"] = _r(max(0.0, t.run_h - paid_run_h), 3)
-    bal["ballast_income_chf"] = _r(max(0.0, t.run_h - paid_run_h) * b_bid, 3) if b_bid is not None else None
+    # merit+ballast: measured filler hours. thermostat/always_on: implicit ballast = run - paid (they run servers
+    # for heat without paid work); they never SELL it, so ballast_income_chf is None for them.
+    bal["ballast_run_h"] = _r(t.ballast_kwh / kw if use_ballast else max(0.0, t.run_h - paid_run_h), 3)
+    bal["ballast_income_chf"] = _r(t.ballast_kwh / kw * b_bid, 3) if use_ballast else None
+    bal["ballast_hours_with_dump"] = t.ballast_dump_hours
+    # Note: compute_income_chf / pays_off cover PAID work only; electricity_cost and break_even include every
+    # server-hour run (paid + ballast). Total income with filler = compute_income_chf + ballast_income_chf.
     bal["admission"] = admission
     df = None
     if hourly:

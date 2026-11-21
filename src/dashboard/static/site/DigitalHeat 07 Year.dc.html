@@ -85,7 +85,7 @@ input[type=range]{accent-color:#c93c05}
       </div>
       <div style="position:absolute;bottom:12px;left:18px;right:18px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;pointer-events:none;font-family:'Geist Mono',monospace;font-size:10.5px;color:#a8a298;line-height:1.5">
         <span><span style="color:#ff8c1f">●</span> server heat into the house · <span style="color:#3d7fd6">●</span> demand left to the backup heater · <span style="color:#ff3355">●</span> heat dumped (sparks) · dark = servers held · <span style="color:#ffb36b">|</span> coordinator, trails to running houses · the brightest house is the reference house (real simulation); the other {{ fleetN }} are an illustrative fleet scaled from it</span>
-        <span>{{ mapNote }} · Map data © OpenStreetMap contributors, ODbL</span>
+        <span>{{ mapNote }} · districts: Basel Wohnviertel · node-mac / node-omen2 placed for illustration, LIVE when the coordinator answers, else REPLAY · Map data © OpenStreetMap contributors, ODbL</span>
       </div>
     </div>
 
@@ -193,6 +193,11 @@ class Component extends DCLogic {
       return;
     }
     if (!this.vm) return;
+    if (this.state.view === "map" && performance.now() - (this.liveAt || -1e9) > 2000) {  // #112: live node overlay
+      this.liveAt = performance.now();
+      fetch(this.base() + "/api/nodes").then((r) => (r.ok ? r.json() : null)).catch(() => null)
+        .then((d) => { if (this.vm) this.vm.setLive(d && d.enabled && d.ok ? d : null); });
+    }
     if (this.vmRun !== this.state.run) { this.vmRun = this.state.run; this.vm.setRun(this.state.run); }
     this.vm.setPolicy(this.state.pol);
     this.vm.setHour(hf);

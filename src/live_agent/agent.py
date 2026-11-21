@@ -111,7 +111,7 @@ class Agent:
     def backoff(self) -> float:
         """Sleep exponentially longer after each consecutive failure, with full jitter, capped at 10 s."""
         self._failures += 1
-        d = min(BACKOFF_CAP_S, 0.5 * 2 ** (self._failures - 1)) * (0.5 + self.rng.random() / 2)
+        d = min(BACKOFF_CAP_S, 0.5 * 2 ** min(self._failures - 1, 16)) * (0.5 + self.rng.random() / 2)
         self.sleep(d)
         return d
 
@@ -286,7 +286,7 @@ class Agent:
                     lease_deadline = now + expires
                     next_renew = now + renew_s
                 elif verdict == "hold":
-                    return self._pause(proc, lease_id, key, ckpt, out, stop_file, uploaded_chunk)
+                    return self._pause(proc, lease_id, key, ckpt, out, stop_file, uploaded_chunk, expires)
                 else:  # transient: retry soon, but never past the lease expiry
                     next_renew = now + min(renew_s, 1.0)
             if now >= lease_deadline:
@@ -320,8 +320,8 @@ class Agent:
         if r.status_code != 200:
             return "retry", 0.0
         d = r.json()
-        if d.get("hold") or d.get("stop"):
-            return "hold", 0.0
+        if d.get("hold") or d.get("stop"):  # {hold, final_checkpoint_within_s}: window for the one final upload
+            return "hold", float(d.get("final_checkpoint_within_s") or self.cfg.stop_grace_s + 1.0)
         return "ok", float(d.get("expires_in_s", 15))
 
     def _upload(self, lease_id: str, key, ckpt: Path, out: Path) -> str:
@@ -363,9 +363,12 @@ class Agent:
         return "completed" if r.status_code == 200 else f"complete-http-{r.status_code}"
 
     # ------------------------------------------------------------------ stop paths
-    def _pause(self, proc, lease_id, key, ckpt, out, stop_file, uploaded_chunk) -> str:
+    def _pause(self, proc, lease_id, key, ckpt, out, stop_file, uploaded_chunk, final_within_s=None) -> str:
         stop_file.touch()
-        t_end = self.clock() + self.cfg.stop_grace_s
+        grace = self.cfg.stop_grace_s
+        if final_within_s is not None:  # leave ~1 s of the coordinator's window for the final upload itself
+            grace = max(0.0, min(grace, final_within_s - 1.0))
+        t_end = self.clock() + grace
         while proc.poll() is None and self.clock() < t_end:
             self.sleep(self.cfg.poll_s)
         if proc.poll() is None:

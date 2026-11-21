@@ -15,6 +15,7 @@ import { UnrealBloomPass } from "./vendor/three/addons/postprocessing/UnrealBloo
 import { ShaderPass } from "./vendor/three/addons/postprocessing/ShaderPass.js";
 import { OutputPass } from "./vendor/three/addons/postprocessing/OutputPass.js";
 
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const HOURS = 8760, MAXH = 64, PARTS = 14000, SPARKS = 2500, RACK_MAX = 8;
 const C = { ink: 0x0e0d0c, cream: 0xf2efe9, orange: 0xc93c05, heat: 0xff8c1f, cold: 0x1d6bb3, dump: 0xd1173a };
 
@@ -35,7 +36,7 @@ function sunDir(hour) { // Basel 47.56 N; hour of 2025 (local) -> unit vector to
 
 function buildCity(map, simIdx) {
   // merged walls + roofs; simulated houses go into their own geometry with a per-vertex house index
-  const q = map.q, city = { p: [], n: [], c: [] }, sim = { p: [], n: [], hid: [] }, base = new THREE.Color();
+  const q = map.q, city = { p: [], n: [], c: [], bid: [] }, sim = { p: [], n: [], hid: [], bid: [] }, base = new THREE.Color();
   const centroids = [];
   map.buildings.forEach((b, i) => {
     const h = b[0] / 10, kind = b[1], pts = ringPts(b, 2, q);
@@ -43,7 +44,7 @@ function buildCity(map, simIdx) {
     let cx = 0, cy = 0; for (const p of pts) { cx += p[0]; cy += p[1]; } centroids[i] = [cx / pts.length, cy / pts.length, h];
     const shade = kind ? 0.16 : 0.13; base.setRGB(shade * 1.05, shade, shade * 0.95);
     const push = (x, y, z, nx, ny, nz) => {
-      tgt.p.push(x, y, z); tgt.n.push(nx, ny, nz);
+      tgt.p.push(x, y, z); tgt.n.push(nx, ny, nz); tgt.bid.push(i);
       if (tgt === city) tgt.c.push(base.r * (0.75 + 0.25 * y / Math.max(h, 1)), base.g * (0.75 + 0.25 * y / Math.max(h, 1)), base.b * (0.8 + 0.2 * y / Math.max(h, 1)));
       else tgt.hid.push(hid, y / Math.max(h, 1));
     };
@@ -61,8 +62,8 @@ function buildCity(map, simIdx) {
     g.setAttribute("position", new THREE.Float32BufferAttribute(o.p, 3)); g.setAttribute("normal", new THREE.Float32BufferAttribute(o.n, 3));
     if (extra) extra(g); return g; };
   return {
-    city: mk(city, (g) => g.setAttribute("color", new THREE.Float32BufferAttribute(city.c, 3))),
-    sim: mk(sim, (g) => g.setAttribute("aHouse", new THREE.Float32BufferAttribute(sim.hid, 2))),
+    city: mk(city, (g) => { g.setAttribute("color", new THREE.Float32BufferAttribute(city.c, 3)); g.setAttribute("aBid", new THREE.Float32BufferAttribute(city.bid, 1)); }),
+    sim: mk(sim, (g) => { g.setAttribute("aHouse", new THREE.Float32BufferAttribute(sim.hid, 2)); g.setAttribute("aBid", new THREE.Float32BufferAttribute(sim.bid, 1)); }),
     centroids,
   };
 }
@@ -100,7 +101,8 @@ export async function create(host, opts = {}) {
   const camera = new THREE.PerspectiveCamera(38, 1, 5, 20000);
   camera.position.set(-1900, 1500, 1700);
   const controls = new OrbitControls(camera, cv);
-  controls.enableDamping = true; controls.dampingFactor = 0.07; controls.maxPolarAngle = 1.42; controls.minDistance = 120; controls.maxDistance = 6000;
+  controls.enableDamping = true; controls.dampingFactor = 0.07; controls.maxPolarAngle = 1.42; controls.minDistance = 60; controls.maxDistance = 5200;
+  controls.screenSpacePanning = false;  // right-drag / two-finger drag pans along the ground (#115)
   controls.target.set(0, 0, 0); controls.autoRotate = true; controls.autoRotateSpeed = 0.25;
   cv.addEventListener("pointerdown", () => { controls.autoRotate = false; });
 
@@ -139,16 +141,21 @@ export async function create(host, opts = {}) {
   const geo = buildCity(map, simIdx);
   const cityMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0.0 });
   const snowU = { value: 0 };
-  cityMat.onBeforeCompile = (s) => { s.uniforms.uSnow = snowU;
-    s.fragmentShader = s.fragmentShader.replace("#include <common>", "#include <common>\nuniform float uSnow;")
+  const selU = { value: -1 };
+  cityMat.onBeforeCompile = (s) => { s.uniforms.uSnow = snowU; s.uniforms.uSel = selU;
+    s.vertexShader = s.vertexShader.replace("#include <common>", "#include <common>\nattribute float aBid; uniform float uSel; varying float vSelHit;")
+      .replace("#include <begin_vertex>", "#include <begin_vertex>\n vSelHit = abs(aBid - uSel) < 0.5 ? 1.0 : 0.0;");
+    s.fragmentShader = s.fragmentShader.replace("#include <common>", "#include <common>\nuniform float uSnow; varying float vSelHit;")
+      .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\n totalEmissiveRadiance += vec3(0.9, 0.55, 0.25) * vSelHit * 0.7;")
       .replace("#include <color_fragment>", "#include <color_fragment>\n if (vNormal.y > 0.5) diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.78, 0.8, 0.84), uSnow * 0.8);"); };
   cityMat.emissive = new THREE.Color(0x2a1c10); cityMat.emissiveIntensity = 0.55;
   scene.add(new THREE.Mesh(geo.city, cityMat));
-  const simU = { uState: { value: houseTex }, uTime: { value: 0 }, uSun: { value: new THREE.Vector3(0, 1, 0) }, uSunI: { value: 1 } };
+  const simU = { uState: { value: houseTex }, uTime: { value: 0 }, uSun: { value: new THREE.Vector3(0, 1, 0) }, uSunI: { value: 1 }, uSel: selU };
   const simMesh = new THREE.Mesh(geo.sim, new THREE.ShaderMaterial({
     uniforms: simU,
-    vertexShader: `attribute vec2 aHouse; varying vec2 vH; varying vec3 vN; void main(){ vH = aHouse; vN = normal; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-    fragmentShader: `uniform sampler2D uState; uniform float uTime, uSunI; uniform vec3 uSun; varying vec2 vH; varying vec3 vN;
+    vertexShader: `attribute vec2 aHouse; attribute float aBid; uniform float uSel; varying vec2 vH; varying vec3 vN; varying float vSelHit;
+      void main(){ vH = aHouse; vN = normal; vSelHit = abs(aBid - uSel) < 0.5 ? 1.0 : 0.0; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform sampler2D uState; uniform float uTime, uSunI; uniform vec3 uSun; varying vec2 vH; varying vec3 vN; varying float vSelHit;
       void main(){
         vec4 st = texture2D(uState, vec2((vH.x + 0.5) / ${MAXH}.0, 0.5));
         float lit = 0.25 + 0.75 * max(0.0, dot(normalize(vN), normalize(uSun))) * uSunI;
@@ -157,7 +164,7 @@ export async function create(host, opts = {}) {
         vec3 glow = vec3(1.0, 0.36, 0.04) * min(st.r, 1.0) * (0.55 + 0.35 * win) + vec3(0.12, 0.38, 1.0) * min(st.g, 1.0) * 0.6 + vec3(1.0, 0.06, 0.18) * min(st.b, 1.0) * 0.9;
         glow *= (1.0 - 0.85 * st.a);
         float ref = vH.x < 0.5 ? 0.35 + 0.25 * sin(uTime * 2.0) : 0.0;  // the reference house breathes
-        gl_FragColor = vec4(base + glow + vec3(1.0, 0.8, 0.5) * ref * 0.25, 1.0);
+        gl_FragColor = vec4(base + glow + vec3(1.0, 0.8, 0.5) * ref * 0.25 + vec3(0.55, 0.42, 0.28) * vSelHit * (0.25 + 0.15 * sin(uTime * 4.0)), 1.0);
       }`,
   }));
   scene.add(simMesh);
@@ -281,13 +288,13 @@ export async function create(host, opts = {}) {
   }
   const STC = { running: 0xff8c1f, idle: 0x7fd18b, held: 0x8fa3bf, suspect: 0xf0a500, tampered: 0xd1173a, "–": 0x55524c };
   function updateLive() {
-    while (liveTrail.children.length) { const o = liveTrail.children.pop(); o.geometry.dispose(); }
+    while (liveTrail.children.length) { const o = liveTrail.children.pop(); o.geometry.dispose(); o.material.dispose(); }
     for (const L of live) {
       const st = liveState(L); L.st = st; const col = STC[st.state] ?? 0x7fd18b;
       L.beam.material.color.setHex(col); L.beam.material.opacity = 0.35 + 0.25 * Math.sin(performance.now() / 260);
       L.el.style.borderColor = "#" + col.toString(16).padStart(6, "0");
       L.el.innerHTML = `<span style="color:#${col.toString(16).padStart(6, "0")};font-weight:700">${L.id}</span> · ${st.mode === "LIVE" ? "<b style='color:#7fd18b'>LIVE</b>" : "<span style='color:#a8a298'>REPLAY</span>"} · ${st.state}`
-        + (st.unit ? `<br>${st.unit}${st.progress != null ? " · " + Math.round(st.progress * 100) + " %" : ""}` : "")
+        + (st.unit ? `<br>${esc(st.unit)}${st.progress != null ? " · " + Math.round(st.progress * 100) + " %" : ""}` : "")
         + (st.watts != null ? ` · ${Math.round(st.watts)} W` : "");
       if (st.lease) { const a = new THREE.Vector3(hub.x, 170, hub.z), c = new THREE.Vector3(L.x, L.h + 8, L.z);
         const m = a.clone().lerp(c, 0.5).setY(300 + 0.15 * a.distanceTo(c));
@@ -312,7 +319,7 @@ export async function create(host, opts = {}) {
   composer.addPass(grain); composer.addPass(new OutputPass());
 
   // state
-  const S = { run: null, pol: 0, polT: 0, hour: 0, dead: false, raf: 0, last: performance.now(), hover: -1, n: 0 };
+  const S = { sel: -1, run: null, pol: 0, polT: 0, hour: 0, dead: false, raf: 0, last: performance.now(), hover: -1, n: 0 };
   function sideVal(run, key, h, w) { const a = run.ours[key][h], b = run.baseline[key][h]; return a + (b - a) * w; }
   function update(dt) {
     const run = S.run; if (!run) return;
@@ -353,23 +360,143 @@ export async function create(host, opts = {}) {
     S.info = { h, temp, demand: dem, used, backup: back, dump, paused: !!paused, on, n: N, policy: w < 0.5 ? "ours" : "thermostat" };
   }
 
-  // hover card
-  const card = document.createElement("div");
-  card.style.cssText = "position:absolute;pointer-events:none;display:none;min-width:190px;padding:10px 12px;border-radius:12px;background:rgba(20,20,20,0.72);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(242,239,233,0.18);color:#f2efe9;font:12px/1.5 'Geist Mono',monospace;z-index:5";
-  host.appendChild(card);
-  const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
-  cv.addEventListener("pointermove", (e) => {
-    const r = cv.getBoundingClientRect(); mouse.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
-    ray.setFromCamera(mouse, camera); const hit = ray.intersectObject(simMesh, false)[0];
-    if (!hit || !S.info) { card.style.display = "none"; return; }
-    const hid = Math.round(geo.sim.getAttribute("aHouse").getX(hit.face.a)), hs = houses[hid], i = S.info, s = hs.scale;
-    card.style.display = "block"; card.style.left = (e.clientX - r.left + 14) + "px"; card.style.top = (e.clientY - r.top + 14) + "px";
-    card.innerHTML = `<div style="color:${hid ? "#c4bcae" : "#ff8c1f"};letter-spacing:.1em;text-transform:uppercase;font-size:10px">${hid ? "fleet house #" + hid + " · illustrative" : "reference house · simulated"}</div>`
-      + `<div>heat used <b>${(i.used * s).toFixed(2)} kWh</b></div><div>demand ${(i.demand * s).toFixed(2)} kWh</div>`
-      + `<div>backup heater ${(i.backup * s).toFixed(2)} kWh</div><div>dumped ${(i.dump * s).toFixed(2)} kWh</div>`
-      + `<div>servers ${Math.round(i.on)}/${i.n} ${i.paused ? "· paused" : ""}</div>`;
+  // ---- #115 clickable buildings: GPU id-buffer picking (rendered only on click / throttled hover), highlight, glass panel
+  const pickScene = new THREE.Scene(), pickRT = new THREE.WebGLRenderTarget(1, 1);
+  const pickMat = new THREE.ShaderMaterial({ vertexShader: `attribute float aBid; varying vec3 vId;
+      void main(){ float id = aBid + 1.0; vId = vec3(floor(id / 65536.0), floor(mod(id, 65536.0) / 256.0), mod(id, 256.0)) / 255.0;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `varying vec3 vId; void main(){ gl_FragColor = vec4(vId, 1.0); }` });
+  pickScene.add(new THREE.Mesh(geo.city, pickMat), new THREE.Mesh(geo.sim, pickMat));
+  const px = new Uint8Array(4);
+  function pick(cx, cy) {  // css px inside the canvas -> building index, or -1 for ground / sky
+    const w = cv.clientWidth, h = cv.clientHeight, dpr = renderer.getPixelRatio(), cc = new THREE.Color(), ca = renderer.getClearAlpha();
+    renderer.getClearColor(cc);
+    camera.setViewOffset(w * dpr, h * dpr, Math.round(cx * dpr), Math.round(cy * dpr), 1, 1);
+    renderer.setRenderTarget(pickRT); renderer.setClearColor(0x000000, 1); renderer.clear(); renderer.render(pickScene, camera);
+    renderer.readRenderTargetPixels(pickRT, 0, 0, 1, 1, px); renderer.setRenderTarget(null); camera.clearViewOffset();
+    renderer.setClearColor(cc, ca);
+    return px[0] * 65536 + px[1] * 256 + px[2] - 1;
+  }
+  const panel = document.createElement("div");
+  panel.setAttribute("data-dh-panel", "");
+  panel.style.cssText = "position:absolute;top:44px;right:156px;width:min(300px,42%);max-height:calc(100% - 260px);overflow:auto;display:none;padding:14px 16px;border-radius:16px;background:rgba(18,17,16,0.62);backdrop-filter:blur(14px) saturate(1.2);-webkit-backdrop-filter:blur(14px) saturate(1.2);border:1px solid rgba(242,239,233,0.2);box-shadow:0 20px 60px rgba(0,0,0,0.45);color:#f2efe9;font:12px/1.55 'Geist Mono',monospace;z-index:6";
+  host.appendChild(panel);
+  const liveByB = new Map(live.map((L) => [L.b, L]));
+  const row = (k, v, c) => `<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:#a8a298">${k}</span><span style="color:${c || "#f2efe9"};text-align:right">${v}</span></div>`;
+  function reason(sd, h, n) {  // the scheduler's outcome this hour, from the yearview run (same wording as the HUD)
+    const on = Math.round(sd.servers_on[h]), dump = sd.dumped_kwh[h], fill = sd.ballast_units ? sd.ballast_units[h] : 0;
+    if (sd.paused[h] && on === 0) return "HOLD · no heat wanted, no paid deadline due";
+    if (on === 0) return "IDLE · nothing worth running";
+    if (dump > 1e-3) return `RUN ${on}/${n} · paid deadline due, heat dumped`;
+    if (fill > 0) return `RUN ${on}/${n} · heat wanted, filler tops up`;
+    return `RUN ${on}/${n} · paid work, heat used`;
+  }
+  function panelHtml(b) {
+    const name = (map.names || {})[b], type = map.btypes ? map.btypes[map.bt[b]] : "building", hgt = map.buildings[b][0] / 10;
+    let t2 = null;
+    const head = (t, c) => `<div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:${c};margin-bottom:6px">${t}</div>`
+      + `<div style="font:600 15px/1.25 'Geist',system-ui,sans-serif;margin-bottom:8px">${esc(t2 || (name || type).replace(/_/g, " "))}</div>`;
+    const close = `<div style="margin-top:10px;color:#6e6a63;font-size:10.5px">click empty space or Esc to close</div>`;
+    const L = liveByB.get(b);
+    if (L) { const st = L.st || {}; t2 = `${L.id} (illustrative placement)`;
+      return head(`${L.id} · ${st.mode === "LIVE" ? "live node" : "live node · replay"}`, "#7fd18b") + row("state", st.state || "–", "#ff8c1f")
+        + row("running unit", esc(st.unit || "–")) + row("progress", st.progress != null ? Math.round(st.progress * 100) + " %" : "–")
+        + row("power", st.watts != null ? Math.round(st.watts) + " W" : "–") + row("lease", st.lease ? "held (trail from the hub)" : "none")
+        + `<div style="margin-top:8px;color:#a8a298">placed on this building for illustration; the state is the real machine's.</div>` + close; }
+    const k = simIdx.get(b), run = S.run, i = S.info;
+    if (k !== undefined && run && i) {
+      const hs = houses[k], sc = hs.scale, h = i.h, sd = i.policy === "ours" ? run.ours : run.baseline;
+      t2 = k === 0 ? "the reference house" : `fleet house #${k}`;
+      return head(k === 0 ? "reference house · simulated (graded)" : `fleet house #${k} · illustrative`, k === 0 ? "#ff8c1f" : "#c4bcae")
+        + row("heat delivered", (i.used * sc).toFixed(2) + " kWh", "#ff8c1f") + row("demand", (i.demand * sc).toFixed(2) + " kWh")
+        + row("backup heater", (i.backup * sc).toFixed(2) + " kWh", "#7fa6e0") + row("dumped", (i.dump * sc).toFixed(2) + " kWh", i.dump > 1e-3 ? "#ff3355" : null)
+        + row("tank", (sd.tank_kwh[h] * sc).toFixed(1) + " kWh") + row("servers", `${Math.round(i.on)}/${i.n}${i.paused ? " · held" : ""}`)
+        + row("net CHF so far", Math.round(sd.net_chf_cum[h] * sc).toLocaleString("en-CH") + " CHF")
+        + `<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(242,239,233,0.14)">${reason(sd, h, i.n)}</div>`
+        + (k ? `<div style="margin-top:6px;color:#a8a298">= the reference year × ${sc.toFixed(2)} (footprint, seeded variation)</div>` : "") + close;
+    }
+    return head("building · OpenStreetMap", "#a8a298") + row("type", esc(type.replace(/_/g, " "))) + row("height", hgt.toFixed(1) + " m")
+      + row("footprint", map.areas_m2[b] + " m²") + `<div style="margin-top:8px;color:#a8a298">no DigitalHeat server</div>` + close;
+  }
+  function select(b) {
+    selU.value = b; S.sel = b;
+    if (b < 0) { panel.style.display = "none"; return; }
+    panel.style.display = "block"; panel.innerHTML = panelHtml(b);
+    const c = geo.centroids[b], r = Math.max(70, Math.sqrt(map.areas_m2[b]) * 3 + c[2] * 2.2);
+    const dir = camera.position.clone().sub(controls.target).setY(0).normalize();
+    flyTo(new THREE.Vector3(c[0] + dir.x * r, c[2] + r * 0.8, -c[1] + dir.z * r), new THREE.Vector3(c[0], c[2] * 0.5, -c[1]));
+  }
+  let down = null;
+  cv.addEventListener("pointerdown", (e) => { down = [e.clientX, e.clientY]; });
+  cv.addEventListener("pointerup", (e) => {
+    if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) { down = null; return; }
+    down = null; const r = cv.getBoundingClientRect(); select(pick(e.clientX - r.left, e.clientY - r.top));
   });
-  cv.addEventListener("pointerleave", () => { card.style.display = "none"; });
+  cv.addEventListener("pointermove", (e) => { if (e.buttons || e.pointerType === "touch") return; const now = performance.now();
+    if ((S.hoverAt || 0) + 150 > now) return; S.hoverAt = now; const r = cv.getBoundingClientRect();
+    cv.style.cursor = pick(e.clientX - r.left, e.clientY - r.top) >= 0 ? "pointer" : "grab"; });
+  const onKey = (e) => {
+    if (e.key === "Escape") { select(-1); return; }
+    if (!S.inside || /input|textarea|select/i.test((e.target && e.target.tagName) || "")) return;
+    const k = e.key.toLowerCase(), step = Math.max(30, camera.position.distanceTo(controls.target) * 0.08);
+    const fwd = controls.target.clone().sub(camera.position).setY(0).normalize(), right = new THREE.Vector3(-fwd.z, 0, fwd.x);
+    const mv = { w: fwd, arrowup: fwd, s: fwd.clone().negate(), arrowdown: fwd.clone().negate(), d: right, arrowright: right,
+      a: right.clone().negate(), arrowleft: right.clone().negate() }[k];
+    if (mv) { e.preventDefault(); const d = mv.clone().multiplyScalar(step); camera.position.add(d); controls.target.add(d); controls.autoRotate = false; }
+    else if (k === "+" || k === "=") nav("in"); else if (k === "-" || k === "_") nav("out");
+    else if (k === "q") nav("left"); else if (k === "e") nav("right");
+  };
+  addEventListener("keydown", onKey);
+  host.addEventListener("pointerenter", () => { S.inside = true; }); host.addEventListener("pointerleave", () => { S.inside = false; });
+
+  // ---- #115 navigation: smooth fly-to, on-screen controls, mini-map with compass + view cone, bounded camera
+  function flyTo(pos, tgt, ms = 1100) { controls.autoRotate = false;
+    S.fly = { p0: camera.position.clone(), t0: controls.target.clone(), p1: pos, t1: tgt, start: performance.now(), ms }; }
+  function nav(cmd) {
+    if (cmd === "reset") { flyTo(new THREE.Vector3(-1900, 1500, 1700), new THREE.Vector3(0, 0, 0)); return; }
+    const off = camera.position.clone().sub(controls.target), sph = new THREE.Spherical().setFromVector3(off);
+    if (cmd === "in") sph.radius *= 0.7; else if (cmd === "out") sph.radius *= 1.4;
+    else if (cmd === "left") sph.theta += 0.45; else if (cmd === "right") sph.theta -= 0.45;
+    else if (cmd === "up") sph.phi = Math.max(0.15, sph.phi - 0.2); else if (cmd === "down") sph.phi = Math.min(controls.maxPolarAngle, sph.phi + 0.2);
+    sph.radius = Math.max(controls.minDistance, Math.min(controls.maxDistance, sph.radius));
+    flyTo(new THREE.Vector3().setFromSpherical(sph).add(controls.target), controls.target.clone(), 450);
+  }
+  const navEl = document.createElement("div");
+  navEl.setAttribute("data-dh-mapnav", "");
+  navEl.style.cssText = "position:absolute;right:18px;bottom:70px;display:grid;grid-template-columns:repeat(3,34px);gap:5px;z-index:6";
+  [["⟲", "left", "rotate left (Q)"], ["▲", "up", "tilt up"], ["⟳", "right", "rotate right (E)"], ["+", "in", "zoom in (+)"], ["⌂", "reset", "reset view"],
+    ["−", "out", "zoom out (−)"], ["", "", ""], ["▼", "down", "tilt down"], ["", "", ""]].forEach(([t, cmd, tip]) => {
+    const b = document.createElement(cmd ? "button" : "span"); b.textContent = t;
+    if (cmd) { b.title = tip; b.setAttribute("aria-label", tip); b.dataset.nav = cmd;
+      b.style.cssText = "width:34px;height:34px;border-radius:10px;border:1px solid rgba(242,239,233,0.25);background:rgba(14,13,12,0.6);color:#f2efe9;font:15px 'Geist Mono',monospace;cursor:pointer";
+      b.addEventListener("click", (e) => { e.stopPropagation(); nav(cmd); }); }
+    navEl.appendChild(b); });
+  host.appendChild(navEl);
+  const MM = 150, EXT = 2800, mm = document.createElement("canvas"); mm.width = mm.height = MM * 2;
+  mm.setAttribute("data-dh-minimap", ""); mm.title = "mini-map: click to fly there";
+  mm.style.cssText = `position:absolute;right:136px;bottom:70px;width:${MM}px;height:${MM}px;border-radius:12px;border:1px solid rgba(242,239,233,0.25);background:rgba(14,13,12,0.7);cursor:crosshair;z-index:6`;
+  host.appendChild(mm);
+  const mmBase = document.createElement("canvas"); mmBase.width = mmBase.height = MM * 2;
+  { const g = mmBase.getContext("2d"), sc = (MM * 2) / (EXT * 2), X = (x) => (x + EXT) * sc, Y = (y) => (EXT - y) * sc;
+    const poly = (r, fill) => { const pts = ringPts(r, 0, map.q); g.beginPath(); pts.forEach((p, k) => (k ? g.lineTo(X(p[0]), Y(p[1])) : g.moveTo(X(p[0]), Y(p[1])))); g.closePath(); fill ? g.fill() : g.stroke(); };
+    g.fillStyle = "#3d6a96"; for (const w of map.water) poly(w, true);
+    g.strokeStyle = "rgba(242,239,233,0.35)"; g.lineWidth = 1; for (const d of D) poly(d.ring, false);
+    g.fillStyle = "#ff8c1f"; for (const hs of houses) g.fillRect(X(hs.x) - 2, Y(-hs.z) - 2, 4, 4);
+    g.fillStyle = "#7fd18b"; for (const L of live) g.fillRect(X(L.x) - 3, Y(-L.z) - 3, 6, 6); }
+  function drawMini() {
+    const g = mm.getContext("2d"), sc = (MM * 2) / (EXT * 2), X = (x) => (x + EXT) * sc, Y = (z) => (EXT + z) * sc;
+    g.clearRect(0, 0, MM * 2, MM * 2); g.drawImage(mmBase, 0, 0);
+    const t = controls.target, cp = camera.position, ang = Math.atan2(t.z - cp.z, t.x - cp.x), L = cp.distanceTo(t) * 1.6;
+    g.fillStyle = "rgba(255,179,107,0.22)"; g.beginPath(); g.moveTo(X(cp.x), Y(cp.z));
+    g.lineTo(X(cp.x + Math.cos(ang - 0.35) * L), Y(cp.z + Math.sin(ang - 0.35) * L)); g.lineTo(X(cp.x + Math.cos(ang + 0.35) * L), Y(cp.z + Math.sin(ang + 0.35) * L)); g.fill();
+    g.fillStyle = "#f2efe9"; g.beginPath(); g.arc(X(t.x), Y(t.z), 4, 0, 7); g.fill();
+    g.font = "bold 20px 'Geist Mono', monospace"; g.fillText("N", MM * 2 - 26, 24);
+    g.beginPath(); g.moveTo(MM * 2 - 19, 30); g.lineTo(MM * 2 - 25, 46); g.lineTo(MM * 2 - 13, 46); g.fill();
+  }
+  mm.addEventListener("click", (e) => { const r = mm.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width * 2 * EXT - EXT, z = (e.clientY - r.top) / r.height * 2 * EXT - EXT;
+    const off = camera.position.clone().sub(controls.target), t1 = new THREE.Vector3(x, 0, z); flyTo(t1.clone().add(off), t1); });
+
 
   function resize() { const w = Math.max(1, host.clientWidth), h = Math.max(1, host.clientHeight);
     if (cv.width !== Math.round(w * renderer.getPixelRatio()) || cv.height !== Math.round(h * renderer.getPixelRatio())) {
@@ -378,7 +505,14 @@ export async function create(host, opts = {}) {
     if (S.dead) return; S.raf = requestAnimationFrame(frame);
     const dt = Math.min(0.05, (now - S.last) / 1000); S.last = now; resize();
     const t = now / 1000; for (const u of [groundU, simU, waterU, trailU, flowU, sparkU, hexU]) u.uTime.value = t; grain.uniforms.uTime.value = t;
-    update(dt); controls.update();
+    update(dt);
+    if (S.fly) { const f = S.fly, k = Math.min(1, (now - f.start) / f.ms), e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+      camera.position.lerpVectors(f.p0, f.p1, e); controls.target.lerpVectors(f.t0, f.t1, e); if (k >= 1) S.fly = null; }
+    controls.target.x = Math.max(-2600, Math.min(2600, controls.target.x)); controls.target.z = Math.max(-2600, Math.min(2600, controls.target.z));
+    controls.target.y = Math.max(0, Math.min(200, controls.target.y));
+    controls.update();
+    if (now - (S.mmAt || 0) > 100) { S.mmAt = now; drawMini(); }
+    if (S.sel >= 0 && now - (S.panelAt || 0) > 500) { S.panelAt = now; panel.innerHTML = panelHtml(S.sel); }
     if (now - (S.liveAt || 0) > 500) { S.liveAt = now; updateLive(); }
     for (const l of labels) place(l.el, l.p);
     for (const L of live) place(L.el, L.p);
@@ -392,13 +526,17 @@ export async function create(host, opts = {}) {
     setPolicy(p) { S.polT = p === "thermostat" || p === "baseline" ? 1 : 0; },
     setHour(h) { S.hour = Math.max(0, Math.min(HOURS - 1, +h || 0)); },
     focus(name) { const p = typeof presets[name] === "function" ? presets[name]() : presets[name]; if (!p) return;
-      controls.autoRotate = false; camera.position.set(...p[0]); controls.target.set(...p[1]); },
+      if (name === "house") { select(map.reference); return; }
+      flyTo(new THREE.Vector3(...p[0]), new THREE.Vector3(...p[1])); },
+    select(b) { select(b); }, selected() { return S.sel; }, pick(x, y) { return pick(x, y); }, nav(cmd) { nav(cmd); },
     info() { return S.info || null; },
     setLive(feed) { liveFeed = feed; },  // the dashboard's /api/nodes payload (#78); null/not ok -> REPLAY
     live() { return live.map((L) => ({ id: L.id, ...(L.st || {}) })); },
     stats() { return { buildings: map.buildings.length, houses: houses.length, districts: D.length, hexes: hexes.length, live: live.length, tris: (geo.city.getAttribute("position").count + geo.sim.getAttribute("position").count) / 3 }; },
     attribution: map.attribution, fleetNote: map.fleet_note,
-    destroy() { S.dead = true; cancelAnimationFrame(S.raf); renderer.dispose(); },
+    destroy() { S.dead = true; cancelAnimationFrame(S.raf); removeEventListener("keydown", onKey);
+      for (const el of [cv, panel, navEl, mm, ...labels.map((l) => l.el), ...live.map((L) => L.el)]) el.remove();
+      pickRT.dispose(); renderer.dispose(); },
   };
 }
 

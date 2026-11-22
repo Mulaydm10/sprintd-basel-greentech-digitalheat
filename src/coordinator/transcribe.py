@@ -29,6 +29,7 @@ LIVE = "live_transcription"
 SEG_MAX = 256 * 1024
 MAX_GAP = 50
 FETCH_LIMIT = 8
+TRANSCRIBERS = {"whisper-local", "elevenlabs", "echo"}  # only nodes running one of these may hold a live job
 CLOUD_BACKENDS = {"elevenlabs"}  # cloud transcription: eligible, but only as the fallback (#132)
 CONTEXT_CHARS = 200
 
@@ -146,15 +147,15 @@ def lease_live(db, coord, me, now: float) -> dict | None:
     """In core.lease: a pending live unit goes to the first eligible node that asks (latency-bound)."""
     classes = set(json.loads(me["eligible_classes"]))
     u = db.execute("""SELECT * FROM units WHERE job_class=? AND state='pending' ORDER BY rowid LIMIT 1""", (LIVE,)).fetchone()
-    if u is None or u["access_class"] not in classes:
-        return None
+    if u is None or u["access_class"] not in classes or (me["backend"] or "") not in TRANSCRIBERS:
+        return None  # batch nodes (cpu-hash, ...) never take a live job: it would only lapse there (found live)
     core = _core()
     node_id = me["node_id"]
     if (me["backend"] or "") in CLOUD_BACKENDS:
         # local, heat-producing compute first: hold the cloud node while an eligible LOCAL node is idle and healthy
         for n in db.execute("""SELECT * FROM nodes WHERE node_id<>? AND tampered=0 AND drained=0 AND last_hb >= ?""",
                             (node_id, now - core.SUSPECT_S)).fetchall():
-            if (n["backend"] or "") in CLOUD_BACKENDS or u["access_class"] not in set(json.loads(n["eligible_classes"])):
+            if (n["backend"] or "") not in TRANSCRIBERS or (n["backend"] or "") in CLOUD_BACKENDS or u["access_class"] not in set(json.loads(n["eligible_classes"])):
                 continue
             if n["backend"] and db.execute("SELECT 1 FROM leases WHERE node_id=? AND state='active'", (n["node_id"],)).fetchone() is None:
                 return {"hold": True, "reason": f"live job reserved for local node {n['node_id']}; cloud only as fallback",

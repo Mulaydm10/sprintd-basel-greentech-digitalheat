@@ -27,6 +27,9 @@ def call(site: str, path: str, body: dict | None = None, timeout: float = 10.0) 
             return r.status, json.loads(r.read() or b"{}")
     except urllib.error.HTTPError as e:
         return e.code, json.loads(e.read() or b"{}")
+    except (urllib.error.URLError, OSError, ValueError):  # server restarting / network blip: a real phone retries (#138)
+        time.sleep(1.0)
+        return 0, {}
 
 
 class Phone(threading.Thread):

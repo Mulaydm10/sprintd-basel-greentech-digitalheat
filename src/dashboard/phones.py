@@ -39,6 +39,9 @@ from pydantic import BaseModel, ConfigDict, Field
 ROOT = Path(__file__).resolve().parents[2]
 TOTAL_STEPS = int(os.environ.get("DH_PHONES_STEPS", "25"))
 HB_TIMEOUT_S = 8.0
+ONLINE_S = 60.0  # a phone silent this long (tab closed, page reloaded) no longer counts against the cap (#138)
+STEP_S = 1.0  # a server phone does 1 step per second of heating: faster reports are capped (#138, no skipping work)
+STEP_SLACK = 2  # network jitter allowance on top of the elapsed seconds
 CAP = int(os.environ.get("DH_PHONES_CAP", "20"))
 CLIENT_EVERY = 4
 ID = r"^[a-z0-9-]{1,40}$"
@@ -125,7 +128,7 @@ def _assign() -> None:
         if not free:
             return
         d = free[0]
-        j.update(state="running", device=d["id"], hops=j["hops"] + [d["id"]], leased=_clock())
+        j.update(state="running", device=d["id"], hops=j["hops"] + [d["id"]], leased=_clock(), mark_step=j["step"])
         d.update(state="busy", job=j["id"])
         _event("job.assigned", job=j["id"], device=d["id"], step=j["step"], moved=len(j["hops"]) > 1)
 
@@ -151,10 +154,11 @@ def _sweep() -> None:
 @router.post("/join")
 def join(body: JoinIn, request: Request) -> dict:
     code = _code()
-    if not code or not hmac.compare_digest(body.code, code):
+    if not code or not hmac.compare_digest(body.code.encode(), code.encode()):  # bytes: non-ASCII str raised (#138)
         raise HTTPException(403, "wrong event code")
     with _lock:
-        live = [d for d in S["devices"].values() if d["state"] != "left"]
+        now = _clock()
+        live = [d for d in S["devices"].values() if d["state"] not in ("left", "gone") and now - d["seen"] < ONLINE_S]
         if len(live) >= CAP:
             raise HTTPException(429, f"fleet is full ({CAP} devices)")
         S["joined"] += 1
@@ -200,7 +204,8 @@ def progress(body: ProgIn) -> dict:
         j = S["jobs"].get(body.job_id)
         if not j or j["state"] != "running" or j["device"] != d["id"]:
             raise HTTPException(410, "you no longer hold this job")
-        step = max(j["step"], min(body.step, j["total"]))   # progress never goes back
+        cap = j.get("mark_step", 0) + int((_clock() - j.get("leased", _clock())) / STEP_S) + STEP_SLACK
+        step = max(j["step"], min(body.step, j["total"], cap))   # never back; never faster than the work (#138)
         d["steps_done"] += step - j["step"]
         j["step"] = step
         if step >= j["total"]:
@@ -232,7 +237,10 @@ def stop(body: DevIn) -> dict:
 def resume(body: DevIn) -> dict:
     with _lock:
         d = _auth(body.device_id, body.token)
-        d.update(state="idle", idle_since=_clock(), seen=_clock())
+        d["seen"] = _clock()
+        if d["state"] == "busy" and d.get("job"):  # resume while holding a job: a no-op (it orphaned the job, #138)
+            return {"ok": True, "state": "busy"}
+        d.update(state="idle", idle_since=_clock())
         _event("device.resumed", device=d["id"])
         _assign()
         _save()

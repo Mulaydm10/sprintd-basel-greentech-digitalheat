@@ -49,12 +49,15 @@ def test_job_runs_stop_moves_with_progress_and_completes(c):
     jid = c.post("/api/phones/submit", json=cli).json()["job_id"]
     ha, hb_ = c.post("/api/phones/hb", json=a).json(), c.post("/api/phones/hb", json=b).json()
     first, second = (a, b) if "job" in ha else (b, a)
+    c.t[0] += 10  # 10 s of heating = 10 steps (faster reports are capped, #138)
     assert c.post("/api/phones/progress", json={**first, "job_id": jid, "step": 10}).json()["step"] == 10
+    c.post("/api/phones/hb", json=second)  # still online
     r = c.post("/api/phones/stop", json=first).json()
     assert r["released"] == jid and r["step"] == 10 and r["now_on"] == second["device_id"]
     job = c.post("/api/phones/hb", json=second).json()["job"]
     assert job["step"] == 10 and job["hops"] == 2                 # progress kept across the handover
     assert c.post("/api/phones/progress", json={**first, "job_id": jid, "step": 20}).status_code == 410
+    c.t[0] += phones.TOTAL_STEPS
     done = c.post("/api/phones/progress", json={**second, "job_id": jid, "step": phones.TOTAL_STEPS}).json()
     assert done["state"] == "done"
     my = c.get("/api/phones/my", params=cli).json()["jobs"][0]
@@ -65,6 +68,7 @@ def test_silent_phone_releases_job(c):
     cli, a, b = creds(join(c)), creds(join(c)), creds(join(c))
     c.post("/api/phones/hb", json=a)
     jid = c.post("/api/phones/submit", json=cli).json()["job_id"]
+    c.t[0] += 5
     c.post("/api/phones/progress", json={**a, "job_id": jid, "step": 5})
     c.t[0] += 3
     c.post("/api/phones/hb", json=b)                               # b online, a goes silent

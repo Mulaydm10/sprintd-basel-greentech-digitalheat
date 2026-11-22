@@ -48,7 +48,8 @@ REF_SERVERS = 3  # the yearview sizing rule's recommendation for the reference h
 MAX_SERVERS = 8
 CERTIFIED_EVERY_SITE = 10  # every 10th house is a certified site
 CERTIFIED_EVERY_UNIT = 10  # every 10th paid unit needs a certified site
-TRACK_EVERY = 25  # jobs.json traces every 25th paid unit fully
+TRACK_EVERY = 25  # jobs.json traces every 25th paid unit fully ...
+MAX_TRACKED = 5000  # ... but never more than ~5k jobs in total (browser budget: 11 M units/year at 100 houses)
 
 
 def _ring_centroid(b: list[int], q: float) -> tuple[float, float]:
@@ -102,7 +103,7 @@ def place_houses(k: int, seed: int, servers: int | None = None) -> list[dict]:
 
 def run_fleet(houses: list[dict], policy: str, ballast: bool, hours: int | None = None, seed: int = 0,
               load: float = REF_LOAD, slack_h: float = REF_SLACK, cert_every_unit: int = CERTIFIED_EVERY_UNIT,
-              track_every: int = TRACK_EVERY) -> dict:
+              track_every: int | None = None) -> dict:
     """One policy over the whole fleet. Returns per-site arrays, fleet arrays, tracked jobs and totals."""
     a = load_assumptions()
     validate_assumptions(a)
@@ -129,6 +130,8 @@ def run_fleet(houses: list[dict], policy: str, ballast: bool, hours: int | None 
     nserv = [int(h["servers"]) for h in houses]
     classes = [frozenset({access} | ({"certified"} if h["certified"] else set())) for h in houses]
     rate = sum(nserv) * (1.0 / unit_h) * load
+    if track_every is None:  # adaptive: cap the traced sample for the whole run
+        track_every = max(TRACK_EVERY, math.ceil(rate * (hours or len(prof)) / MAX_TRACKED))
     acc = float(np.random.default_rng(seed).uniform(0.0, 1.0)) if rate > 0 else 0.0
     lvl, mode = np.zeros(K), [True] * K
     queue: list[Unit] = []
@@ -251,12 +254,21 @@ def run_fleet(houses: list[dict], policy: str, ballast: bool, hours: int | None 
     for t in tracked.values():
         if t["state"] == "queued":
             t["state"] = "pending at year end"
-    return {"F": F, "fleet": fleet, "tracked": list(tracked.values()), "totals": totals, "H": H, "cap": cap}
+    return {"F": F, "fleet": fleet, "tracked": list(tracked.values()), "totals": totals, "H": H, "cap": cap,
+            "track_every": track_every}
 
 
 def _run(args):
     houses, policy, ballast, hours, seed = args
     return run_fleet(houses, policy, ballast, hours, seed)
+
+
+def _commit() -> str | None:
+    import subprocess
+    try:
+        return subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, timeout=5).stdout.strip() or None
+    except Exception:  # noqa: BLE001 - provenance only
+        return None
 
 
 def cache_key(houses: list[dict], hours: int, seed: int) -> str:
@@ -287,7 +299,7 @@ def build(out: Path, k: int = DEFAULT_HOUSES, seed: int = 0, servers: int | None
         h["tank_kwh"] = ours["cap"]
         h["classes"] = sorted({"public"} | ({"certified"} if h.pop("certified") else set()))
     prov = {"key": key, "assumptions_hash": assumptions_hash(), "profile_sha256": hashlib.sha256(DEFAULT_CSV.read_bytes()).hexdigest(),
-            "commit": None, "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "commit": _commit(), "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "runtime_s": None}
     total_servers = sum(h["servers"] for h in houses)
     index = {"schema": fs.SCHEMA, "fixture": False, "provenance": prov,
@@ -306,14 +318,19 @@ def build(out: Path, k: int = DEFAULT_HOUSES, seed: int = 0, servers: int | None
                          "every hour"},
              "start": "2025-01-01T00:00:00+01:00", "tz": "Europe/Zurich", "step_h": 1, "hours": ours["H"],
              "houses": houses,
+             "series_baseline": {"file": "houses_baseline.u16", "layout": "[field][house][hour]", "dtype": "uint16-le",
+                                 "policy": "thermostat", "fields": [{"name": n, "unit": u, "scale": s} for n, u, s in fs.FIELDS]},
              "series": {"file": "houses.u16", "layout": "[field][house][hour]", "dtype": "uint16-le",
                         "fields": [{"name": n, "unit": u, "scale": s} for n, u, s in fs.FIELDS]},
-             "fleet": {"file": "fleet.json"}, "jobs": {"file": "jobs.json", "tracked_every": TRACK_EVERY},
+             "fleet": {"file": "fleet.json"}, "jobs": {"file": "jobs.json", "tracked_every": ours["track_every"]},
              "totals": {"ours": ours["totals"], "baseline": base["totals"]}}
     prov["runtime_s"] = round(time.time() - t0, 1)
     series = [[list(ours["F"][n][i]) for i in range(len(houses))] for n, *_ in fs.FIELDS]
     fleet = {k2: [round(float(v), 4) for v in ours["fleet"][k2]] for k2 in fs.FLEET_KEYS}
-    fs.write(d, index, series, fleet, {"tracked": ours["tracked"]})
+    for k2 in ("missed", "queue", "assigned"):  # #125 ghost view: the thermostat's hourly fleet counts
+        fleet["baseline_" + k2] = [round(float(v), 4) for v in base["fleet"][k2]]
+    bseries = [[list(base["F"][n][i]) for i in range(len(houses))] for n, *_ in fs.FIELDS]
+    fs.write(d, index, series, fleet, {"tracked": ours["tracked"]}, bseries)
     (out / "LATEST").write_text(key + "\n")
     log(f"fleetview: {len(houses)} houses, {ours['H']} h, both policies in {prov['runtime_s']} s -> {d}")
     return d

@@ -50,21 +50,29 @@ TOTALS_KEYS = ("coverage_pct", "heat_demand_kwh", "heat_used_kwh", "dumped_kwh",
                "net_chf_excl_hardware")
 
 
-def write(d: Path, index: dict, series: list[list[list[float]]], fleet: dict, jobs: dict) -> None:
-    """series[field][house][hour] in natural units -> houses.u16 (quantised by each field's scale)."""
-    d.mkdir(parents=True, exist_ok=True)
+def _pack(series) -> bytes:
     buf = bytearray()
     for (name, _, scale), per_house in zip(FIELDS, series):
         for vals in per_house:
             buf += struct.pack(f"<{len(vals)}H", *(max(0, min(65535, round(v / scale))) for v in vals))
-    (d / "houses.u16").write_bytes(bytes(buf))
+    return bytes(buf)
+
+
+def write(d: Path, index: dict, series: list[list[list[float]]], fleet: dict, jobs: dict,
+          baseline_series: list[list[list[float]]] | None = None) -> None:
+    """series[field][house][hour] in natural units -> houses.u16 (quantised by each field's scale); the optional
+    baseline_series (thermostat, same fields/layout) -> houses_baseline.u16 (#125 ghost view)."""
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "houses.u16").write_bytes(_pack(series))
+    if baseline_series is not None:
+        (d / "houses_baseline.u16").write_bytes(_pack(baseline_series))
     (d / "fleet.json").write_text(json.dumps(fleet, separators=(",", ":")))
     (d / "jobs.json").write_text(json.dumps(jobs, separators=(",", ":")))
     (d / "index.json").write_text(json.dumps(index, indent=1))
 
 
-def read_series(d: Path, index: dict) -> dict[str, list[list[float]]]:
-    raw = (d / index["series"]["file"]).read_bytes()
+def read_series(d: Path, index: dict, key: str = "series") -> dict[str, list[list[float]]]:
+    raw = (d / index[key]["file"]).read_bytes()
     K, H, out, off = len(index["houses"]), index["hours"], {}, 0
     for f in index["series"]["fields"]:
         rows = []

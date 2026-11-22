@@ -289,6 +289,37 @@ def _live_fetch() -> dict[str, Any]:
     return out
 
 
+LIVE_EVENT_TYPES = {"lease.granted", "lease.released", "lease.lapsed", "job.moved", "transcript.segment", "job.state"}
+LIVE_EVENT_KEYS = ("job", "seq", "node", "backend", "from", "to", "at_seq", "unit", "lease", "reason", "status", "state")
+
+
+@app.get("/api/live-events")
+def live_events(after: int = 0) -> dict[str, Any]:
+    """Coordinator events for the 04 Live coordinator log (live transcription hops), read with the observer token
+    server-side. Only scheduling facts are passed on (who holds which job, which segment, moves); never any text."""
+    import httpx
+
+    if os.environ.get("DH_LIVE_NODES") != "1":
+        return {"enabled": False, "events": [], "last_id": after}
+    url = os.environ.get("DH_COORDINATOR_URL", "http://127.0.0.1:8710").rstrip("/")
+    try:
+        token = Path(os.environ.get("DH_OBSERVER_TOKEN_FILE", "")).read_text().strip()
+        kw = {"transport": _live_transport} if _live_transport is not None else {}
+        with httpx.Client(base_url=url, timeout=LIVE_TIMEOUT_S, **kw) as c:
+            r = c.get("/v1/events/poll", params={"after": max(0, after), "limit": 200}, headers={"Authorization": f"Bearer {token}"})
+        d = r.json() if r.status_code == 200 else {}
+    except Exception:  # noqa: BLE001
+        return {"enabled": True, "ok": False, "events": [], "last_id": after}
+    evs = []
+    for e in d.get("events", []):
+        if e.get("type") not in LIVE_EVENT_TYPES:
+            continue
+        data = e.get("data") or {}
+        evs.append({"id": e.get("id"), "type": e["type"], "ts": e.get("ts"), "node_id": e.get("node_id"),
+                    "job_id": e.get("job_id"), "data": {k: data[k] for k in LIVE_EVENT_KEYS if k in data}})
+    return {"enabled": True, "ok": True, "events": evs, "last_id": d.get("last_id", after)}
+
+
 @app.get("/api/nodes")
 def nodes() -> dict[str, Any]:
     """Live nodes from the coordinator's /v1/status (#78), enabled with DH_LIVE_NODES=1."""

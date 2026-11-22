@@ -204,6 +204,34 @@ function start(root) {
     if (e.type === "device.gone" && d) log(`${esc(d.label)} went silent · its job moves on`, "#a86400");
   }
 
+  // live transcription (wow #1) on the same log: coordinator facts only, the text stays encrypted
+  let lAfter = 0, lastSegPkt = 0, liveJob = null, liveNode = null;
+  const lname = (id) => LAPTOPS[id] || id;
+  async function pollLive() {
+    try {
+      const r = await fetch(`./api/live-events?after=${lAfter}`); if (!r.ok) return;
+      const d = await r.json(); if (!d.ok) return;
+      const first = lAfter === 0; lAfter = d.last_id || lAfter;
+      if (first) return;                       // don't replay history on page load
+      for (const e of d.events || []) {
+        const x = e.data || {}, nid = x.node || e.node_id, nd = nodes.get(nid);
+        if (e.type === "transcript.segment") {
+          if (liveNode && nid !== liveNode) { logAt(`🎙 transcription moved ${esc(lname(liveNode))} → <b>${esc(lname(nid))}</b> at segment ${x.seq} · nothing lost`, "#1d6bb3"); flash(`🎙 transcription continues on ${esc(lname(nid))} · segment ${x.seq} · nothing lost`); }
+          else if (!liveNode || x.job !== liveJob) logAt(`🎙 live transcription ${esc(x.job || "")} running on <b>${esc(lname(nid))}</b> · encrypted`, "#c93c05");
+          liveNode = nid; liveJob = x.job;
+          if (nd && performance.now() - lastSegPkt > 900) { packet(new THREE.Vector3(), nd.g.position, C.hot, 900, 5); lastSegPkt = performance.now(); }
+          if (nd) nd.state = "busy";
+        } else if (e.type === "job.moved") {
+          logAt(`🎙 ${esc(lname(x.from))} stopped → ${esc(lname(x.to))} takes over at segment ${x.at_seq}`, "#1d6bb3");
+        } else if ((e.type === "lease.released" || e.type === "lease.lapsed") && LAPTOPS[nid]) {
+          logAt(`■ ${esc(lname(nid))} lost its lease (${esc(x.reason || e.type.split(".")[1])})`, "#d1173a");
+          if (nd) packet(nd.g.position, new THREE.Vector3(), C.stop, 800, 4);
+        }
+      }
+    } catch (e) {}
+  }
+  setInterval(pollLive, 1000);
+
   // join QR
   k.qr.src = "./api/phones/qr.svg?" + Date.now();
   k.qrc.src = "./api/phones/qr.svg?role=client&t=" + Date.now();

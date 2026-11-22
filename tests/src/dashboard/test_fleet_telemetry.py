@@ -78,3 +78,19 @@ def test_phone_pages_served_offline_token_in_session_only(client, page):
     body = r.text
     assert "https://unpkg" not in body and "googleapis" not in body
     assert client.get("/phone.js").status_code == 200 and client.get("/phone-base.css").status_code == 200
+
+
+def test_live_events_never_pass_text(monkeypatch, client):
+    import httpx
+    from dashboard import app as appmod
+
+    def handler(req):
+        return httpx.Response(200, json={"last_id": 9, "events": [
+            {"id": 8, "type": "transcript.segment", "ts": "t", "data": {"job": "j", "seq": 3, "node": "mac-live", "text": "SECRET WORDS"}},
+            {"id": 9, "type": "site.signal", "data": {"demand_kw": 1}}]})
+    monkeypatch.setenv("DH_LIVE_NODES", "1")
+    monkeypatch.setenv("DH_OBSERVER_TOKEN_FILE", __file__)
+    monkeypatch.setattr(appmod, "_live_transport", httpx.MockTransport(handler))
+    d = client.get("/api/live-events?after=0").json()
+    assert d["last_id"] == 9 and len(d["events"]) == 1
+    assert "SECRET" not in str(d) and d["events"][0]["data"]["seq"] == 3

@@ -206,7 +206,7 @@ export async function create(host, opts = {}) {
       void main(){ vec4 st = texture2D(uState, vec2((aH + 0.5) / ${MAXH}.0, 0.5)); float on = st.r + st.b > 0.002 ? 1.0 : 0.0;
         float dash = pow(0.5 + 0.5 * sin((aT * 10.0 - uTime * 2.2) * 6.2831), 6.0);
         vA = on * (0.15 + 0.85 * dash) * (1.0 - st.a); vec4 mv = modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = uPx * (2.0 + 5.0 * dash) * 300.0 / -mv.z; gl_Position = projectionMatrix * mv; }`,
+        vA *= 0.45; gl_PointSize = uPx * (1.2 + 2.8 * dash) * 300.0 / -mv.z; gl_Position = projectionMatrix * mv; }`,  // #129 calmer
     fragmentShader: `varying float vA; void main(){ vec2 c = gl_PointCoord * 2.0 - 1.0; float r = dot(c, c); if (r > 1.0) discard;
       gl_FragColor = vec4(vec3(1.0, 0.62, 0.25) * vA, vA * exp(-r * 3.0)); }` })));
 
@@ -393,7 +393,7 @@ export async function create(host, opts = {}) {
   scene.add(TR.arcs);
   const LN = 30 * 10, lGeo = new THREE.BufferGeometry(), lPos = new Float32Array(LN * 3), lCol = new Float32Array(LN * 3);
   lGeo.setAttribute("position", new THREE.BufferAttribute(lPos, 3)); lGeo.setAttribute("color", new THREE.BufferAttribute(lCol, 3));
-  TR.lights = new THREE.Points(lGeo, new THREE.PointsMaterial({ size: 14, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+  TR.lights = new THREE.Points(lGeo, new THREE.PointsMaterial({ size: 9, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
   TR.lights.frustumCulled = false; scene.add(TR.lights);
   const AN = 300, aGeo = new THREE.BufferGeometry(), aPos = new Float32Array(AN * 3);
   aGeo.setAttribute("position", new THREE.BufferAttribute(aPos, 3));
@@ -421,13 +421,18 @@ export async function create(host, opts = {}) {
     const t = TR.unit.get(unit); if (!t) return "";
     const { j } = t, runs = j.units.flatMap((x) => x.runs.map((r) => [r[0], r[1], x.unit])).sort((a, b) => a[0] - b[0]);
     const used = [...new Set(runs.map((r) => r[1]))], allOk = used.every((hh) => eligible(j.class, hh));
-    const rowsH = runs.slice(0, 14).map(([h, house, un]) => `<div title="${esc(src("jobs.json + houses.u16", h))}" style="display:grid;grid-template-columns:92px 70px 1fr;gap:8px;color:#d8d2c8"><span>${when(h)}</span><span style="color:#ffb36b" title="${esc(un)}">house ${house}</span><span style="color:#a8a298">${why(house, h)}</span></div>`).join("")
-      + (runs.length > 14 ? `<div style="color:#6e6a63">… ${runs.length - 14} more hours</div>` : "");
-    return `<div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#ffb36b;margin-bottom:6px">job trace · ${esc(j.job)} · ${j.units.length} units</div>`
+    const byH = new Map(); for (const [h, house] of runs) { if (!byH.has(h)) byH.set(h, new Map()); const m = byH.get(h); m.set(house, (m.get(house) || 0) + 1); }
+    const hrs = [...byH.keys()];
+    const rowsH = hrs.slice(0, 10).map((h) => { const m = byH.get(h), whys = [...new Set([...m.keys()].map((hh) => why(hh, h)))];
+      const hs = [...m].map(([hh, c]) => `${hh}${c > 1 ? " ×" + c : ""}`).join(", ");
+      return `<div title="${esc(src("jobs.json + houses.u16", h))}" style="margin:4px 0;color:#d8d2c8"><span style="color:#a8a298">${when(h)}</span> · <span style="color:#ffb36b">house ${hs}</span><br><span style="color:#a8a298">${whys.join(" / ")}</span></div>`; }).join("")
+      + (hrs.length > 10 ? `<div style="color:#6e6a63">… ${hrs.length - 10} more hours</div>` : "");
+    return `<button data-close title="close (Esc)" style="position:absolute;top:8px;right:10px;border:0;background:none;color:#a8a298;font:16px 'Geist Mono',monospace;cursor:pointer">×</button>`
+      + `<div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#ffb36b;margin-bottom:6px;padding-right:18px">job trace · ${esc(j.job)} · ${j.units.length} units</div>`
       + row("class", esc(j.class), j.class === "public" ? null : "#8fd3ff") + row("bid", j.bid + " CHF/server-h") + row("arrived", when(j.arrival_h))
       + row("deadline", `${when(j.deadline_h)} · ${j.state === "done" ? "met" : esc(j.state)}`, j.state === "done" ? "#b8e986" : "#ff3355")
       + row("houses used", `${used.length} · ${allOk ? "all eligible ✓" : "INELIGIBLE HOUSE"}`, allOk ? "#b8e986" : "#ff3355")
-      + `<div style="margin:8px 0 4px;padding-top:8px;border-top:1px solid rgba(242,239,233,0.14);color:#a8a298">hour → house → why</div>${rowsH}`
+      + `<div style="margin:8px 0 2px;padding-top:8px;border-top:1px solid rgba(242,239,233,0.14);color:#a8a298">hour → houses → why</div>${rowsH}`
       + `<div style="margin-top:8px;color:#6e6a63;font-size:10.5px" title="${esc(src("index.json"))}">run ${esc(FL.key || "–")} · commit ${esc((FL.commit || "–").slice(0, 10))} · traced every ${FL.trackEvery}th unit · ASSUMED fleet, real decide()</div>`;
   }
   function selectJob(unit, source) {
@@ -438,8 +443,8 @@ export async function create(host, opts = {}) {
     for (const [, house] of j.units.flatMap((x) => x.runs).sort((a, b) => a[0] - b[0])) if (seq[seq.length - 1] !== house) seq.push(house);
     if (seq.length) { const pts = seq.map((i) => hp(i).setY(FL.houses[i].Y + 40));
       if (pts.length === 1) pts.push(pts[0].clone().setY(pts[0].y + 60));
-      TR.ribbon = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), Math.max(16, pts.length * 12), 2.2, 6, false),
-        new THREE.MeshBasicMaterial({ color: 0xffb36b, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+      TR.ribbon = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), Math.max(16, pts.length * 12), 0.9, 6, false),
+        new THREE.MeshBasicMaterial({ color: 0xffb36b, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
       scene.add(TR.ribbon);
       const H0 = FL.houses[seq[seq.length - 1]]; flyTo(new THREE.Vector3(H0.X - 320, 300, H0.Z + 320), new THREE.Vector3(H0.X, 0, H0.Z)); }
     if (j.class !== "public") for (let i = 0; i < FL.K; i++) if (!eligible(j.class, i)) {
@@ -467,11 +472,14 @@ export async function create(host, opts = {}) {
   function stories() {  // auto-detected moments in the run, for the timeline chips
     if (!FL.on || !S.run) return [];
     const temps = S.run.weather.temp_c; let cold = 0; for (let i = 1; i < temps.length; i++) if (temps[i] < temps[cold]) cold = i;
-    let reroute = 0, rv = -1; for (const [h, n] of (TR.moves.size ? TR.moves : TR.fan)) if (n > rv) { rv = n; reroute = h; }
+    let reroute = 0, rv = -1, wideUnit = null;
+    for (const [h, list] of TR.byHour) { if (h < 24) continue;  // skip the 1 Jan start-up burst (#129)
+      const by = new Map(); for (const e of list) { if (!by.has(e.j.job)) by.set(e.j.job, { set: new Set(), unit: e.u.unit }); by.get(e.j.job).set.add(e.house); }
+      for (const v of by.values()) if (v.set.size > rv) { rv = v.set.size; reroute = h; wideUnit = v.unit; } }
     let hold = -1; for (let h = 2160; h < FL.H && hold < 0; h++) { let c = 0; for (let i = 0; i < FL.K; i++) if (fv("state", i, h) === 3) c++; if (c >= FL.K * 0.5) hold = h; }
     let dumpH = 0, dv = -1; for (let h = 0; h < FL.H; h++) { const v = FL.fleet.dumped_kwh[h]; if (v > dv) { dv = v; dumpH = h; } }
     return [{ h: cold, label: `coldest hour · ${temps[cold].toFixed(1)} °C`, src: "yearview weather" },
-      ...(rv > 0 ? [{ h: reroute, label: TR.moves.size ? `biggest re-route · ${rv} traced jobs moved` : `widest job · one job on ${rv} houses in 1 h`, src: src("jobs.json", reroute) }] : []),
+      ...(rv > 1 ? [{ h: reroute, unit: wideUnit, label: `widest job · one job on ${rv} houses in 1 h`, src: src("jobs.json", reroute) }] : []),
       ...(hold >= 0 ? [{ h: hold, label: "first summer hold · half the fleet idle", src: src("houses.u16", hold) }] : []),
       { h: dumpH, label: `most heat dumped · ${dv.toFixed(0)} kWh in 1 h`, src: src("fleet.json", dumpH) }];
   }
@@ -490,7 +498,8 @@ export async function create(host, opts = {}) {
       TR.cur = [...moves, ...links].slice(0, 30);
       const selJob = FL.sel && TR.unit.has(FL.sel) ? TR.unit.get(FL.sel).j.job : null;
       for (const e of TR.cur) { const c = arcCurve(hp(e.prev), hp(e.house)); const isSel = selJob === e.j.job;
-        TR.arcs.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(c.getPoints(40)), new THREE.LineBasicMaterial({ color: isSel ? 0xffffff : PAL[e.ji % PAL.length], transparent: true, opacity: isSel ? 0.95 : 0.45, blending: THREE.AdditiveBlending, depthWrite: false })));
+        const len = hp(e.prev).distanceTo(hp(e.house)), fade = Math.max(0.1, Math.min(0.45, 0.45 * 500 / Math.max(500, len)));  // long arcs fade
+        TR.arcs.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(c.getPoints(40)), new THREE.LineBasicMaterial({ color: isSel ? 0xffffff : PAL[e.ji % PAL.length], transparent: true, opacity: isSel ? 0.8 : fade, blending: THREE.AdditiveBlending, depthWrite: false })));
         e.curve = c; } }
     let n = 0; const p = new THREE.Vector3(), col = new THREE.Color();
     for (const e of TR.cur || []) for (let k = 0; k < 10 && n < LN; k++) {  // a light travelling A -> B with a short fading trail
@@ -575,9 +584,11 @@ export async function create(host, opts = {}) {
   }
   const panel = document.createElement("div");
   panel.setAttribute("data-dh-panel", "");
-  panel.style.cssText = "position:absolute;top:44px;right:156px;width:min(300px,42%);max-height:calc(100% - 300px);overflow:auto;display:none;padding:14px 16px;border-radius:16px;background:rgba(18,17,16,0.62);backdrop-filter:blur(14px) saturate(1.2);-webkit-backdrop-filter:blur(14px) saturate(1.2);border:1px solid rgba(242,239,233,0.2);box-shadow:0 20px 60px rgba(0,0,0,0.45);color:#f2efe9;font:12px/1.55 'Geist Mono',monospace;z-index:6";
+  panel.style.cssText = "position:absolute;top:44px;right:156px;width:min(300px,38%);max-height:calc(100% - 300px);overflow:auto;display:none;padding:14px 16px;border-radius:16px;background:rgba(18,17,16,0.62);backdrop-filter:blur(14px) saturate(1.2);-webkit-backdrop-filter:blur(14px) saturate(1.2);border:1px solid rgba(242,239,233,0.2);box-shadow:0 20px 60px rgba(0,0,0,0.45);color:#f2efe9;font:12px/1.55 'Geist Mono',monospace;z-index:6";
   host.appendChild(panel);
-  panel.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest("[data-job]"); if (b) { e.stopPropagation(); selectJob(b.dataset.job, "map"); } });
+  panel.addEventListener("click", (e) => {
+    if (e.target.closest && e.target.closest("[data-close]")) { e.stopPropagation(); select(-1); selectJob(null, "map"); panel.style.display = "none"; return; }
+    const b = e.target.closest && e.target.closest("[data-job]"); if (b) { e.stopPropagation(); selectJob(b.dataset.job, "map"); } });
   const liveByB = new Map(live.map((L) => [L.b, L]));
   const row = (k, v, c) => `<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:#a8a298">${k}</span><span style="color:${c || "#f2efe9"};text-align:right">${v}</span></div>`;
   function reason(sd, h, n) {  // the scheduler's outcome this hour, from the yearview run (same wording as the HUD)

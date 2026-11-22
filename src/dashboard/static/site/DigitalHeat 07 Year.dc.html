@@ -444,7 +444,9 @@ class Component extends DCLogic {
       nVal: n, setN: (e) => this.load(Number(e.target.value)),
       speeds: [sp(24, "1x"), sp(48, "2x"), sp(96, "4x"), sp(192, "8x")],  // 1x = one day per second (#109)
       ghostToggle: () => this.setState({ ghost: !this.state.ghost }), ghostC: this.state.ghost ? "#ffffff" : "#55524c", ghostBg: this.state.ghost ? "#55606e" : "#ffffff",
-      stories: (this.state.stories || []).map((st) => ({ label: st.label, src: "source: " + st.src, on: () => { this.hf = st.h; this.setState({ h: st.h, playing: false, view: "map" }); } })),
+      stories: (this.state.stories || []).map((st) => ({ label: st.label, src: "source: " + st.src, on: () => {  // #129: jump the clock (+ select the job)
+        this.hf = st.h; this.setState({ h: st.h, playing: false, view: "map" });
+        if (st.unit && this.vm && this.vm.selectJob) this.vm.selectJob(st.unit); } })),
       views: [["map", "Map"], ["helix", "Helix"], ["chart", "Chart"]].map(([id, label]) => ({ label,
         on: () => { this.bg = null; this.setState({ view: id }); }, c: this.state.view === id ? "#ffffff" : "#55524c", bg: this.state.view === id ? "#141414" : "transparent" })),
       mapDisp: this.state.view === "map" ? "block" : "none", helixDisp: this.state.view === "helix" ? "block" : "none",

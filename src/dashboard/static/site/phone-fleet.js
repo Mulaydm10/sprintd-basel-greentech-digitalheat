@@ -65,7 +65,7 @@ function start(root) {
   const cam = new THREE.PerspectiveCamera(48, 1, 0.1, 500);
   cam.position.set(0, 26, 62);
   const ctl = new OrbitControls(cam, renderer.domElement);
-  ctl.enableDamping = true; ctl.autoRotate = true; ctl.autoRotateSpeed = 0.08; ctl.minDistance = 25; ctl.maxDistance = 120;
+  ctl.enableDamping = true; ctl.minPolarAngle = 0.95; ctl.maxPolarAngle = 1.2; ctl.target.set(0, -1, 0); ctl.autoRotate = true; ctl.autoRotateSpeed = 0.08; ctl.minDistance = 25; ctl.maxDistance = 120;
   const comp = new EffectComposer(renderer);
   comp.addPass(new RenderPass(scene, cam));
   const bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.4, 0.45, 0.4);
@@ -82,7 +82,7 @@ function start(root) {
 
   // coordinator core
   const core = new THREE.Group(); scene.add(core);
-  const coreMesh = new THREE.Mesh(new THREE.SphereGeometry(1.1, 48, 32), new THREE.MeshStandardMaterial({ color: 0xf2efe9, emissive: 0xf2efe9, emissiveIntensity: 0.55, metalness: 0.1, roughness: 0.25 }));
+  const coreMesh = new THREE.Mesh(new THREE.SphereGeometry(1.4, 48, 32), new THREE.MeshStandardMaterial({ color: 0xf2efe9, emissive: 0xf2efe9, emissiveIntensity: 0.9, metalness: 0.1, roughness: 0.25 }));
   core.add(coreMesh);
   const coreWire = new THREE.Mesh(new THREE.IcosahedronGeometry(4.4, 1), new THREE.MeshBasicMaterial({ color: C.hot, wireframe: true, transparent: true, opacity: 0.1 }));
   coreWire.visible = false; core.add(coreWire);
@@ -94,7 +94,7 @@ function start(root) {
 
   // nodes
   const nodes = new Map();    // id -> {g, mesh, glow, line, pos, kind, label, state, born, heat}
-  const phoneGeo = new THREE.CircleGeometry(0.75, 48), lapGeo = new THREE.CircleGeometry(1.25, 64), rimGeo = new THREE.RingGeometry(1.45, 1.52, 64);
+  const phoneGeo = new THREE.CircleGeometry(1.0, 48), lapGeo = new THREE.CircleGeometry(1.6, 64), rimGeo = new THREE.RingGeometry(1.85, 1.93, 64);
   const heatTex = (() => { const c = document.createElement("canvas"); c.width = c.height = 64; const x = c.getContext("2d"); const g = x.createRadialGradient(32, 32, 0, 32, 32, 32); g.addColorStop(0, "rgba(255,190,120,1)"); g.addColorStop(0.4, "rgba(255,106,31,.5)"); g.addColorStop(1, "rgba(255,106,31,0)"); x.fillStyle = g; x.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
 
   function slotFor(kind, n) {
@@ -203,14 +203,14 @@ function start(root) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     rings.forEach((r, i) => (r.rotation.z += dt * (0.25 - i * 0.06)));
     const busy = [...nodes.values()].filter((n) => n.state === "busy").length;
-    coreMesh.material.emissiveIntensity = 0.5 + 0.06 * Math.sin(now / 900) + Math.min(0.2, busy * 0.015);
+    coreMesh.material.emissiveIntensity = 0.85 + 0.08 * Math.sin(now / 900) + Math.min(0.2, busy * 0.015);
     for (const n of nodes.values()) {
       if (n.kind === "phone") n.g.position.lerp(n.pos, 0.035);                       // fly in
       n.g.quaternion.copy(cam.quaternion);   // discs always face the viewer
       const target = n.state === "busy" ? 1 : 0; n.heat += (target - n.heat) * 0.04;
       const col = n.state === "stopped" ? C.stop : n.state === "gone" ? 0x3a3430 : n.role === "client" ? C.cold : n.kind === "laptop" ? C.laptop : C.idle;
       n.mat.emissive.setHex(n.heat > 0.05 ? C.heat : col);
-      n.mat.emissiveIntensity = n.state === "gone" ? 0.08 : 0.3 + n.heat * (0.7 + 0.15 * Math.sin(now / 400 + n.g.position.x));
+      n.mat.emissiveIntensity = n.state === "gone" ? 0.12 : 0.85 + n.heat * (0.35 + 0.1 * Math.sin(now / 400 + n.g.position.x));
       n.glow.material.opacity = n.heat * 0.22; n.glow.scale.setScalar(4 + n.heat);
       if (n.heat > 0.5 && Math.random() < 0.012) spark(n.g.position);
       const pa = n.line.geometry.attributes.position; pa.setXYZ(1, n.g.position.x, n.g.position.y, n.g.position.z); pa.needsUpdate = true;

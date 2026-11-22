@@ -23,7 +23,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Path as PathParam, 
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .auth import BodyLimit, ConnCap, Principal, RateLimiter, authenticate, load_tokens
 from .core import MAX_CHUNKS, MAX_ROUNDS, VERSION, CoordError, Coordinator
@@ -68,14 +68,42 @@ class HeartbeatIn(Strict):
     demand_kw: Annotated[float, Field(ge=0, le=1e4, allow_inf_nan=False)] | None = None
     last_error: Annotated[str, Field(max_length=500)] | None = None
     backend: Annotated[str, Field(pattern=r"^[a-z0-9_-]{1,32}$")] | None = None  # #127 transcriber backend
+    e2e_pub: Annotated[str, Field(max_length=400)] | None = None  # live v2: node P-256 key (SPKI b64)
+    sig_pub: Annotated[str, Field(max_length=100)] | None = None  # live v2.1: node Ed25519 key (raw b64)
+
+    @field_validator("e2e_pub")
+    @classmethod
+    def _p256(cls, v):
+        from .e2e_chain import valid_p256
+        if v is not None and not valid_p256(v):
+            raise ValueError("e2e_pub must be a P-256 public key (SPKI DER, base64)")
+        return v
+
+    @field_validator("sig_pub")
+    @classmethod
+    def _ed(cls, v):
+        from .e2e_chain import valid_ed25519
+        if v is not None and not valid_ed25519(v):
+            raise ValueError("sig_pub must be a raw 32-byte Ed25519 key, base64")
+        return v
+
+
+class EncIn(Strict):  # live v2: a transcript segment sealed to the phone's client_pub
+    eph: Annotated[str, Field(max_length=400)]
+    iv: Annotated[str, Field(max_length=64)]
+    ct: Annotated[str, Field(max_length=40_000)]
 
 
 class FlushIn(Strict):  # #134 the final held-back words of a stream
     text: Annotated[str, Field(max_length=500)]
+    enc: EncIn | None = None  # v2: the whole last segment re-sealed to the phone
+    sig: Annotated[str, Field(max_length=200)] | None = None  # v2.1: re-signed
 
 
 class SegmentResultIn(Strict):  # #127
     text: Annotated[str, Field(max_length=4000)]
+    enc: EncIn | None = None  # v2 E2E jobs: the transcript, readable only by the phone
+    sig: Annotated[str, Field(max_length=200)] | None = None  # v2.1 Ed25519 over dh-seg-v1|job|seq|blob|enc
     words: Annotated[list[dict[str, str | float]], Field(max_length=400)] | None = None
     backend: Annotated[str, Field(pattern=r"^[a-z0-9_-]{1,32}$")]
     ms: Annotated[float, Field(ge=0, le=600_000, allow_inf_nan=False)] = 0.0
@@ -249,12 +277,19 @@ def create_app(state_dir: Path, tokens: dict[str, str] | None = None, clock=time
     @app.post("/v1/leases/{lease_id}/segments/{seq}/result")
     def segment_result(lease_id: PathId, seq: Annotated[int, PathParam(ge=0, le=10_000_000)], body: SegmentResultIn,
                        p: Principal = Depends(principal)):
-        return ts.accept(coord, node_token(p), lease_id, seq, body.text, body.words, body.backend, body.ms)
+        return ts.accept(coord, node_token(p), lease_id, seq, body.text, body.words, body.backend, body.ms,
+                         body.enc.model_dump() if body.enc else None, body.sig)
+
+    @app.post("/v1/leases/{lease_id}/segments/{seq}/not-recipient")
+    def segment_not_recipient(lease_id: PathId, seq: Annotated[int, PathParam(ge=0, le=10_000_000)],
+                              p: Principal = Depends(principal)):
+        return ts.not_recipient(coord, node_token(p), lease_id, seq)  # v2: release to a node that can open it
 
     @app.post("/v1/leases/{lease_id}/segments/{seq}/flush")
     def segment_flush(lease_id: PathId, seq: Annotated[int, PathParam(ge=0, le=10_000_000)], body: FlushIn,
                       p: Principal = Depends(principal)):
-        return ts.flush(coord, node_token(p), lease_id, seq, body.text)  # #134 the final held-back words
+        return ts.flush(coord, node_token(p), lease_id, seq, body.text, body.enc.model_dump() if body.enc else None,
+                        body.sig)  # #134 the final held-back words
 
     mount_portal(app, principal, coord)
     return app

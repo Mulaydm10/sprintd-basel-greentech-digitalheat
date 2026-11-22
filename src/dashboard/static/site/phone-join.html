@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f2efe9"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes">
+<title>DigitalHeat · Join the fleet</title><link rel="stylesheet" href="./phone-base.css"><link rel="icon" href="/favicon.ico">
+<style>
+  #gl { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: -1; opacity: 0; transition: opacity .6s; }
+  body.heating #gl { opacity: .55; }
+  body.heating { background: #1a0d06; color: #fff; }
+  body.heating .card { background: rgba(20,12,8,.82); border-color: rgba(255,255,255,.14); color: #fff; }
+  body.heating .mute, body.heating .lab, body.heating .card h2 { color: #d8c8b8; }
+  .big { font-size: 46px; font-weight: 760; letter-spacing: -.04em; line-height: 1; }
+  .ring { --p: 0; width: 170px; height: 170px; border-radius: 50%; margin: 6px auto; display: grid; place-items: center;
+          background: conic-gradient(var(--heat) calc(var(--p) * 1%), rgba(127,127,127,.18) 0); }
+  .ring > div { width: 138px; height: 138px; border-radius: 50%; background: var(--card); display: grid; place-items: center; text-align: center; }
+  body.heating .ring > div { background: #1a0d06; }
+  .caution li { margin: 6px 0; } .caution { padding-left: 18px; margin: 6px 0; font-size: 15px; line-height: 1.4; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-family: "Geist Mono", monospace; font-size: 12px; }
+  .kv b { font-weight: 500; text-align: right; }
+  .job { border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+  .hop { font-family: "Geist Mono", monospace; font-size: 11px; color: var(--mute); }
+</style></head>
+<body>
+<canvas id="gl"></canvas>
+<main>
+  <header><span><span class="dot"></span>DigitalHeat</span><span class="mute" id="who">join the fleet</span></header>
+
+  <!-- 1. caution / consent -->
+  <section id="s-consent">
+    <div class="kick">Live demo · volunteers</div><h1>Lend us your phone<em> for a minute.</em></h1>
+    <div class="card" style="margin-top:14px">
+      <h2><span>Before you join</span></h2>
+      <ul class="caution">
+        <li><b>Your phone will get warm.</b> If you become a server it runs a heavy compute job (CPU + graphics) and heats up on purpose: that heat is the product.</li>
+        <li><b>Tap STOP any time</b>, for example when it feels warm. The job then moves to another phone, without losing its progress.</li>
+        <li><b>Keep this page open and the screen on.</b> Servers: please turn the <b>brightness to maximum</b> and plug in if you can.</li>
+        <li>It uses some battery (a few %). Nothing is installed; closing the page stops everything.</li>
+        <li>No personal data: you get an anonymous volunteer number. Don't use this if your phone is already hot or below 20 % battery.</li>
+      </ul>
+      <label class="lab">Nickname (optional, shown on the big screen)</label>
+      <input id="nick" maxlength="24" placeholder="e.g. Anna">
+      <button class="primary" id="agree">I understand · join</button>
+      <p class="err" id="jerr"></p>
+    </div>
+  </section>
+
+  <!-- 2a. server -->
+  <section id="s-server" hidden>
+    <div class="kick" id="srvKick">You are a server</div><h1 id="srvTitle">Waiting for <em>a job…</em></h1>
+    <div class="card">
+      <div class="ring" id="ring"><div><div><div class="big" id="pct">–</div><div class="mono small mute" id="steps">idle</div></div></div></div>
+      <div class="kv" id="kv"></div>
+      <button class="stop" id="stopBtn" disabled>■ STOP · my heat need is met</button>
+      <button id="resumeBtn" hidden>▶ Rejoin the pool</button>
+      <p class="mono small mute" id="srvNote">Brightness to maximum, screen on. When a job arrives this phone starts working and warms up.</p>
+      <div class="mono small" id="pht-err" style="color:#ffb4a8"></div>
+    </div>
+  </section>
+
+  <!-- 2b. client -->
+  <section id="s-client" hidden>
+    <div class="kick">You are a client · a compute customer</div><h1>Send work to <em>the fleet.</em></h1>
+    <div class="card">
+      <button class="primary" id="submitBtn">Submit a job</button>
+      <p class="mono small mute">Your job is split into 25 steps and sent to a volunteer's phone. If they tap STOP, the coordinator moves it to another phone and it continues from the same step.</p>
+      <div id="jobs" style="display:flex;flex-direction:column;gap:8px"></div>
+      <p class="err" id="cerr"></p>
+    </div>
+  </section>
+</main>
+<script src="./heat/util.js"></script>
+<script src="./heat/keepawake-media.js"></script>
+<script src="./heat/keepawake.js"></script>
+<script src="./heat/cpu.js"></script>
+<script src="./heat/gpu.js"></script>
+<script>
+(function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const code = new URLSearchParams(location.hash.slice(1)).get("code") || new URLSearchParams(location.search).get("code") || "";
+  const KEY = "dh.fleet.dev";
+  let dev = null; try { dev = JSON.parse(sessionStorage.getItem(KEY) || "null"); } catch (e) {}
+  const post = async (p, b) => { const r = await fetch("./api/phones/" + p, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
+    const j = await r.json().catch(() => ({})); if (!r.ok) { const e = new Error(j.detail || r.status); e.status = r.status; throw e; } return j; };
+  const cred = () => ({ device_id: dev.device_id, token: dev.token });
+
+  // heat engine (Dhruv's phone-heat-test, unchanged)
+  let gpu = null, cpu = null, awake = null, heating = false;
+  try { window.PHT.initErrors($("pht-err")); gpu = new PHT.GpuLoad($("gl")); cpu = new PHT.CpuLoad(); awake = new PHT.KeepAwake(); } catch (e) { $("pht-err").textContent = "heat engine: " + e.message; }
+  function heat(on) {
+    if (on === heating) return; heating = on; document.body.classList.toggle("heating", on);
+    try { if (on) { awake && awake.start(); cpu && cpu.start(); gpu && gpu.start(); } else { gpu && gpu.stop(); cpu && cpu.stop(); awake && awake.stop(); } } catch (e) { $("pht-err").textContent = e.message; }
+  }
+  window.addEventListener("pagehide", () => heat(false));
+
+  if (dev) show(); else if (!code) { $("jerr").textContent = "This page needs the QR code from the big screen."; $("agree").disabled = true; }
+  $("agree").onclick = async () => {
+    $("agree").disabled = true;
+    try { dev = await post("join", { code, name: $("nick").value.trim() || null }); sessionStorage.setItem(KEY, JSON.stringify(dev)); show(); }
+    catch (e) { $("jerr").textContent = e.status === 429 ? "The fleet is full. Thank you!" : e.status === 403 ? "This QR code is no longer valid." : "Could not join: " + e.message; $("agree").disabled = false; }
+  };
+
+  function show() {
+    $("s-consent").hidden = true; $("who").textContent = `${dev.label} · ${dev.role}`;
+    if (dev.role === "server") { $("s-server").hidden = false; serverLoop(); } else { $("s-client").hidden = false; clientLoop(); }
+  }
+
+  // ---------------- server phone ----------------
+  let job = null, step = 0, stopped = false, tick = null, lastHb = 0;
+  async function serverLoop() {
+    let battery = null; try { const b = navigator.getBattery && (await navigator.getBattery()); battery = b ? b.level : null; } catch (e) {}
+    const hb = async () => {
+      try {
+        const r = await post("hb", { ...cred(), battery }); lastHb = Date.now();
+        if (stopped) return;
+        if (r.job && (!job || job.job_id !== r.job.job_id)) startJob(r.job);
+        if (!r.job && job) endJob("done");
+        $("srvNote").textContent = job ? "Working · tap STOP when it feels warm." : r.state === "stopped" ? "Stopped." : "In the pool · waiting for a job. Brightness to maximum, screen on.";
+      } catch (e) { if (e.status === 403) { sessionStorage.removeItem(KEY); location.reload(); } }
+    };
+    hb(); setInterval(hb, 2000);
+  }
+  function startJob(j) {
+    job = j; step = j.step; heat(true);
+    $("srvKick").textContent = j.hops > 1 ? `Job moved to you · hop ${j.hops}` : "You are a server · job running";
+    $("srvTitle").innerHTML = `Heating with <em>${esc(j.label)}</em>`;
+    $("stopBtn").disabled = false; render();
+    clearInterval(tick);
+    tick = setInterval(async () => {          // one step of work per second while heating
+      if (!job) return;
+      step = Math.min(job.total, step + 1); render();
+      try { const r = await post("progress", { ...cred(), job_id: job.job_id, step }); if (r.state === "done") endJob("done"); }
+      catch (e) { if (e.status === 410) endJob("moved"); }
+    }, 1000);
+  }
+  function endJob(why) {
+    clearInterval(tick); heat(false); $("stopBtn").disabled = true;
+    if (why === "done") { $("srvKick").textContent = "Job finished on your phone"; $("srvTitle").innerHTML = "Done. <em>Thank you!</em>"; }
+    job = null; render();
+  }
+  function render() {
+    const p = job ? Math.round(step / job.total * 100) : 0;
+    $("ring").style.setProperty("--p", p); $("pct").textContent = job ? p + "%" : "–";
+    $("steps").textContent = job ? `step ${step} / ${job.total}` : "idle";
+    const fps = gpu && gpu.fps ? gpu.fps.toFixed(0) : "–";
+    $("kv").innerHTML = job ? `<span>job</span><b>${esc(job.job_id)}</b><span>for client</span><b>${esc(job.client)}</b>
+      <span>task</span><b>${esc(job.label)}</b><span>node</span><b>${esc(dev.device_id)}</b>
+      <span>GPU frames</span><b>${fps} fps</b><span>est. draw</span><b>≈ ${(6 + Math.random() * 2).toFixed(1)} W · ASSUMED</b>
+      <span>heat to the room</span><b>≈ ${(5 + Math.random() * 2).toFixed(1)} W</b><span>hops</span><b>${job.hops}</b>` : "";
+  }
+  $("stopBtn").onclick = async () => {
+    stopped = true; const had = job && job.job_id; endJob("stop");
+    try { const r = await post("stop", cred());
+      $("srvKick").textContent = "Stopped · heat need met"; $("srvTitle").innerHTML = r.released ? `Job handed on at <em>step ${r.step}</em>` : "Stopped.";
+      $("srvNote").textContent = r.now_on ? "The coordinator already moved it to another phone. Nothing was lost." : (had ? "Queued for the next free phone. Nothing was lost." : "");
+    } catch (e) {}
+    $("resumeBtn").hidden = false;
+  };
+  $("resumeBtn").onclick = async () => { await post("resume", cred()); stopped = false; $("resumeBtn").hidden = true; $("srvTitle").innerHTML = "Waiting for <em>a job…</em>"; };
+
+  // ---------------- client phone ----------------
+  async function clientLoop() {
+    const draw = async () => {
+      try {
+        const r = await (await fetch(`./api/phones/my?device_id=${encodeURIComponent(dev.device_id)}&token=${encodeURIComponent(dev.token)}`)).json();
+        $("jobs").innerHTML = (r.jobs || []).map((j) => {
+          const p = Math.round(j.step / j.total * 100), done = j.state === "done";
+          return `<div class="job"><div class="row"><b class="mono">${esc(j.job_id)}</b><span class="pill" style="color:${done ? "var(--ok)" : "var(--heat)"}">${done ? "✓ completed" : esc(j.state)}</span></div>
+            <div class="mono small">${esc(j.label)}</div><div class="meter"><i style="width:${p}%"></i></div>
+            <div class="hop">${done ? `finished · ran on ${j.hops} phone${j.hops > 1 ? "s" : ""}` : j.on ? `running on ${esc(j.on)} · step ${j.step}/${j.total}` : `waiting for a free phone · step ${j.step}/${j.total}`}${j.hop_labels.length > 1 ? " · path " + j.hop_labels.map(esc).join(" → ") : ""}</div></div>`;
+        }).join("") || `<p class="mono small mute">No jobs yet.</p>`;
+      } catch (e) {}
+    };
+    draw(); setInterval(draw, 1500);
+    $("submitBtn").onclick = async () => { $("cerr").textContent = ""; try { await post("submit", cred()); draw(); } catch (e) { $("cerr").textContent = e.message; } };
+  }
+})();
+</script>
+</body></html>

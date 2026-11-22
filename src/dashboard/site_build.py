@@ -147,9 +147,17 @@ RET_NEW = '''    const ctl = this.state.liveCtl;
     return {
       liveOn, liveActions, liveActMsg, liveActC,
 '''
+# 04 Live: the volunteer phone fleet (wow #2) section + its script, inserted above the page's closing notes
+FLEET_ANCHOR = '  <section style="padding:40px clamp(16px,4vw,40px) 180px;max-width:1400px;margin:0 auto">'
+FLEET_ROW = ('  <div data-dh-phone-fleet style="padding:0 clamp(16px,4vw,40px);max-width:1400px;margin:0 auto"></div>\n'
+             + FLEET_ANCHOR)
+FLEET_SCRIPT_OLD = "</body>"
+FLEET_SCRIPT_NEW = '<script type="module" src="./phone-fleet.js"></script>\n</body>'
+
 WIRING = ["vendor/resources.js before support.js", "local fonts.css", "apiBase default '.' on 04 and 06",
           "04 Live: LIVE controls row + liveAct()", "Nav: extra tabs 07-10 (#96, #102, #103)",
-          "Nav: one line (compact numbers, sideways scroll) + bottom spacer (#102)"]
+          "Nav: one line (compact numbers, sideways scroll) + bottom spacer (#102)",
+          "04 Live: volunteer phone-fleet section + phone-fleet.js (wow #2)"]
 
 
 def wire(name: str, html: str) -> str:
@@ -173,6 +181,8 @@ def wire(name: str, html: str) -> str:
         html = sub(html, POLL_OLD, POLL_NEW)
         html = sub(html, ACT_METHOD, ACT_NEW)
         html = sub(html, RET_OLD, RET_NEW)
+        html = sub(html, FLEET_ANCHOR, FLEET_ROW)
+        html = sub(html, FLEET_SCRIPT_OLD, FLEET_SCRIPT_NEW)
     return html
 
 

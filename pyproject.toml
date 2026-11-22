@@ -11,6 +11,7 @@ dependencies = [
     "fastapi",
     "uvicorn",
     "psutil",
+    "segno",  # QR code for the phone-fleet join screen (pure python)
 ]
 
 [project.optional-dependencies]

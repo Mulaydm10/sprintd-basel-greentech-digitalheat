@@ -41,3 +41,23 @@ transcript continues **without losing or repeating a segment**. Same coordinator
 ## Tests
 In-process coordinator + 2 agents with `echo`: stream 30 segments, kill agent A at seq 12 → agent B continues; every seq
 accepted exactly once, in order, transcript complete; resume ≤ 6 s; client/ops events; auth (other client 404, node w/o lease 403).
+
+## v2: end-to-end encryption, coordinator-blind (design, 2026-11-22)
+Goal: the coordinator (and every node that does not hold a segment) can never read audio or transcript.
+Crypto: ECDH **P-256** + HKDF-SHA256 + **AES-256-GCM** (WebCrypto on phones supports all three; Python `cryptography`).
+1. **Node keys:** each transcriber node generates a P-256 keypair at start (private key never leaves the node), sends the
+   public key (SPKI, base64) in register/heartbeat as `e2e_pub`. Coordinator exposes
+   `GET /v1/client/jobs/{id}/recipients` → `[{node_id, e2e_pub, backend}]` = eligible, online transcriber nodes.
+2. **Phone (client):** per job an ephemeral P-256 keypair (`client_pub` sent at job create, private key only in the tab).
+   Per segment: random AES key K, `ct = AES-GCM(K, wav)`, and for EACH recipient `wrap_i = AES-GCM(HKDF(ECDH(eph_seg, node_i)), K)`
+   with a per-segment ephemeral key. Upload `{ct, iv, eph_pub, wraps:{node_id: {iv, wrapped}}}` as JSON (≤ 400 KB) instead of WAV.
+3. **Coordinator:** stores the blob opaquely (no key, cannot decrypt); hands it to the lease holder unchanged.
+4. **Node:** unwraps its own `wraps[node_id]`, decrypts, transcribes, then encrypts the text to `client_pub`
+   (`{eph_pub, iv, ct}`); the coordinator stores and serves that ciphertext only. The `text` field stays empty.
+5. **Phone:** decrypts each transcript segment locally; the transcript exists in clear only on the phone.
+6. A node not in `wraps` (joined later) cannot read old segments: the phone re-fetches recipients every 10 s and new
+   segments include it. STOP → next node is already a recipient → handover unchanged.
+7. Honest limits (on the trace card + pitch): the node transcribing a segment must see that segment (no TEE); the cloud
+   node (ElevenLabs) sends its segments to the provider; metadata (timing, sizes, which node) is visible to the coordinator.
+Tests: coordinator DB contains no plaintext audio/text (grep for known words); a non-recipient node gets a blob it cannot open;
+handover across 3 nodes still exactly once; legacy WAV path stays for the batch/e2e tool behind `e2e: false`.

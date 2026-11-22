@@ -4,6 +4,24 @@ Two speakers work best: **A** talks, **B** drives the screens and phones. Times 
 Every number comes from `research/PITCH_NUMBERS.md` (row #), `runs/yearview`, `runs/fleetview` or `runs/experiment_tracker.md`.
 Before you go on: run the pre-flight in `docs/DEMO-RUNBOOK.md` and **reset the phone fleet**.
 
+**The whole pitch is the website** (no slides): https://dhruvs-mac-mini.tailaf7ebe.ts.net:8443, full screen (F11) on the
+projector laptop. Move between pages with **← →** or the bottom nav. **B** drives the projector laptop and the demo phones;
+**A** speaks. Open these tabs beforehand, in this order, so B only switches tabs:
+1. `01 Overview` · 2. `02 Problem` · 3. `03 Scheduler` · 4. `phone-server.html` (admin, signed in, on B's second device) ·
+5. `04 Live demo` (scrolled to "Your phones. Our fleet.") · 6. `07 Year` (Map view, 8×) · 7. `05 Economics`.
+Phone (client) for wow #1: `phone-client.html`, signed in, on B's phone; its screen can be mirrored or simply held up.
+
+| Time | On the projector | B does |
+|---|---|---|
+| 0:00 | 01 Overview (hero) | nothing: let the title land |
+| 0:30 | 02 Problem: scroll to the 31 % / 9,910 kWh cards | scroll slowly |
+| 1:10 | 03 Scheduler: the price-per-kWh diagram | → |
+| 1:50 | 04 Live demo, top ("Pull the plug. Nothing is lost.") + phone | Start on the phone, then STOP on the second device |
+| 2:50 | 04 Live demo, fleet section with the QR | keep it on screen while people scan |
+| 3:50 | 07 Year: Map, play at 8×, click one glowing house → trace card; then 05 Economics | play, click, → |
+| 4:30 | back to 01 Overview | → to the start |
+
+
 ---
 
 ## 0:00–0:30 · Hook (A, website 01 Overview)

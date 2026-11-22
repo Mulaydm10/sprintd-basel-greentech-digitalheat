@@ -6,7 +6,7 @@ from dashboard.app import SITE
 
 def test_trace_layer_is_wired():
     js = (SITE / "basel3d.js").read_text(encoding="utf-8")
-    for needle in ("function selectJob(", "function jobCard(", "hour → house → why", "all eligible ✓", "🔒", "TubeGeometry",
+    for needle in ("function selectJob(", "function jobCard(", "hour → houses → why", "all eligible ✓", "🔒", "TubeGeometry",
                    "baseline_missed", "function stories(", "setCamera(a)", "houses sharing a job this hour", "fleetview "):
         assert needle in js, needle
 

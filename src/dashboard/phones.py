@@ -37,7 +37,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 
 ROOT = Path(__file__).resolve().parents[2]
-TOTAL_STEPS = int(os.environ.get("DH_PHONES_STEPS", "25"))
+TOTAL_STEPS = int(os.environ.get("DH_PHONES_STEPS", "180"))  # 3 min of work in total: a phone heats until its volunteer taps STOP
 HB_TIMEOUT_S = 8.0
 ONLINE_S = 60.0  # a phone silent this long (tab closed, page reloaded) no longer counts against the cap (#138)
 STEP_S = 1.0  # a server phone does 1 step per second of heating: faster reports are capped (#138, no skipping work)

@@ -16,6 +16,7 @@ CODE = "basel-2026"
 @pytest.fixture()
 def c(tmp_path, monkeypatch):
     monkeypatch.setenv("DH_EVENT_CODE", CODE)
+    monkeypatch.setattr(phones, "TOTAL_STEPS", 25)  # tests pin the old short job
     monkeypatch.setenv("DH_PHONES_ADMIN", "adm-secret")
     monkeypatch.setenv("DH_PHONES_STATE", str(tmp_path / "s.json"))
     t = [1000.0]

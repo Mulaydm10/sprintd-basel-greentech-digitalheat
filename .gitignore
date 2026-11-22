@@ -30,3 +30,4 @@ venv/
 runs/*
 !runs/experiment_tracker.md
 !runs/README.md
+.venv-node/

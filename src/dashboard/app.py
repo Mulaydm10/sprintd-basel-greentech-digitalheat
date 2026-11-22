@@ -305,8 +305,18 @@ def live_events(after: int = 0) -> dict[str, Any]:
     try:
         token = Path(os.environ.get("DH_OBSERVER_TOKEN_FILE", "")).read_text().strip()
         kw = {"transport": _live_transport} if _live_transport is not None else {}
+        h = {"Authorization": f"Bearer {token}"}
         with httpx.Client(base_url=url, timeout=LIVE_TIMEOUT_S, **kw) as c:
-            r = c.get("/v1/events/poll", params={"after": max(0, after), "limit": 200}, headers={"Authorization": f"Bearer {token}"})
+            if after <= 0:   # first call: return only the newest id, so the page shows new events, never history
+                cur = 0
+                for _ in range(80):
+                    r = c.get("/v1/events/poll", params={"after": cur, "limit": 200}, headers=h)
+                    batch = (r.json() if r.status_code == 200 else {}).get("events", [])
+                    if not batch:
+                        break
+                    cur = batch[-1]["id"]
+                return {"enabled": True, "ok": True, "events": [], "last_id": cur}
+            r = c.get("/v1/events/poll", params={"after": after, "limit": 200}, headers=h)
         d = r.json() if r.status_code == 200 else {}
     except Exception:  # noqa: BLE001
         return {"enabled": True, "ok": False, "events": [], "last_id": after}

@@ -211,8 +211,7 @@ function start(root) {
     try {
       const r = await fetch(`./api/live-events?after=${lAfter}`); if (!r.ok) return;
       const d = await r.json(); if (!d.ok) return;
-      const first = lAfter === 0; lAfter = d.last_id || lAfter;
-      if (first) return;                       // don't replay history on page load
+      lAfter = d.last_id || lAfter;           // the first call returns only the newest id: no history replay
       for (const e of d.events || []) {
         const x = e.data || {}, nid = x.node || e.node_id, nd = nodes.get(nid);
         if (e.type === "transcript.segment") {

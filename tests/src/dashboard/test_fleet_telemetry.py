@@ -91,6 +91,6 @@ def test_live_events_never_pass_text(monkeypatch, client):
     monkeypatch.setenv("DH_LIVE_NODES", "1")
     monkeypatch.setenv("DH_OBSERVER_TOKEN_FILE", __file__)
     monkeypatch.setattr(appmod, "_live_transport", httpx.MockTransport(handler))
-    d = client.get("/api/live-events?after=0").json()
+    d = client.get("/api/live-events?after=5").json()
     assert d["last_id"] == 9 and len(d["events"]) == 1
     assert "SECRET" not in str(d) and d["events"][0]["data"]["seq"] == 3

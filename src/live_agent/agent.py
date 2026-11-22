@@ -116,6 +116,12 @@ class Agent:
         self.job_types = {j.name for j in load_catalogue()}
         self.state: dict[str, Any] = {"running_unit": None, "progress": 0.0, "last_error": None}
         self._transcriber = None  # #127: built lazily on the first live lease (Whisper loads a model)
+        self._e2e_priv = self._sig_priv = None
+        if cfg.transcriber:  # live v2/v2.1: per-process keys, in memory only (never written, never sent)
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+            from . import e2e
+            self._e2e_priv, self._sig_priv = e2e.new_pair(), Ed25519PrivateKey.generate()
         self._failures = 0
         self._hb_stop = threading.Event()
         self._hb_thread: threading.Thread | None = None
@@ -173,6 +179,7 @@ class Agent:
                 "progress": round(float(self.state["progress"]), 4)}
         if self.cfg.transcriber:
             body["backend"] = self.cfg.transcriber  # #127: shown per node on the pages and the trace card
+            body.update(self.live_pubs())  # v2/v2.1: phones wrap segment keys for e2e_pub; sig_pub checks our work
         if self.state["last_error"]:
             body["last_error"] = self.state["last_error"]
         try:
@@ -238,14 +245,39 @@ class Agent:
             raise ValueError(f"unit dir {d} escapes {self.workdir}")
         return d
 
+    def live_pubs(self) -> dict[str, str]:
+        if self._e2e_priv is None:
+            return {}
+        from cryptography.hazmat.primitives import serialization
+
+        from . import e2e
+        raw = self._sig_priv.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+        return {"e2e_pub": e2e.pub_b64(self._e2e_priv), "sig_pub": base64.b64encode(raw).decode()}
+
+    def _sign_segment(self, job: str, seq: int, blob_sha: str, enc: dict | None, text: str) -> str:
+        """v2.1: Ed25519 over dh-seg-v1|job|seq|sha256(upload)|sha256(enc canonical JSON, or the clear text)."""
+        import hashlib
+        canon = json.dumps({k: enc[k] for k in ("eph", "iv", "ct")}, sort_keys=True, separators=(",", ":")) if enc else text
+        es = hashlib.sha256(canon.encode()).hexdigest()
+        return base64.b64encode(self._sig_priv.sign(f"dh-seg-v1|{job}|{seq}|{blob_sha}|{es}".encode())).decode()
     def _flush(self, lease_id: str, last_seq: int) -> None:
-        """#134: after /end, append the last segment's held-back tail ('keep going.') once."""
-        seq, tail = getattr(self, "_tail", (None, ""))
-        self._tail = (None, "")
-        if seq is None or seq != last_seq or not tail:
+        """#134: after /end, append the last segment's held-back tail ('keep going.') once. v2: an E2E job gets the
+        whole last segment re-sealed to the phone; v2.1: re-signed (the coordinator relinks it)."""
+        t = getattr(self, "_tail", None) or {}
+        self._tail = None
+        if t.get("seq") is None or t["seq"] != last_seq or not t.get("tail"):
             return
+        full = f"{t['text']} {t['tail']}".strip()
+        body: dict[str, Any] = {"text": t["tail"]}
+        enc = None
+        if t.get("client_pub"):
+            from . import e2e
+            enc = e2e.seal_text(t["client_pub"], full)
+            body = {"text": "", "enc": enc}
+        if self._sig_priv is not None:
+            body["sig"] = self._sign_segment(t["job"], t["seq"], t["sha"], enc, "" if enc else full)
         try:
-            self._post(f"/v1/leases/{lease_id}/segments/{seq}/flush", json={"text": tail})
+            self._post(f"/v1/leases/{lease_id}/segments/{t['seq']}/flush", json=body)
         except Retry:
             pass
 
@@ -265,7 +297,8 @@ class Agent:
         key, lease_id, unit_id = wire.key_from_json(kr), str(lease["lease_id"]), str(lease["unit"]["unit_id"])
         self.state.update(running_unit=unit_id, progress=0.0, last_error=None)
         after, last_renew = -1, self.clock()
-        self._tail = (None, "")
+        own_ctx = ""  # v2: E2E jobs give no context (the coordinator cannot read it): stitch with our own accepted text
+        self._tail = None
         renew_s = min(self.cfg.renew_s, float(lease.get("renew_every_s", self.cfg.renew_s)))
         try:
             while True:
@@ -298,20 +331,40 @@ class Agent:
                 for s in d["segments"]:
                     if int(s["seq"]) != after + 1:
                         break  # strictly in order: refetch from the first un-accepted seq
-                    wav = trust.open_(wire.envelope_from_bytes(base64.b64decode(s["envelope_b64"])), key)
+                    if "blob_b64" in s:  # v2 E2E: open my own wrap of the segment key; the coordinator cannot
+                        from . import e2e
+                        try:
+                            wav = e2e.open_segment(self._e2e_priv, self.cfg.node_id, base64.b64decode(s["blob_b64"]))
+                        except KeyError:  # not wrapped for me (I joined after it was sealed): hand the job over
+                            self._post(f"/v1/leases/{lease_id}/segments/{s['seq']}/not-recipient")
+                            self.state["last_error"] = f"not a recipient of segment {s['seq']}: released"
+                            return "lapsed"
+                    else:
+                        wav = trust.open_(wire.envelope_from_bytes(base64.b64decode(s["envelope_b64"])), key)
                     t0 = self.clock()
                     last = d["ended"] and s is d["segments"][-1] and len(d["segments"]) < 8  # closing segment of the stream
-                    out = self._transcriber.transcribe(wav, d.get("context", ""), int(s["seq"]), final=last)
+                    client_pub = d.get("client_pub")
+                    ctx = own_ctx if client_pub else d.get("context", "")
+                    out = self._transcriber.transcribe(wav, ctx, int(s["seq"]), final=last)
                     body = {"text": out["text"], "backend": self.cfg.transcriber, "ms": round((self.clock() - t0) * 1000, 1)}
-                    if out.get("words"):
+                    enc = None
+                    if client_pub:  # v2: only the phone can read the transcript
+                        from . import e2e
+                        enc = e2e.seal_text(client_pub, out["text"])
+                        body.update(text="", enc=enc)
+                    elif out.get("words"):
                         body["words"] = [{"w": str(w["w"]), "t0": float(w["t0"]), "t1": float(w["t1"])} for w in out["words"][:400]]
+                    if self._sig_priv is not None:
+                        body["sig"] = self._sign_segment(str(d["job_id"]), int(s["seq"]), str(s["sha256"]), enc, body["text"])
                     rr = self._post(f"/v1/leases/{lease_id}/segments/{s['seq']}/result", json=body)
                     if rr.status_code == 410:
                         return "lapsed"
                     if rr.status_code not in (200, 201):
                         break
                     after = int(s["seq"])
-                    self._tail = (after, out.get("tail") or "")  # held back; the next segment re-hears it (#134)
+                    own_ctx = (own_ctx + " " + out["text"]).strip()[-200:]
+                    self._tail = {"seq": after, "tail": out.get("tail") or "", "text": out["text"], "sha": str(s["sha256"]),
+                                  "job": str(d["job_id"]), "client_pub": client_pub}  # held back (#134)
                     self.state["progress"] = 0.0
                     last_renew = self.clock()  # an accepted result extends the lease on the coordinator
                 if d["ended"] and not d["segments"] and int(d["next_seq"]) == after + 1:

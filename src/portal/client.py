@@ -49,6 +49,7 @@ class SubmitIn(Strict):
     idempotency_key: Annotated[str, Field(pattern=ID)]
     rounds: Annotated[int, Field(ge=1, le=MAX_ROUNDS)] | None = None
     chunks: Annotated[int, Field(ge=1, le=MAX_CHUNKS)] | None = None
+    client_pub: Annotated[str, Field(max_length=400)] | None = None  # live v2: the phone's per-job P-256 key
 
 
 # ------------------------------------------------------------------ responses
@@ -154,7 +155,7 @@ def make_router(principal: Callable[..., Any], coord: Callable[[], Any], store: 
     def submit(body: SubmitIn, response: Response, cid: str = Depends(client_id)):
         if body.type == "live_transcription":  # #127: unbounded live job, leased at once
             from coordinator import transcribe as ts
-            res = ts.create_job(coord(), cid, body.idempotency_key, body.access_class)
+            res = ts.create_job(coord(), cid, body.idempotency_key, body.access_class, body.client_pub)
             if res.get("created") is False:
                 response.status_code = 200
             return res
@@ -213,6 +214,16 @@ def make_router(principal: Callable[..., Any], coord: Callable[[], Any], store: 
     def transcript(job_id: PathId, cid: str = Depends(client_id)):
         from coordinator import transcribe as ts
         return found(ts.transcript(coord(), cid, job_id))
+
+    @r.get("/jobs/{job_id}/recipients")
+    def recipients(job_id: PathId, cid: str = Depends(client_id)):  # live v2: who to wrap each segment for
+        from coordinator import transcribe as ts
+        return found(ts.recipients(coord(), cid, job_id))
+
+    @r.get("/jobs/{job_id}/transcript/receipt")
+    def live_receipt(job_id: PathId, cid: str = Depends(client_id)):  # live v2.1: Merkle root + proofs + audit anchor
+        from coordinator import transcribe as ts  # (/receipt stays the batch-job receipt)
+        return found(ts.receipt(coord(), cid, job_id))
 
     @r.get("/jobs/{job_id}/receipt", response_model=Receipt, responses={409: {"description": "not done yet"}})
     def receipt(job_id: PathId, cid: str = Depends(client_id)):

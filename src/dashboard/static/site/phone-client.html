@@ -41,6 +41,22 @@
     catch (e) { $("bInfo").textContent = "catalogue: " + e.message; }
   }
 
+  // phone-side stitch: under E2E a node can't see the previous node's text, so a repeated overlap word ("machine
+  // machine") is removed here, where the whole transcript is readable. Longest run of the last words that reappears at
+  // the start of the next segment, case/punctuation-insensitive, at most 8 words.
+  let acc = [];
+  const norm = (w) => w.toLowerCase().replace(/[^\p{L}\p{N}']/gu, "");
+  function stitch(txt) {
+    const words = txt.split(/\s+/).filter(Boolean);
+    let cut = 0;
+    for (let k = Math.min(8, acc.length, words.length); k > 0; k--) {
+      let ok = true;
+      for (let i = 0; i < k; i++) if (norm(acc[acc.length - k + i]) !== norm(words[i])) { ok = false; break; }
+      if (ok && (k > 1 || norm(words[0]).length >= 4)) { cut = k; break; }   // a lone short word ("a", "the") may repeat for real
+    }
+    const kept = words.slice(cut); acc = acc.concat(kept).slice(-40);
+    return kept.join(" ");
+  }
   async function plain(s) {
     if (s.enc && pair) { try { return await E.openText(pair, s.enc); } catch (e) { return "⚠ could not decrypt"; } }
     return s.text || "…";
@@ -54,7 +70,7 @@
       const node = s.node || "?";
       if (lastNode !== null && node !== lastNode) tx.insertAdjacentHTML("beforeend", `<div class="moved">moved to ${P.esc(node)} · no segment lost</div>`);
       lastNode = node;
-      const txt = await plain(s);
+      const txt = stitch(await plain(s));
       tx.insertAdjacentHTML("beforeend", `<div class="seg" style="border-color:${P.nodeColour(node)}" title="#${s.seq} · ${P.esc(node)} · ${P.esc(s.backend || "")}${s.enc ? " · decrypted on this phone" : ""}">${P.esc(txt)}</div>`);
       $("nodeNow").innerHTML = `<span style="color:${P.nodeColour(node)}">● ${P.esc(node)}</span> · ${P.esc(s.backend || "")}`;
     }
@@ -76,7 +92,7 @@
   }
 
   $("start").onclick = async () => {
-    $("liveErr").textContent = ""; shown = new Set(); lastNode = null; sent = 0;
+    $("liveErr").textContent = ""; shown = new Set(); lastNode = null; sent = 0; acc = [];
     try {
       pair = E && E.supported ? await E.genPair() : null;
       const body = { type: "live_transcription", access_class: "public", idempotency_key: "live-" + Date.now() };
@@ -89,7 +105,7 @@
       if (pair) { try { recips = (await P.api(`/v1/client/jobs/${job}/recipients`)).recipients || []; e2e = recips.length > 0; } catch (e) { e2e = false; } }
       $("e2e").innerHTML = e2e ? `<span style="color:var(--ok)">🔒 end-to-end encrypted · ${recips.length} recipient nodes · coordinator cannot read</span>`
                                : `<span style="color:var(--held)">encryption in transit only (E2E not deployed on the coordinator yet)</span>`;
-      if (e2e) recT = setInterval(async () => { try { const x = (await P.api(`/v1/client/jobs/${job}/recipients`)).recipients || []; if (x.length) recips = x; } catch (e) {} }, 10000); $("liveState").textContent = "streaming"; $("liveState").style.color = "var(--heat)";
+      if (e2e) recT = setInterval(async () => { try { const x = (await P.api(`/v1/client/jobs/${job}/recipients`)).recipients || []; if (x.length) recips = x; } catch (e) {} }, 4000); $("liveState").textContent = "streaming"; $("liveState").style.color = "var(--heat)";
       rec = await P.mic(async (seq, blob, lvl) => {
         $("lvl").style.width = Math.min(100, lvl * 400) + "%";
         for (let a = 0; a < 3; a++) {   // retry: the coordinator is idempotent per (job, seq)

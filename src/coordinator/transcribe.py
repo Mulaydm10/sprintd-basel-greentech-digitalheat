@@ -29,6 +29,7 @@ LIVE = "live_transcription"
 SEG_MAX = 256 * 1024
 MAX_GAP = 50
 FETCH_LIMIT = 8
+CLOUD_BACKENDS = {"elevenlabs"}  # cloud transcription: eligible, but only as the fallback (#132)
 CONTEXT_CHARS = 200
 
 
@@ -64,7 +65,7 @@ def create_job(coord, client_id: str, idempotency_key: str, access_class: str = 
                     idempotency_key))
         db.execute("""INSERT INTO units(unit_id, job_id, seq, job_class, access_class, kwh_el, bid, deadline_hour, slack_h,
                       checkpointable, chunks, state) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
-                   (f"{job_id}-live", job_id, 0, LIVE, access_class, 0.0, 1.0, 10 ** 6, 0.0, 1, 1, "pending"))
+                   (f"{job_id}-live", job_id, 0, LIVE, access_class, 0.25, 1.0, 10 ** 6, 0.0, 1, 1, "pending"))
         coord._audit(db, {"type": "submit", "job": job_id, "admitted": True, "reason": "live transcription", "units": 1})
     return {"job_id": job_id, "status": "admitted", "eta": None, "created": True}
 
@@ -149,6 +150,17 @@ def lease_live(db, coord, me, now: float) -> dict | None:
         return None
     core = _core()
     node_id = me["node_id"]
+    if (me["backend"] or "") in CLOUD_BACKENDS:
+        # local, heat-producing compute first: hold the cloud node while an eligible LOCAL node is idle and healthy
+        for n in db.execute("""SELECT * FROM nodes WHERE node_id<>? AND tampered=0 AND drained=0 AND last_hb >= ?""",
+                            (node_id, now - core.SUSPECT_S)).fetchall():
+            if (n["backend"] or "") in CLOUD_BACKENDS or u["access_class"] not in set(json.loads(n["eligible_classes"])):
+                continue
+            if n["backend"] and db.execute("SELECT 1 FROM leases WHERE node_id=? AND state='active'", (n["node_id"],)).fetchone() is None:
+                return {"hold": True, "reason": f"live job reserved for local node {n['node_id']}; cloud only as fallback",
+                        "retry_after_s": 2.0}
+    reason = "cloud fallback: no idle local node" if (me["backend"] or "") in CLOUD_BACKENDS else \
+        "local node preferred; cloud only as fallback"
     rel = coord._release(u["job_id"], node_id, coord._attestation(me), me["region"])
     coord._persist_audit(db)
     if isinstance(rel, trust.Denied):
@@ -157,7 +169,8 @@ def lease_live(db, coord, me, now: float) -> dict | None:
     lease_id = "l-" + secrets.token_hex(8)
     db.execute("INSERT INTO leases VALUES(?,?,?,?,?,?)", (lease_id, u["unit_id"], node_id, "active", now, now + core.LEASE_S))
     db.execute("UPDATE units SET state='leased' WHERE unit_id=?", (u["unit_id"],))
-    coord._audit(db, {"type": "lease", "lease": lease_id, "unit": u["unit_id"], "node": node_id, "degraded": False})
+    coord._audit(db, {"type": "lease", "lease": lease_id, "unit": u["unit_id"], "node": node_id, "degraded": False,
+                      "reason": reason, "backend": me["backend"]})
     if prev is not None and prev["node_id"] != node_id:
         nxt = _next_seq(db, u["job_id"])
         ps.emit(db, coord, "job.moved", {"job": u["job_id"], "from": prev["node_id"], "to": node_id, "at_seq": nxt},

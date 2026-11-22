@@ -163,6 +163,13 @@ class Coordinator:
             db.execute("UPDATE leases SET state='lapsed' WHERE lease_id=?", (r["lease_id"],))
             db.execute("UPDATE units SET state='pending' WHERE unit_id=? AND state='leased'", (r["unit_id"],))
             self._audit(db, {"type": "lease_lapsed", "lease": r["lease_id"], "unit": r["unit_id"], "node": r["node_id"]})
+        # self-repair (#132): a unit marked leased must be held by an active lease; an orphan (seen live once on a live
+        # transcription unit) can never lapse, so it goes back to pending at once, audited so the cause can be traced
+        for r in db.execute("""SELECT unit_id, job_id FROM units u WHERE state='leased' AND NOT EXISTS
+                               (SELECT 1 FROM leases l WHERE l.unit_id = u.unit_id AND l.state='active')""").fetchall():
+            db.execute("UPDATE units SET state='pending' WHERE unit_id=? AND state='leased'", (r["unit_id"],))
+            self._audit(db, {"type": "repair_orphan_unit", "unit": r["unit_id"], "job": r["job_id"],
+                             "reason": "leased without an active lease"})
 
     def _hour(self, now: float) -> int:
         tz = ZoneInfo(self.a["location"]["tz"])
@@ -354,9 +361,10 @@ class Coordinator:
             if cur is not None:  # one unit at a time per node: re-asking returns the same lease (idempotent)
                 return self._lease_payload(db, cur, now, self._degraded(me, now), key=None)
             live = ts.lease_live(db, self, me, now)  # #127: a live transcription is leased at once, heat or not
-            if live is not None:
+            if live is not None:  # (or a hold: a cloud node waits while a local node is idle, #132)
                 return live
-            queue = [self._unit(r) for r in db.execute("SELECT * FROM units WHERE state='pending'").fetchall()]
+            queue = [self._unit(r) for r in db.execute("SELECT * FROM units WHERE state='pending' AND job_class!=?",
+                                                         (ts.LIVE,)).fetchall()]  # live units never enter decide() (#132)
             if not queue:
                 return {"hold": True, "reason": "no work", "retry_after_s": HOLD_RETRY_S}
             hour = self._hour(now)
@@ -437,9 +445,16 @@ class Coordinator:
                 raise CoordError(410, f"lease {lz['state']}: stop and discard local work")
             me = self._node(db, node_id)
             u = db.execute("SELECT * FROM units WHERE unit_id=?", (lz["unit_id"],)).fetchone()
-            if u["job_class"] == ts.LIVE and not me["drained"]:  # #127: never paused by the heat signal
-                db.execute("UPDATE leases SET expires_at=? WHERE lease_id=?", (now + LEASE_S, lease_id))
-                return {"ok": True, "expires_in_s": LEASE_S}
+            if u["job_class"] == ts.LIVE:  # #127: never paused by the heat signal and never through decide() (#132)
+                if not me["drained"]:
+                    db.execute("UPDATE leases SET expires_at=? WHERE lease_id=?", (now + LEASE_S, lease_id))
+                    return {"ok": True, "expires_in_s": LEASE_S}
+                db.execute("UPDATE leases SET state='paused', expires_at=? WHERE lease_id=?", (now + LEASE_S, lease_id))
+                db.execute("UPDATE units SET state='pending' WHERE unit_id=? AND state='leased'", (u["unit_id"],))
+                self._audit(db, {"type": "lease_paused", "lease": lease_id, "unit": u["unit_id"], "node": node_id,
+                                 "reason": "node drained by the operator", "degraded": False})
+                return {"hold": True, "reason": "node drained by the operator", "retry_after_s": HOLD_RETRY_S,
+                        "final_checkpoint_within_s": LEASE_S}
             hour = self._hour(now)
             degraded = self._degraded(me, now)
             params = Params.from_assumptions(self.a, policy="merit", slack_enabled=not degraded)

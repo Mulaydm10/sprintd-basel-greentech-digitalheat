@@ -15,7 +15,7 @@ Phone (client) for wow #1: `phone-client.html`, signed in, on B's phone; its scr
 |---|---|---|
 | 0:00 | 01 Overview (hero) | nothing: let the title land |
 | 0:30 | 02 Problem: scroll to the 31 % / 9,910 kWh cards | scroll slowly |
-| 1:10 | 03 Scheduler: the price-per-kWh diagram | → |
+| 1:10 | 03 Scheduler: scroll to "Three horizons, three layers" + the 🔒 card | → , scroll |
 | 1:50 | 04 Live demo, top ("Pull the plug. Nothing is lost.") + phone | Start on the phone, then STOP on the second device |
 | 2:50 | 04 Live demo, fleet section with the QR | keep it on screen while people scan |
 | 3:50 | 07 Year: Map, play at 8×, click one glowing house → trace card; then 05 Economics | play, click, → |
@@ -34,10 +34,13 @@ Phone (client) for wow #1: `phone-client.html`, signed in, on B's phone; its scr
 - "Follow the thermostat and you **miss 31% of paid deadlines** (row 5). Run always-on and you throw heat away; either way it costs **0.69–0.74 CHF per server-hour** to break even (rows 22, 11)."
 > "So the real question isn't 'can a server heat a home'. It's **who decides, every hour, which job runs where**."
 
-## 1:10–1:50 · Our scheduler (A, 03 Scheduler)
-- "Every hour each house puts a **price on its heat**: cheap when the heat is wanted, expensive when it would be dumped. Jobs go to the cheapest heat first."
-- "Jobs with spare time **wait** for cold hours: patience is our battery. Cheap filler work soaks up winter capacity. A job is accepted only if it can finish in time."
-- "**One `decide()`** runs the simulated year *and* the real machines you're about to see."
+## 1:10–1:50 · Our scheduler: three horizons, three layers (A, 03 Scheduler → "Three horizons" section)
+> "Every scheduling system faces three problems: a long-term one, a mid-term one and a short-term one. We split them and solve each separately."
+- **Long term, the year plan:** "We run all 8,760 hours of Basel's year through our scheduler for every fleet size and recommend the plan: for the reference house, 3 servers. **An operator approves the year plan** before it goes live. Next, an AI planner will propose that plan; the human still approves."
+- **Mid term, every hour:** "Every hour each house puts a **price on its heat**: cheap when the heat is wanted, expensive when it would be dumped. Work goes to the cheapest heat first; jobs with spare time wait for colder hours; we only accept work that can finish on time."
+- **Short term, seconds:** "When a machine fails, overheats or is unplugged, its job continues elsewhere within seconds from its last checkpoint. Nothing is lost."
+- Point at the dark card: "And **all of it is encrypted end to end**: data is encrypted on the customer's device, our coordinator only stores locked boxes, and every result is signed and hash-linked."
+> "The same code runs the simulated year and the real machines you're about to see."
 
 ## 1:50–2:50 · WOW #1: pull the plug, lose nothing (B on phone + big screen)
 **B:** phone-client.html → **Start** → speaks into the phone.
@@ -53,7 +56,7 @@ Phone (client) for wow #1: `phone-client.html`, signed in, on B's phone; its scr
 
 ## 2:50–3:50 · WOW #2: the room becomes a data centre (big screen 04 Live, QR)
 > A: "Now *you* are the fleet. Scan the code."
-- Volunteers join; phones fly into the 3D view around the coordinator. Every 4th phone is a **client**, the rest **servers**.
+- Volunteers join; phones fly into the 3D view around the coordinator. The big QR gives a random role (every 4th phone is a **client**, the rest **servers**). **Judges:** use the small QRs underneath to join directly as a **client** or a **server**.
 > "Clients: tap **Submit a job**. Servers: your phone is now a basement server. It's working, and it's getting warm.
 > When it's warm enough, when *your heat need is met*, tap **STOP**."
 - Point at the screen: the job jumps to another phone and continues from the same step.

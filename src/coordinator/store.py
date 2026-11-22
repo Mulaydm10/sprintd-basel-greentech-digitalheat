@@ -52,6 +52,9 @@ CREATE TABLE IF NOT EXISTS site_override (site_id TEXT PRIMARY KEY, paused INTEG
   at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS site_hourly (site_id TEXT NOT NULL, hour_ts INTEGER NOT NULL, heat_kwh REAL NOT NULL,
   dumped_kwh REAL NOT NULL, demand_kwh REAL NOT NULL, PRIMARY KEY (site_id, hour_ts));
+CREATE TABLE IF NOT EXISTS segments (job_id TEXT NOT NULL, seq INTEGER NOT NULL, path TEXT NOT NULL,
+  sha256 TEXT NOT NULL, size INTEGER NOT NULL, received_at REAL NOT NULL, state TEXT NOT NULL, text TEXT, words TEXT,
+  node TEXT, backend TEXT, ms REAL, accepted_at REAL, PRIMARY KEY (job_id, seq));  -- live transcription (#127)
 CREATE TABLE IF NOT EXISTS results (unit_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, sha256 TEXT NOT NULL,
   path TEXT NOT NULL, bytes INTEGER NOT NULL);
 """
@@ -65,6 +68,8 @@ MIGRATIONS = (
     ("jobs", "idempotency_key", "ALTER TABLE jobs ADD COLUMN idempotency_key TEXT"),
     ("jobs", "cancelled_at", "ALTER TABLE jobs ADD COLUMN cancelled_at REAL"),
     ("jobs", "status", "ALTER TABLE jobs ADD COLUMN status TEXT"),  # last job.state emitted
+    ("jobs", "ended_at", "ALTER TABLE jobs ADD COLUMN ended_at REAL"),  # #127 live transcription: client ended
+    ("nodes", "backend", "ALTER TABLE nodes ADD COLUMN backend TEXT"),  # #127 transcriber backend from heartbeat
     ("jobs", "idem_params", "ALTER TABLE jobs ADD COLUMN idem_params TEXT"),  # F37: the request a key was used for
 )
 

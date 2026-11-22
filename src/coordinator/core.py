@@ -43,6 +43,7 @@ from scheduler.admit import admit
 from scheduler.policy import used_capacity_kwh_el
 
 from . import portal_store as ps
+from . import transcribe as ts
 from .registry import load_registry, validate as validate_registry
 from .store import Store
 
@@ -325,6 +326,8 @@ class Coordinator:
             self._expire(db, now)
             before = self._node(db, node_id)
             unit, progress = ps.bound_running_unit(db, self, node_id, hb.get("running_unit"), hb.get("progress"))
+            if hb.get("backend"):
+                db.execute("UPDATE nodes SET backend=? WHERE node_id=?", (str(hb["backend"])[:32], node_id))
             sets = {"last_hb": now, "watts": hb.get("watts"), "running_unit": unit,
                     "progress": progress, "last_error": hb.get("last_error")}
             if hb.get("tank_level_kwh") is not None or hb.get("demand_kw") is not None:
@@ -350,6 +353,9 @@ class Coordinator:
             cur = db.execute("SELECT * FROM leases WHERE node_id=? AND state='active'", (node_id,)).fetchone()
             if cur is not None:  # one unit at a time per node: re-asking returns the same lease (idempotent)
                 return self._lease_payload(db, cur, now, self._degraded(me, now), key=None)
+            live = ts.lease_live(db, self, me, now)  # #127: a live transcription is leased at once, heat or not
+            if live is not None:
+                return live
             queue = [self._unit(r) for r in db.execute("SELECT * FROM units WHERE state='pending'").fetchall()]
             if not queue:
                 return {"hold": True, "reason": "no work", "retry_after_s": HOLD_RETRY_S}
@@ -431,6 +437,9 @@ class Coordinator:
                 raise CoordError(410, f"lease {lz['state']}: stop and discard local work")
             me = self._node(db, node_id)
             u = db.execute("SELECT * FROM units WHERE unit_id=?", (lz["unit_id"],)).fetchone()
+            if u["job_class"] == ts.LIVE and not me["drained"]:  # #127: never paused by the heat signal
+                db.execute("UPDATE leases SET expires_at=? WHERE lease_id=?", (now + LEASE_S, lease_id))
+                return {"ok": True, "expires_in_s": LEASE_S}
             hour = self._hour(now)
             degraded = self._degraded(me, now)
             params = Params.from_assumptions(self.a, policy="merit", slack_enabled=not degraded)

@@ -82,15 +82,19 @@ function start(root) {
 
   // coordinator core
   const core = new THREE.Group(); scene.add(core);
-  const coreMesh = new THREE.Mesh(new THREE.SphereGeometry(2.6, 48, 32), new THREE.MeshStandardMaterial({ color: 0x1a1210, emissive: C.heat, emissiveIntensity: 0.6, flatShading: false, metalness: 0.3, roughness: 0.4 }));
+  const coreMesh = new THREE.Mesh(new THREE.SphereGeometry(1.1, 48, 32), new THREE.MeshStandardMaterial({ color: 0xf2efe9, emissive: 0xf2efe9, emissiveIntensity: 0.55, metalness: 0.1, roughness: 0.25 }));
   core.add(coreMesh);
   const coreWire = new THREE.Mesh(new THREE.IcosahedronGeometry(4.4, 1), new THREE.MeshBasicMaterial({ color: C.hot, wireframe: true, transparent: true, opacity: 0.1 }));
   coreWire.visible = false; core.add(coreWire);
-  const rings = [5.8].map((r, i) => { const m = new THREE.Mesh(new THREE.TorusGeometry(r, 0.025, 6, 160), new THREE.MeshBasicMaterial({ color: i ? C.cold : C.hot, transparent: true, opacity: 0.25 })); m.rotation.x = Math.PI / 2 + i * 0.4; core.add(m); return m; });
+  const rings = [[3.2, 0.0, 0.0], [4.1, 1.05, 0.35], [5.0, 2.1, -0.3]].map(([r, ry, rz], i) => {
+    const m = new THREE.Mesh(new THREE.TorusGeometry(r, 0.018, 6, 200), new THREE.MeshBasicMaterial({ color: i === 0 ? C.hot : 0xc9bfb0, transparent: true, opacity: i === 0 ? 0.55 : 0.28 }));
+    const pivot = new THREE.Group(); pivot.rotation.set(Math.PI / 2 + rz, ry, 0); pivot.add(m); core.add(pivot);
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 12), new THREE.MeshBasicMaterial({ color: i === 0 ? C.hot : 0xf2efe9 }));
+    dot.position.set(r, 0, 0); m.add(dot); return m; });
 
   // nodes
   const nodes = new Map();    // id -> {g, mesh, glow, line, pos, kind, label, state, born, heat}
-  const phoneGeo = new THREE.BoxGeometry(1.1, 2.1, 0.14), lapGeo = new THREE.BoxGeometry(3.6, 0.28, 2.4), lapLid = new THREE.BoxGeometry(3.6, 2.3, 0.12);
+  const phoneGeo = new THREE.CircleGeometry(0.75, 48), lapGeo = new THREE.CircleGeometry(1.25, 64), rimGeo = new THREE.RingGeometry(1.45, 1.52, 64);
   const heatTex = (() => { const c = document.createElement("canvas"); c.width = c.height = 64; const x = c.getContext("2d"); const g = x.createRadialGradient(32, 32, 0, 32, 32, 32); g.addColorStop(0, "rgba(255,190,120,1)"); g.addColorStop(0.4, "rgba(255,106,31,.5)"); g.addColorStop(1, "rgba(255,106,31,0)"); x.fillStyle = g; x.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
 
   function slotFor(kind, n) {
@@ -103,8 +107,9 @@ function start(root) {
     const g = new THREE.Group();
     const mat = new THREE.MeshStandardMaterial({ color: 0x1b1714, emissive: kind === "laptop" ? C.laptop : C.idle, emissiveIntensity: 0.35, metalness: 0.4, roughness: 0.35 });
     let mesh;
-    if (kind === "laptop") { mesh = new THREE.Group(); const base = new THREE.Mesh(lapGeo, mat); const lid = new THREE.Mesh(lapLid, mat); lid.position.set(0, 1.15, -1.2); lid.rotation.x = -0.25; mesh.add(base, lid); }
+    if (kind === "laptop") { mesh = new THREE.Group(); mesh.add(new THREE.Mesh(lapGeo, mat), new THREE.Mesh(rimGeo, new THREE.MeshBasicMaterial({ color: 0xf2efe9, transparent: true, opacity: 0.35, side: THREE.DoubleSide }))); }
     else mesh = new THREE.Mesh(phoneGeo, mat);
+    mat.side = THREE.DoubleSide;
     g.add(mesh);
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: heatTex, color: C.heat, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
     glow.scale.set(9, 9, 1); g.add(glow);
@@ -196,12 +201,12 @@ function start(root) {
   let last = performance.now();
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
-    coreMesh.rotation.y += dt * 0.1; rings.forEach((r) => (r.rotation.z += dt * 0.12));
+    rings.forEach((r, i) => (r.rotation.z += dt * (0.25 - i * 0.06)));
     const busy = [...nodes.values()].filter((n) => n.state === "busy").length;
-    coreMesh.material.emissiveIntensity = 0.7 + 0.12 * Math.sin(now / 600) + busy * 0.02;
+    coreMesh.material.emissiveIntensity = 0.5 + 0.06 * Math.sin(now / 900) + Math.min(0.2, busy * 0.015);
     for (const n of nodes.values()) {
       if (n.kind === "phone") n.g.position.lerp(n.pos, 0.035);                       // fly in
-      n.g.lookAt(cam.position.x, n.g.position.y, cam.position.z);
+      n.g.quaternion.copy(cam.quaternion);   // discs always face the viewer
       const target = n.state === "busy" ? 1 : 0; n.heat += (target - n.heat) * 0.04;
       const col = n.state === "stopped" ? C.stop : n.state === "gone" ? 0x3a3430 : n.role === "client" ? C.cold : n.kind === "laptop" ? C.laptop : C.idle;
       n.mat.emissive.setHex(n.heat > 0.05 ? C.heat : col);

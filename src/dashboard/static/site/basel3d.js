@@ -419,10 +419,11 @@ export async function create(host, opts = {}) {
   function eligible(cls, house) { return cls === "public" || (FL.houses[house].classes || []).includes(cls); }
   function jobCard(unit) {
     const t = TR.unit.get(unit); if (!t) return "";
-    const { j, u } = t, runs = u.runs, used = [...new Set(runs.map((r) => r[1]))], allOk = used.every((hh) => eligible(j.class, hh));
-    const rowsH = runs.slice(0, 14).map(([h, house]) => `<div title="${esc(src("jobs.json + houses.u16", h))}" style="display:grid;grid-template-columns:92px 70px 1fr;gap:8px;color:#d8d2c8"><span>${when(h)}</span><span style="color:#ffb36b">house ${house}</span><span style="color:#a8a298">${why(house, h)}</span></div>`).join("")
+    const { j } = t, runs = j.units.flatMap((x) => x.runs.map((r) => [r[0], r[1], x.unit])).sort((a, b) => a[0] - b[0]);
+    const used = [...new Set(runs.map((r) => r[1]))], allOk = used.every((hh) => eligible(j.class, hh));
+    const rowsH = runs.slice(0, 14).map(([h, house, un]) => `<div title="${esc(src("jobs.json + houses.u16", h))}" style="display:grid;grid-template-columns:92px 70px 1fr;gap:8px;color:#d8d2c8"><span>${when(h)}</span><span style="color:#ffb36b" title="${esc(un)}">house ${house}</span><span style="color:#a8a298">${why(house, h)}</span></div>`).join("")
       + (runs.length > 14 ? `<div style="color:#6e6a63">… ${runs.length - 14} more hours</div>` : "");
-    return `<div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#ffb36b;margin-bottom:6px">job trace · ${esc(j.job)} / ${esc(u.unit)}</div>`
+    return `<div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#ffb36b;margin-bottom:6px">job trace · ${esc(j.job)} · ${j.units.length} units</div>`
       + row("class", esc(j.class), j.class === "public" ? null : "#8fd3ff") + row("bid", j.bid + " CHF/server-h") + row("arrived", when(j.arrival_h))
       + row("deadline", `${when(j.deadline_h)} · ${j.state === "done" ? "met" : esc(j.state)}`, j.state === "done" ? "#b8e986" : "#ff3355")
       + row("houses used", `${used.length} · ${allOk ? "all eligible ✓" : "INELIGIBLE HOUSE"}`, allOk ? "#b8e986" : "#ff3355")
@@ -433,7 +434,8 @@ export async function create(host, opts = {}) {
     FL.sel = unit || null; if (TR.ribbon) { scene.remove(TR.ribbon); TR.ribbon.geometry.dispose(); TR.ribbon = null; }
     for (const l of TR.locks) l.el.remove(); TR.locks = [];
     if (!FL.sel || !TR.unit.has(FL.sel)) { if (S.jobCard) { panel.style.display = "none"; S.jobCard = false; } applyRings(); return; }
-    const { j, u } = TR.unit.get(FL.sel), seq = []; for (const [, house] of u.runs) if (seq[seq.length - 1] !== house) seq.push(house);
+    const { j } = TR.unit.get(FL.sel), seq = [];
+    for (const [, house] of j.units.flatMap((x) => x.runs).sort((a, b) => a[0] - b[0])) if (seq[seq.length - 1] !== house) seq.push(house);
     if (seq.length) { const pts = seq.map((i) => hp(i).setY(FL.houses[i].Y + 40));
       if (pts.length === 1) pts.push(pts[0].clone().setY(pts[0].y + 60));
       TR.ribbon = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), Math.max(16, pts.length * 12), 2.2, 6, false),
@@ -486,7 +488,8 @@ export async function create(host, opts = {}) {
         for (let k = 1; k < seen.length; k++) links.push({ ...seen[k], prev: seen[k - 1].house, batch: true });
       }
       TR.cur = [...moves, ...links].slice(0, 30);
-      for (const e of TR.cur) { const c = arcCurve(hp(e.prev), hp(e.house)); const isSel = FL.sel === e.u.unit;
+      const selJob = FL.sel && TR.unit.has(FL.sel) ? TR.unit.get(FL.sel).j.job : null;
+      for (const e of TR.cur) { const c = arcCurve(hp(e.prev), hp(e.house)); const isSel = selJob === e.j.job;
         TR.arcs.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(c.getPoints(40)), new THREE.LineBasicMaterial({ color: isSel ? 0xffffff : PAL[e.ji % PAL.length], transparent: true, opacity: isSel ? 0.95 : 0.45, blending: THREE.AdditiveBlending, depthWrite: false })));
         e.curve = c; } }
     let n = 0; const p = new THREE.Vector3(), col = new THREE.Color();
@@ -572,7 +575,7 @@ export async function create(host, opts = {}) {
   }
   const panel = document.createElement("div");
   panel.setAttribute("data-dh-panel", "");
-  panel.style.cssText = "position:absolute;top:44px;right:156px;width:min(300px,42%);max-height:calc(100% - 260px);overflow:auto;display:none;padding:14px 16px;border-radius:16px;background:rgba(18,17,16,0.62);backdrop-filter:blur(14px) saturate(1.2);-webkit-backdrop-filter:blur(14px) saturate(1.2);border:1px solid rgba(242,239,233,0.2);box-shadow:0 20px 60px rgba(0,0,0,0.45);color:#f2efe9;font:12px/1.55 'Geist Mono',monospace;z-index:6";
+  panel.style.cssText = "position:absolute;top:44px;right:156px;width:min(300px,42%);max-height:calc(100% - 300px);overflow:auto;display:none;padding:14px 16px;border-radius:16px;background:rgba(18,17,16,0.62);backdrop-filter:blur(14px) saturate(1.2);-webkit-backdrop-filter:blur(14px) saturate(1.2);border:1px solid rgba(242,239,233,0.2);box-shadow:0 20px 60px rgba(0,0,0,0.45);color:#f2efe9;font:12px/1.55 'Geist Mono',monospace;z-index:6";
   host.appendChild(panel);
   panel.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest("[data-job]"); if (b) { e.stopPropagation(); selectJob(b.dataset.job, "map"); } });
   const liveByB = new Map(live.map((L) => [L.b, L]));

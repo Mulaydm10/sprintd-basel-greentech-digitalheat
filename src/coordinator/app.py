@@ -247,6 +247,14 @@ def create_app(state_dir: Path, tokens: dict[str, str] | None = None, clock=time
                        p: Principal = Depends(principal)):
         return ts.accept(coord, node_token(p), lease_id, seq, body.text, body.words, body.backend, body.ms)
 
+    class FlushIn(Strict):
+        text: Annotated[str, Field(max_length=500)]
+
+    @app.post("/v1/leases/{lease_id}/segments/{seq}/flush")
+    def segment_flush(lease_id: PathId, seq: Annotated[int, PathParam(ge=0, le=10_000_000)], body: FlushIn,
+                      p: Principal = Depends(principal)):
+        return ts.flush(coord, node_token(p), lease_id, seq, body.text)  # #134 the final held-back words
+
     mount_portal(app, principal, coord)
     return app
 

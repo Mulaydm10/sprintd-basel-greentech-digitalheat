@@ -238,6 +238,17 @@ class Agent:
             raise ValueError(f"unit dir {d} escapes {self.workdir}")
         return d
 
+    def _flush(self, lease_id: str, last_seq: int) -> None:
+        """#134: after /end, append the last segment's held-back tail ('keep going.') once."""
+        seq, tail = getattr(self, "_tail", (None, ""))
+        self._tail = (None, "")
+        if seq is None or seq != last_seq or not tail:
+            return
+        try:
+            self._post(f"/v1/leases/{lease_id}/segments/{seq}/flush", json={"text": tail})
+        except Retry:
+            pass
+
     def run_live(self, lease: dict[str, Any]) -> str:
         """#127: hold a live transcription lease: long-poll segments, decrypt with the released job key, transcribe
         in seq order, post each result once; renew; stop at once on 410 (STOP moved the job). -> done | lapsed | denied."""
@@ -254,6 +265,7 @@ class Agent:
         key, lease_id, unit_id = wire.key_from_json(kr), str(lease["lease_id"]), str(lease["unit"]["unit_id"])
         self.state.update(running_unit=unit_id, progress=0.0, last_error=None)
         after, last_renew = -1, self.clock()
+        self._tail = (None, "")
         renew_s = min(self.cfg.renew_s, float(lease.get("renew_every_s", self.cfg.renew_s)))
         try:
             while True:
@@ -261,7 +273,10 @@ class Agent:
                     r = self._post(f"/v1/leases/{lease_id}/renew")
                     if r.status_code == 410:  # moved by STOP, or the job just finished here: the fetch tells which
                         f = self.http.get(f"/v1/leases/{lease_id}/segments", params={"after": after, "wait": 0})
-                        return "done" if f.status_code == 200 and f.json().get("done") else "lapsed"
+                        if f.status_code == 200 and f.json().get("done"):
+                            self._flush(lease_id, after)
+                            return "done"
+                        return "lapsed"
                     last_renew = self.clock()
                 try:
                     r = self.http.get(f"/v1/leases/{lease_id}/segments", params={"after": after, "wait": min(2.0, renew_s)},
@@ -277,6 +292,7 @@ class Agent:
                 self._ok()
                 d = r.json()
                 if d.get("done"):
+                    self._flush(lease_id, after)
                     return "done"
                 after = max(after, int(d["next_seq"]) - 1)
                 for s in d["segments"]:
@@ -295,9 +311,11 @@ class Agent:
                     if rr.status_code not in (200, 201):
                         break
                     after = int(s["seq"])
+                    self._tail = (after, out.get("tail") or "")  # held back; the next segment re-hears it (#134)
                     self.state["progress"] = 0.0
                     last_renew = self.clock()  # an accepted result extends the lease on the coordinator
                 if d["ended"] and not d["segments"] and int(d["next_seq"]) == after + 1:
+                    self._flush(lease_id, after)
                     return "done"
         except Retry:
             self.backoff()

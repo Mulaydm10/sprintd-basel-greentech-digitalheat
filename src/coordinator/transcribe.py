@@ -271,3 +271,34 @@ def _maybe_finish(db, coord, job_id: str) -> None:
     if lz is not None:
         db.execute("UPDATE leases SET state='completed' WHERE lease_id=?", (lz["lease_id"],))
     coord._audit(db, {"type": "complete", "unit": u["unit_id"], "node": lz["node_id"] if lz else None, "result": "live"})
+
+
+def flush(coord, node_id: str, lease_id: str, seq: int, text: str) -> dict:
+    """#134: after /end, the node that accepted the LAST segment appends that segment's held-back tail once (the
+    words a next segment would have confirmed). Lease must be this node's (active or just completed); idempotent."""
+    text = (text or "").strip()[:500]
+    with coord._tx() as db:
+        lz = db.execute("SELECT * FROM leases WHERE lease_id=?", (lease_id,)).fetchone()
+        if lz is None:
+            raise _err(404, "unknown lease")
+        if lz["node_id"] != node_id:
+            raise _err(403, "lease belongs to another node")
+        if lz["state"] not in ("active", "completed"):
+            raise _err(410, f"lease {lz['state']}")
+        job = db.execute("SELECT job_id FROM units WHERE unit_id=?", (lz["unit_id"],)).fetchone()["job_id"]
+        if db.execute("SELECT ended_at FROM jobs WHERE job_id=?", (job,)).fetchone()["ended_at"] is None:
+            raise _err(409, "the stream has not ended")
+        last = db.execute("SELECT * FROM segments WHERE job_id=? ORDER BY seq DESC LIMIT 1", (job,)).fetchone()
+        if last is None or last["seq"] != seq or last["state"] != "accepted" or last["node"] != node_id:
+            raise _err(409, "only the last segment, accepted by this node, can be flushed")
+        if last["flushed"] is not None:
+            if last["flushed"] == text:
+                return {"ok": True, "duplicate": True, "seq": seq}
+            raise _err(409, "already flushed")
+        db.execute("UPDATE segments SET flushed=?, text=TRIM(COALESCE(text, '') || ' ' || ?) WHERE job_id=? AND seq=?",
+                   (text, text, job, seq))
+        full = db.execute("SELECT text FROM segments WHERE job_id=? AND seq=?", (job, seq)).fetchone()["text"]
+        ps.emit(db, coord, "transcript.segment", {"job": job, "seq": seq, "text": full, "node": node_id,
+                                                  "backend": last["backend"], "flush": True},  # full text: replaces
+                **ps.scope(db, lz["unit_id"], node_id))
+    return {"ok": True, "duplicate": False, "seq": seq}

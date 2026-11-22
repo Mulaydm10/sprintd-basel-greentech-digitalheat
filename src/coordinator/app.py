@@ -70,6 +70,10 @@ class HeartbeatIn(Strict):
     backend: Annotated[str, Field(pattern=r"^[a-z0-9_-]{1,32}$")] | None = None  # #127 transcriber backend
 
 
+class FlushIn(Strict):  # #134 the final held-back words of a stream
+    text: Annotated[str, Field(max_length=500)]
+
+
 class SegmentResultIn(Strict):  # #127
     text: Annotated[str, Field(max_length=4000)]
     words: Annotated[list[dict[str, str | float]], Field(max_length=400)] | None = None
@@ -246,6 +250,11 @@ def create_app(state_dir: Path, tokens: dict[str, str] | None = None, clock=time
     def segment_result(lease_id: PathId, seq: Annotated[int, PathParam(ge=0, le=10_000_000)], body: SegmentResultIn,
                        p: Principal = Depends(principal)):
         return ts.accept(coord, node_token(p), lease_id, seq, body.text, body.words, body.backend, body.ms)
+
+    @app.post("/v1/leases/{lease_id}/segments/{seq}/flush")
+    def segment_flush(lease_id: PathId, seq: Annotated[int, PathParam(ge=0, le=10_000_000)], body: FlushIn,
+                      p: Principal = Depends(principal)):
+        return ts.flush(coord, node_token(p), lease_id, seq, body.text)  # #134 the final held-back words
 
     mount_portal(app, principal, coord)
     return app

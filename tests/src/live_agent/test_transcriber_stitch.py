@@ -53,3 +53,48 @@ def test_132_tail_words_are_held_back_unless_final():
     seg = W(("the", 0.0, 0.2), ("machine", 3.0, 3.5), ("without", 4.3, 4.6), ("losing", 4.6, 4.95))  # tail may be guessed
     assert text(stitch(seg, "", seq=0, dur=5.0)) == "the machine"
     assert text(stitch(seg, "", seq=0, dur=5.0, final=True)) == "the machine without losing"
+
+
+def _scribe(*items):  # the ElevenLabs Scribe JSON word shape: words + spacing items, punctuation attached
+    out = []
+    for w, t0, t1 in items:
+        out += [{"text": w, "start": t0, "end": t1, "type": "word"}, {"text": " ", "start": t1, "end": t1, "type": "spacing"}]
+    return {"text": " ".join(i[0] for i in items), "words": out}
+
+
+def _el(monkeypatch, payload, dur=5.0):
+    import io, wave
+    from live_agent import transcriber as T
+    class R:
+        status_code = 200
+        def json(self): return payload
+    import httpx
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: R())
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "x")
+    b = io.BytesIO()
+    with wave.open(b, "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000); w.writeframes(b"\0\0" * int(16000 * dur))
+    return T.ElevenLabs(), b.getvalue()
+
+
+def test_134_scribe_overlap_with_casing_and_punctuation_is_removed(monkeypatch):
+    el, wav = _el(monkeypatch, _scribe(("Basement", 0.0, 0.4), ("heat", 0.45, 0.7), ("your", 0.75, 0.95),
+                                        ("home,", 1.0, 1.4), ("while", 1.5, 1.8)))
+    out = el.transcribe(wav, "Servers in your basement heat your", seq=6)
+    assert out["text"] == "home, while"
+
+
+def test_134_scribe_hyphen_fragment_is_never_accepted_and_next_segment_aligns(monkeypatch):
+    el, wav = _el(monkeypatch, _scribe(("Right", 2.0, 2.3), ("now,", 2.3, 2.6), ("this", 2.7, 3.0), ("trans-", 3.0, 3.4)))
+    a = el.transcribe(wav, "", seq=0)
+    assert "trans" not in a["text"]
+    el2, wav2 = _el(monkeypatch, _scribe(("now", 0.0, 0.2), ("this", 0.25, 0.45), ("transcription", 0.5, 1.2),
+                                          ("is", 1.3, 1.4), ("running", 1.5, 1.9)))
+    assert el2.transcribe(wav2, "Right now, this trans-", seq=7)["text"] == "transcription is running"
+
+
+def test_134_held_tail_is_returned_for_the_final_flush(monkeypatch):
+    el, wav = _el(monkeypatch, _scribe(("we", 1.0, 1.2), ("keep", 4.3, 4.6), ("going.", 4.6, 4.9)))
+    out = el.transcribe(wav, "", seq=0)
+    assert out["text"] == "we" and out["tail"] == "keep going."
+    assert el.transcribe(wav, "", seq=0, final=True)["text"] == "we keep going."

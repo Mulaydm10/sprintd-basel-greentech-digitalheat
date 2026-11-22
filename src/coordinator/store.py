@@ -70,6 +70,7 @@ MIGRATIONS = (
     ("jobs", "status", "ALTER TABLE jobs ADD COLUMN status TEXT"),  # last job.state emitted
     ("jobs", "ended_at", "ALTER TABLE jobs ADD COLUMN ended_at REAL"),  # #127 live transcription: client ended
     ("nodes", "backend", "ALTER TABLE nodes ADD COLUMN backend TEXT"),  # #127 transcriber backend from heartbeat
+    ("segments", "flushed", "ALTER TABLE segments ADD COLUMN flushed TEXT"),  # #134 the final held-back tail
     ("jobs", "idem_params", "ALTER TABLE jobs ADD COLUMN idem_params TEXT"),  # F37: the request a key was used for
 )
 

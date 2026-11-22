@@ -65,28 +65,28 @@ function start(root) {
   const cam = new THREE.PerspectiveCamera(48, 1, 0.1, 500);
   cam.position.set(0, 26, 62);
   const ctl = new OrbitControls(cam, renderer.domElement);
-  ctl.enableDamping = true; ctl.autoRotate = true; ctl.autoRotateSpeed = 0.35; ctl.minDistance = 25; ctl.maxDistance = 120;
+  ctl.enableDamping = true; ctl.autoRotate = true; ctl.autoRotateSpeed = 0.15; ctl.minDistance = 25; ctl.maxDistance = 120;
   const comp = new EffectComposer(renderer);
   comp.addPass(new RenderPass(scene, cam));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 1.05, 0.55, 0.12);
+  const bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.4, 0.45, 0.4);
   comp.addPass(bloom); comp.addPass(new OutputPass());
   scene.add(new THREE.AmbientLight(0xffffff, 0.35));
-  const key = new THREE.PointLight(0xffb070, 140, 120); key.position.set(0, 10, 0); scene.add(key);
+  const key = new THREE.PointLight(0xffb070, 60, 120); key.position.set(0, 10, 0); scene.add(key);
 
   // floor grid + star dust
   const grid = new THREE.PolarGridHelper(46, 16, 6, 96, 0x2a2420, 0x1a1512); grid.position.y = -9; scene.add(grid);
   { const g = new THREE.BufferGeometry(), n = 900, p = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) { const r = 60 + Math.random() * 90, a = Math.random() * 6.283, y = (Math.random() - 0.5) * 80; p.set([Math.cos(a) * r, y, Math.sin(a) * r], i * 3); }
     g.setAttribute("position", new THREE.BufferAttribute(p, 3));
-    scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0x6b5a4a, size: 0.35, transparent: true, opacity: 0.6 }))); }
+    scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0x6b5a4a, size: 0.25, transparent: true, opacity: 0.25 }))); }
 
   // coordinator core
   const core = new THREE.Group(); scene.add(core);
-  const coreMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(3.2, 1), new THREE.MeshStandardMaterial({ color: 0x1a1210, emissive: C.heat, emissiveIntensity: 1.6, flatShading: true, metalness: 0.3, roughness: 0.4 }));
+  const coreMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(3.2, 1), new THREE.MeshStandardMaterial({ color: 0x1a1210, emissive: C.heat, emissiveIntensity: 0.8, flatShading: true, metalness: 0.3, roughness: 0.4 }));
   core.add(coreMesh);
-  const coreWire = new THREE.Mesh(new THREE.IcosahedronGeometry(4.4, 1), new THREE.MeshBasicMaterial({ color: C.hot, wireframe: true, transparent: true, opacity: 0.25 }));
+  const coreWire = new THREE.Mesh(new THREE.IcosahedronGeometry(4.4, 1), new THREE.MeshBasicMaterial({ color: C.hot, wireframe: true, transparent: true, opacity: 0.1 }));
   core.add(coreWire);
-  const rings = [5.5, 7.2].map((r, i) => { const m = new THREE.Mesh(new THREE.TorusGeometry(r, 0.05, 8, 128), new THREE.MeshBasicMaterial({ color: i ? C.cold : C.hot, transparent: true, opacity: 0.6 })); m.rotation.x = Math.PI / 2 + i * 0.4; core.add(m); return m; });
+  const rings = [5.5, 7.2].map((r, i) => { const m = new THREE.Mesh(new THREE.TorusGeometry(r, 0.05, 8, 128), new THREE.MeshBasicMaterial({ color: i ? C.cold : C.hot, transparent: true, opacity: 0.25 })); m.rotation.x = Math.PI / 2 + i * 0.4; core.add(m); return m; });
 
   // nodes
   const nodes = new Map();    // id -> {g, mesh, glow, line, pos, kind, label, state, born, heat}
@@ -115,7 +115,7 @@ function start(root) {
     const line = new THREE.Line(lg, new THREE.LineBasicMaterial({ color: kind === "laptop" ? 0x8a8278 : 0x5a4a3c, transparent: true, opacity: 0.35 }));
     scene.add(line);
     const el = document.createElement("div");
-    el.style.cssText = `position:absolute;transform:translate(-50%,-140%);font:11px ${MONO};color:#f2efe9;white-space:nowrap;text-shadow:0 0 6px #000;opacity:.9`;
+    el.style.cssText = `position:absolute;transform:translate(-50%,-140%);font:10px ${MONO};color:#cfc6b8;white-space:nowrap;text-shadow:0 0 4px #000;opacity:.7`;
     k.labels.appendChild(el);
     const nd = { id, g, mesh, mat, glow, line, pos, kind, label, state: "idle", born: performance.now(), el, heat: 0 };
     nodes.set(id, nd); return nd;
@@ -124,7 +124,7 @@ function start(root) {
   // packets (job moving between nodes) + rising heat particles
   const packets = [];
   function packet(from, to, color, ms = 1400, arc = 8) {
-    const s = new THREE.Mesh(new THREE.SphereGeometry(0.55, 12, 12), new THREE.MeshBasicMaterial({ color }));
+    const s = new THREE.Mesh(new THREE.SphereGeometry(0.35, 10, 10), new THREE.MeshBasicMaterial({ color }));
     scene.add(s);
     const trail = []; packets.push({ s, from: from.clone(), to: to.clone(), t0: performance.now(), ms, arc, trail, color });
   }
@@ -198,18 +198,18 @@ function start(root) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     coreMesh.rotation.y += dt * 0.4; coreWire.rotation.y -= dt * 0.25; rings.forEach((r, i) => (r.rotation.z += dt * (i ? -0.3 : 0.5)));
     const busy = [...nodes.values()].filter((n) => n.state === "busy").length;
-    coreMesh.material.emissiveIntensity = 1.3 + 0.4 * Math.sin(now / 300) + busy * 0.05;
+    coreMesh.material.emissiveIntensity = 0.7 + 0.12 * Math.sin(now / 600) + busy * 0.02;
     for (const n of nodes.values()) {
       if (n.kind === "phone") n.g.position.lerp(n.pos, 0.035);                       // fly in
       n.g.lookAt(cam.position.x, n.g.position.y, cam.position.z);
       const target = n.state === "busy" ? 1 : 0; n.heat += (target - n.heat) * 0.04;
       const col = n.state === "stopped" ? C.stop : n.state === "gone" ? 0x3a3430 : n.role === "client" ? C.cold : n.kind === "laptop" ? C.laptop : C.idle;
       n.mat.emissive.setHex(n.heat > 0.05 ? C.heat : col);
-      n.mat.emissiveIntensity = n.state === "gone" ? 0.1 : 0.35 + n.heat * (1.6 + 0.5 * Math.sin(now / 180 + n.g.position.x));
-      n.glow.material.opacity = n.heat * 0.85; n.glow.scale.setScalar(7 + 3 * n.heat + Math.sin(now / 240) * n.heat);
-      if (n.heat > 0.5 && Math.random() < 0.18) spark(n.g.position);
+      n.mat.emissiveIntensity = n.state === "gone" ? 0.08 : 0.3 + n.heat * (0.7 + 0.15 * Math.sin(now / 400 + n.g.position.x));
+      n.glow.material.opacity = n.heat * 0.35; n.glow.scale.setScalar(5 + 1.5 * n.heat);
+      if (n.heat > 0.5 && Math.random() < 0.03) spark(n.g.position);
       const pa = n.line.geometry.attributes.position; pa.setXYZ(1, n.g.position.x, n.g.position.y, n.g.position.z); pa.needsUpdate = true;
-      n.line.material.opacity = 0.2 + n.heat * 0.7; n.line.material.color.setHex(n.heat > 0.3 ? C.heat : 0x5a4a3c);
+      n.line.material.opacity = 0.12 + n.heat * 0.35; n.line.material.color.setHex(n.heat > 0.3 ? C.heat : 0x5a4a3c);
       v.copy(n.g.position); v.y += n.kind === "laptop" ? 2.6 : 2.2; v.project(cam);
       const vis = v.z < 1; n.el.style.display = vis ? "block" : "none";
       if (vis) { n.el.style.left = ((v.x + 1) / 2 * k.gl.clientWidth) + "px"; n.el.style.top = ((1 - v.y) / 2 * k.gl.clientHeight) + "px";
@@ -218,7 +218,7 @@ function start(root) {
     for (let i = packets.length - 1; i >= 0; i--) {
       const p = packets[i], t = Math.min(1, (now - p.t0) / p.ms), e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
       p.s.position.lerpVectors(p.from, p.to, e); p.s.position.y += Math.sin(Math.PI * e) * p.arc;
-      if (Math.random() < 0.6) spark(p.s.position);
+      if (Math.random() < 0.12) spark(p.s.position);
       if (t >= 1) { scene.remove(p.s); packets.splice(i, 1); }
     }
     for (let i = sparks.length - 1; i >= 0; i--) { const s = sparks[i]; s.m.position.y += s.v; s.life -= 0.02; s.m.material.opacity = s.life * 0.8; if (s.life <= 0) { scene.remove(s.m); sparks.splice(i, 1); } }

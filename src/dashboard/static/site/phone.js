@@ -53,7 +53,7 @@
   }
 
   /* microphone -> 16 kHz mono PCM16 WAV segments of `segS` seconds with `ovS` s overlap prefix */
-  async function mic(onSegment, segS = 4, ovS = 0.5) {
+  async function mic(onSegment, segS = 4, ovS = 1.0) {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
     const ac = new (window.AudioContext || window.webkitAudioContext)();
     const src = ac.createMediaStreamSource(stream);

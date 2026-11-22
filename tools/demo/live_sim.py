@@ -25,6 +25,7 @@ import hashlib
 import io
 import json
 import re
+import signal
 import sys
 import time
 import wave
@@ -39,6 +40,13 @@ from live_agent import e2e  # noqa: E402  (the reference crypto, interop-checked
 
 SR = 16000
 TRANSCRIBERS = {"whisper-local", "elevenlabs", "echo"}
+
+
+def _client(base: str, token: str) -> httpx.Client:  # (tests swap this for an in-process coordinator)
+    return httpx.Client(base_url=base, timeout=30, headers={"Authorization": "Bearer " + token})
+
+
+_sleep = time.sleep
 
 
 def log(*a):
@@ -168,8 +176,8 @@ def main() -> int:
     ap.add_argument("--json", type=Path)
     a = ap.parse_args()
 
-    cli = httpx.Client(base_url=a.coordinator, timeout=30, headers={"Authorization": "Bearer " + a.client_token_file.read_text().strip()})
-    adm = httpx.Client(base_url=a.coordinator, timeout=30, headers={"Authorization": "Bearer " + a.admin_token_file.read_text().strip()})
+    cli = _client(a.coordinator, a.client_token_file.read_text().strip())
+    adm = _client(a.coordinator, a.admin_token_file.read_text().strip())
     plan = [(x.split("@")[0].strip(), int(x.split("@")[1])) for x in a.stop_sequence.split(",") if x.strip()]
 
     def nodes():
@@ -182,36 +190,48 @@ def main() -> int:
     t0 = time.time()
     while (busy := live_running()) and time.time() - t0 < 600:
         log("waiting: another live job is running", busy)
-        time.sleep(5)
+        _sleep(5)
     if busy:
         log("gave up: a live job is still running", busy)
         return 2
 
     pcm = read_wav(a.clip)
     segs = segments(pcm, a.seg, a.overlap)
-    drained_by_me: set[str] = set()
-    if plan:  # only entry 0's node may take the job: drain every other online node (they stay recipients)
-        for nid, n in nodes().items():
-            if n["state"] == "online" and not n["drained"] and nid != plan[0][0]:
-                adm.post(f"/v1/ops/nodes/{nid}/drain"); drained_by_me.add(nid)
-        log("plan", plan, "| drained for the run:", sorted(drained_by_me))
-
+    touched: set[str] = set()  # every node this run drained or killed: ALL undrained in the finally (#142 review)
     priv = e2e.new_pair()
+
+    def _term(*_):  # SIGTERM / SIGHUP (a stopped background run) -> the finally still restores the fleet
+        raise KeyboardInterrupt
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, _term)
+
     r = cli.post("/v1/client/jobs", json={"type": "live_transcription", "access_class": "public",
                                          "idempotency_key": f"live-sim-{int(time.time() * 1000)}", "client_pub": e2e.pub_b64(priv)})
     r.raise_for_status()
-    job = r.json()["job_id"]
+    job, ended = r.json()["job_id"], False
     log("job", job, "e2e", r.json().get("e2e"), "| segments", len(segs), f"({len(pcm) / SR:.1f} s audio)")
     stops, pi, start = [], 0, time.time()
     try:
+        if plan:
+            # ONLY transcriber nodes (= this job's recipients) are ever drained/killed; batch nodes are never touched.
+            tx = {x["node_id"] for x in cli.get(f"/v1/client/jobs/{job}/recipients").json()["recipients"]}
+            ns = nodes()
+            if any(ns[n]["drained"] for n in tx if n in ns):
+                raise SystemExit(f"refusing: a transcriber node is already drained by someone else {sorted(n for n in tx if ns.get(n, {}).get('drained'))}")
+            missing = {p[0] for p in plan} - tx
+            if missing:
+                raise SystemExit(f"refusing: stop-sequence names nodes that are not online transcribers: {sorted(missing)}")
+            for nid in sorted(tx - {plan[0][0]}):  # entry 0 holds the job first; the others wait drained (stay recipients)
+                adm.post(f"/v1/ops/nodes/{nid}/drain"); touched.add(nid)
+            log("plan", plan, "| transcribers", sorted(tx), "| drained for the run:", sorted(touched))
         for seq, wav in enumerate(segs):
             if pi < len(plan) and seq == plan[pi][1]:
                 cur = plan[pi][0]
                 nxt = plan[pi + 1][0] if pi + 1 < len(plan) else None
-                for nid in ([nxt] if nxt else sorted(drained_by_me)):  # the next holder is ready before the STOP
-                    adm.post(f"/v1/ops/nodes/{nid}/undrain"); drained_by_me.discard(nid)
+                for nid in ([nxt] if nxt else sorted(touched)):  # the next holder is ready before the STOP
+                    adm.post(f"/v1/ops/nodes/{nid}/undrain")
                 adm.post(f"/v1/ops/nodes/{cur}/drain"); kr = adm.post(f"/v1/ops/nodes/{cur}/kill").json()
-                drained_by_me.add(cur)
+                touched.add(cur)
                 stops.append({"seq": seq, "stopped": cur, "next": nxt, "revoked": kr.get("revoked_lease")})
                 log(f"STOP {cur} at seq {seq} -> {nxt or 'any'} (revoked {kr.get('revoked_lease')})")
                 pi += 1
@@ -222,19 +242,32 @@ def main() -> int:
             if up.status_code not in (200, 201):
                 log("upload", seq, up.status_code, up.text[:200])
             if seq < len(segs) - 2:
-                time.sleep(max(0.0, start + (seq + 1) * a.seg - time.time()))  # real time, like the microphone
+                _sleep(max(0.0, start + (seq + 1) * a.seg - time.time()))  # real time, like the microphone
         cli.post(f"/v1/client/jobs/{job}/end").raise_for_status()
+        ended = True
         t_end, t = time.time(), {}
         while time.time() - t_end < 120:
             t = cli.get(f"/v1/client/jobs/{job}/transcript").json()
             if t.get("ended") and t.get("pending") == 0 and t.get("root"):
-                time.sleep(3)  # the final-tail flush may re-seal the last segment right after
+                _sleep(3)  # the final-tail flush may re-seal the last segment right after
                 t = cli.get(f"/v1/client/jobs/{job}/transcript").json()
                 break
-            time.sleep(1)
+            _sleep(1)
     finally:
-        for nid in sorted(drained_by_me):
-            adm.post(f"/v1/ops/nodes/{nid}/undrain")
+        if not ended:  # interrupted: never leave a live job open (it would block every later run)
+            try:
+                cli.post(f"/v1/client/jobs/{job}/end")
+            except httpx.HTTPError:
+                pass
+        for nid in sorted(touched):
+            for _ in range(3):
+                try:
+                    adm.post(f"/v1/ops/nodes/{nid}/undrain").raise_for_status()
+                    break
+                except httpx.HTTPError:
+                    _sleep(1)
+        if touched:
+            log("restored (undrained):", sorted(touched))
 
     got = t.get("segments", [])
     seqs = [s["seq"] for s in got]

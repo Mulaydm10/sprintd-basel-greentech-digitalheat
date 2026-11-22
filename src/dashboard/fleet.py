@@ -22,7 +22,8 @@ from fastapi.responses import Response
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = "fleetview-v1"
 FILES = {"index": ("index.json", "application/json"), "fleet": ("fleet.json", "application/json"),
-         "jobs": ("jobs.json", "application/json"), "houses.u16": ("houses.u16", "application/octet-stream")}
+         "jobs": ("jobs.json", "application/json"), "houses.u16": ("houses.u16", "application/octet-stream"),
+         "houses_baseline.u16": ("houses_baseline.u16", "application/octet-stream")}  # #125 ghost thermostat
 _cache: dict[tuple[str, float], bytes] = {}
 
 router = APIRouter(prefix="/api/fleet", tags=["fleet"])
@@ -90,6 +91,11 @@ def fleet(request: Request) -> Response:
 @router.get("/jobs")
 def jobs(request: Request) -> Response:
     return _serve(request, "jobs")
+
+
+@router.get("/houses_baseline.u16")
+def houses_baseline(request: Request) -> Response:
+    return _serve(request, "houses_baseline.u16")
 
 
 @router.get("/houses.u16")

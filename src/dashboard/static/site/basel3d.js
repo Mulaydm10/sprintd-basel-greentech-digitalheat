@@ -344,6 +344,8 @@ export async function create(host, opts = {}) {
     if (FL.ringMesh) scene.remove(FL.ringMesh);
     FL.ringMesh = new THREE.InstancedMesh(ringGeo, ringMat, FL.K); FL.ringMesh.frustumCulled = false; scene.add(FL.ringMesh);
     FL.on = true; FL.fixture = !!d.index.fixture;
+    FL.rawBase = d.rawBase || null; FL.key = d.index.provenance && d.index.provenance.key; FL.commit = d.index.provenance && d.index.provenance.commit;
+    FL.trackEvery = d.index.jobs && d.index.jobs.tracked_every; indexJobs();
   }
   const mcCol = new THREE.Color(), cheap = new THREE.Color(0xff8c1f), dear = new THREE.Color(0xff2d55), held = new THREE.Color(0x3a4250);
   function updateFleet(now) {
@@ -352,6 +354,7 @@ export async function create(host, opts = {}) {
     for (let i = 0; i < FL.K; i++) { const H0 = FL.houses[i], st = fv("state", i, h), mc = fv("mc_chf_per_server_h", i, h), on = fv("servers_on", i, h);
       const t = Math.max(0, Math.min(1, (mc - 0.20) / 0.14));  // 0.20 = heat wanted (cheap) .. 0.34 = would dump (dear)
       if (st === 3) mcCol.copy(held); else mcCol.copy(cheap).lerp(dear, st === 2 ? 1 : t);
+      if (FL.ringSelClass && FL.ringSelClass !== "public") mcCol.copy((H0.classes || []).includes(FL.ringSelClass) ? new THREE.Color(0xf2efe9) : held);
       const sc = 0.6 + 0.25 * on;
       tmpM.makeScale(sc, 1, sc).setPosition(H0.X, 2 + (st === 3 ? 0 : 0.5 * Math.sin(now / 300 + i)), H0.Z);
       FL.ringMesh.setMatrixAt(i, tmpM); FL.ringMesh.setColorAt(i, mcCol); }
@@ -373,6 +376,7 @@ export async function create(host, opts = {}) {
     queueTag.style.display = "block";
     queueTag.textContent = `waiting ${Math.round(q).toLocaleString("en-CH")} units · deferred inside their slack · ${Math.round(FL.fleet.missed[h] || 0)} missed this hour`;
     place(queueTag, new THREE.Vector3(hub.x, 240, hub.z));
+    updateTrace(now, h, fr);
     // floating decision tags: the first few tracked units landing this hour
     for (const t of FL.tags) t.remove(); FL.tags = [];
     let shown = 0;
@@ -382,10 +386,133 @@ export async function create(host, opts = {}) {
       el.style.cssText = "position:absolute;pointer-events:none;transform:translate(-50%,-160%);padding:4px 8px;border-radius:8px;background:rgba(14,13,12,0.7);font:10.5px 'Geist Mono',monospace;color:#f2efe9;white-space:nowrap;z-index:4;opacity:" + (1 - fr).toFixed(2);
       host.appendChild(el); FL.tags.push(el); place(el, new THREE.Vector3(H0.X, H0.Y + 30, H0.Z)); shown++; } }
   }
-  const onSelJob = (e) => { const d = e.detail || {}; if (d.source === "map") return; FL.sel = d.unit_id || null;
-    const j = FL.sel && FL.jobs.find((x) => x.units.some((u) => u.unit === FL.sel)); if (!j) return;
-    const runs = j.units.find((u) => u.unit === FL.sel).runs; const last = runs[runs.length - 1]; if (!last) return;
-    const H0 = FL.houses[last[1]]; if (H0) flyTo(new THREE.Vector3(H0.X - 260, 240, H0.Z + 260), new THREE.Vector3(H0.X, 0, H0.Z)); };
+  // ---- #125 traceability on the map (fleetview): job arcs A -> B with travelling lights, the selected job's path
+  // through the year + a trace card, eligibility outlines/locks, ghost thermostat, story chips. Calm: few colours.
+  const PAL = [0xffb36b, 0x8fd3ff, 0xf2efe9, 0xff8c1f, 0xb8e986, 0xd9a6ff];
+  const TR = { byHour: null, arcs: new THREE.Group(), lights: null, ribbon: null, locks: [], ghost: false, ghostMesh: null, ash: null, lastH: -1 };
+  scene.add(TR.arcs);
+  const LN = 30 * 10, lGeo = new THREE.BufferGeometry(), lPos = new Float32Array(LN * 3), lCol = new Float32Array(LN * 3);
+  lGeo.setAttribute("position", new THREE.BufferAttribute(lPos, 3)); lGeo.setAttribute("color", new THREE.BufferAttribute(lCol, 3));
+  TR.lights = new THREE.Points(lGeo, new THREE.PointsMaterial({ size: 14, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+  TR.lights.frustumCulled = false; scene.add(TR.lights);
+  const AN = 300, aGeo = new THREE.BufferGeometry(), aPos = new Float32Array(AN * 3);
+  aGeo.setAttribute("position", new THREE.BufferAttribute(aPos, 3));
+  TR.ash = new THREE.Points(aGeo, new THREE.PointsMaterial({ size: 7, color: 0x9a9590, transparent: true, opacity: 0.55, depthWrite: false }));
+  TR.ash.frustumCulled = false; TR.ash.visible = false; scene.add(TR.ash);
+  const fvb = (f, i, h) => FL.rawBase ? FL.rawBase[(FL.fields[f].k * FL.K + i) * FL.H + h] * FL.fields[f].scale : 0;
+  const hp = (i) => { const H0 = FL.houses[i]; return new THREE.Vector3(H0.X, H0.Y + 14, H0.Z); };
+  const arcCurve = (a, b) => { const m = a.clone().lerp(b, 0.5); m.y += 60 + 0.25 * a.distanceTo(b); return new THREE.QuadraticBezierCurve3(a, m, b); };
+  function indexJobs() {
+    TR.byHour = new Map(); TR.unit = new Map(); TR.moves = new Map();
+    FL.jobs.forEach((j, ji) => { for (const u of j.units) { TR.unit.set(u.unit, { j, u, ji }); let prev = null;
+      for (const [h, house] of u.runs) { if (!TR.byHour.has(h)) TR.byHour.set(h, []); TR.byHour.get(h).push({ j, u, ji, house, prev });
+        if (prev !== null && prev !== house) TR.moves.set(h, (TR.moves.get(h) || 0) + 1); prev = house; } } });
+    TR.fan = new Map();  // hour -> the most houses one job ran on in that hour (its units placed by decide())
+    for (const [h, list] of TR.byHour) { const by = new Map();
+      for (const e of list) { const k = e.j.job; if (!by.has(k)) by.set(k, new Set()); by.get(k).add(e.house); }
+      let best = 0; for (const v of by.values()) best = Math.max(best, v.size); TR.fan.set(h, best); }
+  }
+  function why(house, h) { const st = fv("state", house, h);
+    return st === 2 ? "deadline due: ran although no heat was wanted (heat dumped)" : st === 1 ? "heat wanted: cheapest site in the merit order" : st === 3 ? "site held" : "ran"; }
+  const when = (h) => new Date(Date.UTC(2024, 11, 31, 23) + h * 3600e3).toLocaleString("en-CH", { timeZone: "Europe/Zurich", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  const src = (file, h) => `fleetview ${(FL.key || "").slice(0, 10)} · ${file}${h != null ? " · hour " + h : ""}`;
+  function eligible(cls, house) { return cls === "public" || (FL.houses[house].classes || []).includes(cls); }
+  function jobCard(unit) {
+    const t = TR.unit.get(unit); if (!t) return "";
+    const { j } = t, runs = j.units.flatMap((x) => x.runs.map((r) => [r[0], r[1], x.unit])).sort((a, b) => a[0] - b[0]);
+    const used = [...new Set(runs.map((r) => r[1]))], allOk = used.every((hh) => eligible(j.class, hh));
+    const rowsH = runs.slice(0, 14).map(([h, house, un]) => `<div title="${esc(src("jobs.json + houses.u16", h))}" style="display:grid;grid-template-columns:92px 70px 1fr;gap:8px;color:#d8d2c8"><span>${when(h)}</span><span style="color:#ffb36b" title="${esc(un)}">house ${house}</span><span style="color:#a8a298">${why(house, h)}</span></div>`).join("")
+      + (runs.length > 14 ? `<div style="color:#6e6a63">… ${runs.length - 14} more hours</div>` : "");
+    return `<div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#ffb36b;margin-bottom:6px">job trace · ${esc(j.job)} · ${j.units.length} units</div>`
+      + row("class", esc(j.class), j.class === "public" ? null : "#8fd3ff") + row("bid", j.bid + " CHF/server-h") + row("arrived", when(j.arrival_h))
+      + row("deadline", `${when(j.deadline_h)} · ${j.state === "done" ? "met" : esc(j.state)}`, j.state === "done" ? "#b8e986" : "#ff3355")
+      + row("houses used", `${used.length} · ${allOk ? "all eligible ✓" : "INELIGIBLE HOUSE"}`, allOk ? "#b8e986" : "#ff3355")
+      + `<div style="margin:8px 0 4px;padding-top:8px;border-top:1px solid rgba(242,239,233,0.14);color:#a8a298">hour → house → why</div>${rowsH}`
+      + `<div style="margin-top:8px;color:#6e6a63;font-size:10.5px" title="${esc(src("index.json"))}">run ${esc(FL.key || "–")} · commit ${esc((FL.commit || "–").slice(0, 10))} · traced every ${FL.trackEvery}th unit · ASSUMED fleet, real decide()</div>`;
+  }
+  function selectJob(unit, source) {
+    FL.sel = unit || null; if (TR.ribbon) { scene.remove(TR.ribbon); TR.ribbon.geometry.dispose(); TR.ribbon = null; }
+    for (const l of TR.locks) l.el.remove(); TR.locks = [];
+    if (!FL.sel || !TR.unit.has(FL.sel)) { if (S.jobCard) { panel.style.display = "none"; S.jobCard = false; } applyRings(); return; }
+    const { j } = TR.unit.get(FL.sel), seq = [];
+    for (const [, house] of j.units.flatMap((x) => x.runs).sort((a, b) => a[0] - b[0])) if (seq[seq.length - 1] !== house) seq.push(house);
+    if (seq.length) { const pts = seq.map((i) => hp(i).setY(FL.houses[i].Y + 40));
+      if (pts.length === 1) pts.push(pts[0].clone().setY(pts[0].y + 60));
+      TR.ribbon = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), Math.max(16, pts.length * 12), 2.2, 6, false),
+        new THREE.MeshBasicMaterial({ color: 0xffb36b, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+      scene.add(TR.ribbon);
+      const H0 = FL.houses[seq[seq.length - 1]]; flyTo(new THREE.Vector3(H0.X - 320, 300, H0.Z + 320), new THREE.Vector3(H0.X, 0, H0.Z)); }
+    if (j.class !== "public") for (let i = 0; i < FL.K; i++) if (!eligible(j.class, i)) {
+      const el = document.createElement("div"); el.textContent = "🔒"; el.title = `house ${i} is not ${j.class}: the scheduler never sends this job here`;
+      el.style.cssText = "position:absolute;transform:translate(-50%,-50%);font-size:11px;opacity:0.45;pointer-events:auto;z-index:3"; host.appendChild(el); TR.locks.push({ el, i }); }
+    panel.style.display = "block"; panel.innerHTML = jobCard(FL.sel); S.jobCard = true; applyRings();
+    if (source !== "map-echo") dispatchEvent(new CustomEvent("dh:select-job", { detail: { unit_id: FL.sel, source: "map" } }));
+  }
+  function applyRings() { FL.ringSelClass = FL.sel && TR.unit.has(FL.sel) ? TR.unit.get(FL.sel).j.class : null; }
+  function houseJobsHtml(house, h) {
+    const list = (TR.byHour.get(h) || []).filter((e) => e.house === house).slice(0, 8);
+    return `<div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#c4bcae;margin-bottom:6px">fleet house ${house} · ${esc(FL.houses[house].district || "")} · ASSUMED</div>`
+      + row("servers on", fv("servers_on", house, h), null) + row("heat used", fv("heat_used_kwh", house, h).toFixed(2) + " kWh") + row("dumped", fv("dumped_kwh", house, h).toFixed(2) + " kWh")
+      + row("site cost", fv("mc_chf_per_server_h", house, h).toFixed(3) + " CHF/server-h") + row("why", why(house, h))
+      + `<div style="margin:8px 0 4px;color:#a8a298">traced jobs here this hour (click one)</div>`
+      + (list.length ? list.map((e) => `<button data-job="${esc(e.u.unit)}" style="display:block;width:100%;text-align:left;margin:2px 0;padding:5px 8px;border-radius:8px;border:1px solid rgba(242,239,233,0.2);background:rgba(255,179,107,0.08);color:#f2efe9;font:11px 'Geist Mono',monospace;cursor:pointer">${esc(e.u.unit)} · ${esc(e.j.class)}</button>`).join("") : `<div style="color:#6e6a63">none in the traced sample</div>`)
+      + `<div style="margin-top:8px;color:#6e6a63;font-size:10.5px">${esc(src("houses.u16", h))}</div>`;
+  }
+  function nearestFleetHouse(px, py) {  // css px -> fleet house within 26 px, else -1
+    if (!FL.on) return -1; let best = -1, bd = 26; const v = new THREE.Vector3();
+    for (let i = 0; i < FL.K; i++) { v.copy(hp(i)).project(camera); if (v.z > 1) continue;
+      const x = (v.x + 1) / 2 * cv.clientWidth, y = (1 - v.y) / 2 * cv.clientHeight, d = Math.hypot(x - px, y - py); if (d < bd) { bd = d; best = i; } }
+    return best;
+  }
+  function stories() {  // auto-detected moments in the run, for the timeline chips
+    if (!FL.on || !S.run) return [];
+    const temps = S.run.weather.temp_c; let cold = 0; for (let i = 1; i < temps.length; i++) if (temps[i] < temps[cold]) cold = i;
+    let reroute = 0, rv = -1; for (const [h, n] of (TR.moves.size ? TR.moves : TR.fan)) if (n > rv) { rv = n; reroute = h; }
+    let hold = -1; for (let h = 2160; h < FL.H && hold < 0; h++) { let c = 0; for (let i = 0; i < FL.K; i++) if (fv("state", i, h) === 3) c++; if (c >= FL.K * 0.5) hold = h; }
+    let dumpH = 0, dv = -1; for (let h = 0; h < FL.H; h++) { const v = FL.fleet.dumped_kwh[h]; if (v > dv) { dv = v; dumpH = h; } }
+    return [{ h: cold, label: `coldest hour · ${temps[cold].toFixed(1)} °C`, src: "yearview weather" },
+      ...(rv > 0 ? [{ h: reroute, label: TR.moves.size ? `biggest re-route · ${rv} traced jobs moved` : `widest job · one job on ${rv} houses in 1 h`, src: src("jobs.json", reroute) }] : []),
+      ...(hold >= 0 ? [{ h: hold, label: "first summer hold · half the fleet idle", src: src("houses.u16", hold) }] : []),
+      { h: dumpH, label: `most heat dumped · ${dv.toFixed(0)} kWh in 1 h`, src: src("fleet.json", dumpH) }];
+  }
+  const tmpG = new THREE.Matrix4(), ghostCol = new THREE.Color();
+  function updateTrace(now, h, fr) {
+    if (!FL.on || !TR.byHour) return;
+    if (h !== TR.lastH) { TR.lastH = h;  // rebuild the hour's arcs (max 30, one colour per job)
+      while (TR.arcs.children.length) { const o = TR.arcs.children.pop(); o.geometry.dispose(); o.material.dispose(); }
+      const list = TR.byHour.get(h) || [], moves = list.filter((e) => e.prev !== null && e.prev !== e.house);
+      const by = new Map(); for (const e of list) { const k = e.j.job; if (!by.has(k)) by.set(k, []); by.get(k).push(e); }  // houses sharing a job this hour
+      const links = [];
+      for (const [, arr] of [...by].sort((a, b) => b[1].length - a[1].length)) {  // busiest batches first
+        const seen = []; for (const e of arr) if (!seen.some((x) => x.house === e.house)) seen.push(e);
+        for (let k = 1; k < seen.length; k++) links.push({ ...seen[k], prev: seen[k - 1].house, batch: true });
+      }
+      TR.cur = [...moves, ...links].slice(0, 30);
+      const selJob = FL.sel && TR.unit.has(FL.sel) ? TR.unit.get(FL.sel).j.job : null;
+      for (const e of TR.cur) { const c = arcCurve(hp(e.prev), hp(e.house)); const isSel = selJob === e.j.job;
+        TR.arcs.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(c.getPoints(40)), new THREE.LineBasicMaterial({ color: isSel ? 0xffffff : PAL[e.ji % PAL.length], transparent: true, opacity: isSel ? 0.95 : 0.45, blending: THREE.AdditiveBlending, depthWrite: false })));
+        e.curve = c; } }
+    let n = 0; const p = new THREE.Vector3(), col = new THREE.Color();
+    for (const e of TR.cur || []) for (let k = 0; k < 10 && n < LN; k++) {  // a light travelling A -> B with a short fading trail
+      const t = Math.max(0, Math.min(1, fr * 1.4 - k * 0.025)); e.curve.getPoint(t, p); lPos.set([p.x, p.y, p.z], n * 3);
+      col.setHex(FL.sel === e.u.unit ? 0xffffff : PAL[e.ji % PAL.length]).multiplyScalar(1 - k / 10); lCol.set([col.r, col.g, col.b], n * 3); n++; }
+    lGeo.setDrawRange(0, n); lGeo.attributes.position.needsUpdate = true; lGeo.attributes.color.needsUpdate = true;
+    // eligibility: outline eligible houses for a non-public selected job; locks show on ineligible ones
+    for (const l of TR.locks) place(l.el, hp(l.i).setY(FL.houses[l.i].Y + 22));
+    // ghost thermostat: translucent rings in the thermostat's state + its missed jobs falling as grey ash
+    if (TR.ghost && FL.rawBase) {
+      if (!TR.ghostMesh) { TR.ghostMesh = new THREE.InstancedMesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, depthWrite: false, toneMapped: false }), FL.K); TR.ghostMesh.frustumCulled = false; scene.add(TR.ghostMesh); }
+      for (let i = 0; i < FL.K; i++) { const H0 = FL.houses[i], st = fvb("state", i, h), on = fvb("servers_on", i, h);
+        ghostCol.setHex(st === 0 || st === 3 ? 0x55606e : 0xc4bcae); const sc = 1.15 + 0.2 * on;
+        tmpG.makeScale(sc, 1, sc).setPosition(H0.X, 26, H0.Z); TR.ghostMesh.setMatrixAt(i, tmpG); TR.ghostMesh.setColorAt(i, ghostCol); }
+      TR.ghostMesh.visible = true; TR.ghostMesh.instanceMatrix.needsUpdate = true; if (TR.ghostMesh.instanceColor) TR.ghostMesh.instanceColor.needsUpdate = true;
+      const missed = (FL.fleet.baseline_missed || [])[h] || 0, m = Math.min(AN, Math.ceil(Math.sqrt(missed) * 3));
+      for (let i = 0; i < m; i++) { const ang = i * 2.399, r = 30 + (i % 17) * 9, y = 260 - ((now / 12 + i * 37) % 260);
+        aPos.set([hub.x + Math.cos(ang) * r, y, hub.z + Math.sin(ang) * r], i * 3); }
+      aGeo.setDrawRange(0, m); aGeo.attributes.position.needsUpdate = true; TR.ash.visible = true;
+    } else { if (TR.ghostMesh) TR.ghostMesh.visible = false; TR.ash.visible = false; }
+  }
+  const onSelJob = (e) => { const d = e.detail || {}; if (d.source === "map") return; selectJob(d.unit_id || null, "map-echo"); };
   addEventListener("dh:select-job", onSelJob);
 
   const S = { sel: -1, run: null, pol: 0, polT: 0, hour: 0, dead: false, raf: 0, last: performance.now(), hover: -1, n: 0 };
@@ -448,8 +575,9 @@ export async function create(host, opts = {}) {
   }
   const panel = document.createElement("div");
   panel.setAttribute("data-dh-panel", "");
-  panel.style.cssText = "position:absolute;top:44px;right:156px;width:min(300px,42%);max-height:calc(100% - 260px);overflow:auto;display:none;padding:14px 16px;border-radius:16px;background:rgba(18,17,16,0.62);backdrop-filter:blur(14px) saturate(1.2);-webkit-backdrop-filter:blur(14px) saturate(1.2);border:1px solid rgba(242,239,233,0.2);box-shadow:0 20px 60px rgba(0,0,0,0.45);color:#f2efe9;font:12px/1.55 'Geist Mono',monospace;z-index:6";
+  panel.style.cssText = "position:absolute;top:44px;right:156px;width:min(300px,42%);max-height:calc(100% - 300px);overflow:auto;display:none;padding:14px 16px;border-radius:16px;background:rgba(18,17,16,0.62);backdrop-filter:blur(14px) saturate(1.2);-webkit-backdrop-filter:blur(14px) saturate(1.2);border:1px solid rgba(242,239,233,0.2);box-shadow:0 20px 60px rgba(0,0,0,0.45);color:#f2efe9;font:12px/1.55 'Geist Mono',monospace;z-index:6";
   host.appendChild(panel);
+  panel.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest("[data-job]"); if (b) { e.stopPropagation(); selectJob(b.dataset.job, "map"); } });
   const liveByB = new Map(live.map((L) => [L.b, L]));
   const row = (k, v, c) => `<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:#a8a298">${k}</span><span style="color:${c || "#f2efe9"};text-align:right">${v}</span></div>`;
   function reason(sd, h, n) {  // the scheduler's outcome this hour, from the yearview run (same wording as the HUD)
@@ -499,13 +627,17 @@ export async function create(host, opts = {}) {
   cv.addEventListener("pointerdown", (e) => { down = [e.clientX, e.clientY]; });
   cv.addEventListener("pointerup", (e) => {
     if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) { down = null; return; }
-    down = null; const r = cv.getBoundingClientRect(); select(pick(e.clientX - r.left, e.clientY - r.top));
+    down = null; const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+    const fh = nearestFleetHouse(x, y);
+    if (fh >= 0) { S.sel = -1; selU.value = -1; S.jobCard = false; panel.style.display = "block"; panel.innerHTML = houseJobsHtml(fh, Math.floor(S.hour)); S.fleetHouse = fh;
+      dispatchEvent(new CustomEvent("dh:select-house", { detail: { house: fh, source: "map" } })); return; }
+    S.fleetHouse = -1; if (S.jobCard) selectJob(null, "map"); select(pick(x, y));
   });
   cv.addEventListener("pointermove", (e) => { if (e.buttons || e.pointerType === "touch") return; const now = performance.now();
     if ((S.hoverAt || 0) + 150 > now) return; S.hoverAt = now; const r = cv.getBoundingClientRect();
     cv.style.cursor = pick(e.clientX - r.left, e.clientY - r.top) >= 0 ? "pointer" : "grab"; });
   const onKey = (e) => {
-    if (e.key === "Escape") { select(-1); return; }
+    if (e.key === "Escape") { select(-1); selectJob(null, "map"); panel.style.display = "none"; return; }
     if (!S.inside || /input|textarea|select/i.test((e.target && e.target.tagName) || "")) return;
     const k = e.key.toLowerCase(), step = Math.max(30, camera.position.distanceTo(controls.target) * 0.08);
     const fwd = controls.target.clone().sub(camera.position).setY(0).normalize(), right = new THREE.Vector3(-fwd.z, 0, fwd.x);
@@ -581,7 +713,7 @@ export async function create(host, opts = {}) {
     controls.target.y = Math.max(0, Math.min(200, controls.target.y));
     controls.update();
     if (now - (S.mmAt || 0) > 100) { S.mmAt = now; drawMini(); }
-    if (S.sel >= 0 && now - (S.panelAt || 0) > 500) { S.panelAt = now; panel.innerHTML = panelHtml(S.sel); }
+    if (S.sel >= 0 && !S.jobCard && now - (S.panelAt || 0) > 500) { S.panelAt = now; panel.innerHTML = panelHtml(S.sel); }
     if (now - (S.liveAt || 0) > 500) { S.liveAt = now; updateLive(); }
     updateFleet(now);
     for (const l of labels) place(l.el, l.p);
@@ -601,12 +733,14 @@ export async function create(host, opts = {}) {
     select(b) { select(b); }, selected() { return S.sel; }, pick(x, y) { return pick(x, y); }, nav(cmd) { nav(cmd); },
     info() { return S.info || null; },
     setLive(feed) { liveFeed = feed; },
-    setFleet(d) { setFleet(d); }, fleetOn() { return FL.on ? { K: FL.K, H: FL.H, fixture: FL.fixture } : null; },  // the dashboard's /api/nodes payload (#78); null/not ok -> REPLAY
+    setFleet(d) { setFleet(d); }, selectJob(u) { selectJob(u, "api"); }, setGhost(on) { TR.ghost = !!on; }, stories() { return stories(); },
+    camera() { const p = camera.position, t = controls.target; return [p.x, p.y, p.z, t.x, t.y, t.z].map((v) => Math.round(v)); },
+    setCamera(a) { if (Array.isArray(a) && a.length === 6 && a.every(Number.isFinite)) flyTo(new THREE.Vector3(a[0], a[1], a[2]), new THREE.Vector3(a[3], a[4], a[5]), 10); }, fleetOn() { return FL.on ? { K: FL.K, H: FL.H, fixture: FL.fixture } : null; },  // the dashboard's /api/nodes payload (#78); null/not ok -> REPLAY
     live() { return live.map((L) => ({ id: L.id, ...(L.st || {}) })); },
     stats() { return { buildings: map.buildings.length, houses: houses.length, districts: D.length, hexes: hexes.length, live: live.length, tris: (geo.city.getAttribute("position").count + geo.sim.getAttribute("position").count) / 3 }; },
     attribution: map.attribution, fleetNote: map.fleet_note,
     destroy() { S.dead = true; cancelAnimationFrame(S.raf); removeEventListener("keydown", onKey);
-      removeEventListener("dh:select-job", onSelJob); for (const t of FL.tags) t.remove();
+      removeEventListener("dh:select-job", onSelJob); for (const t of FL.tags) t.remove(); for (const l of TR.locks) l.el.remove();
       for (const el of [cv, panel, navEl, mm, queueTag, ...labels.map((l) => l.el), ...live.map((L) => L.el)]) el.remove();
       pickRT.dispose(); renderer.dispose(); },
   };

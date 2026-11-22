@@ -49,6 +49,12 @@ input[type=range]{accent-color:#c93c05}
         <sc-for list="{{ speeds }}" as="s" hint-placeholder-count="3">
           <button onClick="{{ s.on }}" style="border:1px solid #dcd6cc;cursor:pointer;padding:8px 12px;border-radius:999px;font:inherit;color:{{ s.c }};background:{{ s.bg }};transition:all .3s">{{ s.label }}</button>
         </sc-for>
+        <button data-dh-ghost onClick="{{ ghostToggle }}" title="the thermostat on the same fleet, drawn as translucent rings; its missed jobs fall as grey ash" style="border:1px solid #dcd6cc;cursor:pointer;padding:8px 12px;border-radius:999px;font:inherit;color:{{ ghostC }};background:{{ ghostBg }}">ghost thermostat</button>
+        <span data-dh-stories style="display:flex;gap:6px;flex-wrap:wrap">
+          <sc-for list="{{ stories }}" as="st" hint-placeholder-count="3">
+            <button onClick="{{ st.on }}" title="{{ st.src }}" style="border:1px dashed #c4bcae;cursor:pointer;padding:7px 11px;border-radius:999px;font:inherit;font-size:11px;color:#55524c;background:#ffffff">{{ st.label }}</button>
+          </sc-for>
+        </span>
         <span style="flex:1"></span>
         <sc-for list="{{ pols }}" as="p" hint-placeholder-count="2">
           <button onClick="{{ p.on }}" style="border:1px solid #dcd6cc;cursor:pointer;padding:8px 12px;border-radius:999px;font:inherit;color:{{ p.c }};background:{{ p.bg }};transition:all .3s">{{ p.label }}</button>
@@ -76,10 +82,10 @@ input[type=range]{accent-color:#c93c05}
       <div style="position:absolute;top:16px;left:18px;right:18px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;pointer-events:none;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#c4bcae">
         <span>Basel 2025 run by our scheduler · N = {{ nVal }} per house · {{ polLabel }}</span><span style="color:#f2efe9">{{ clock }} · {{ tempNow }}</span>
       </div>
-      <div data-dh-hud style="position:absolute;top:44px;left:18px;max-width:min(520px,80%);pointer-events:none;padding:10px 14px;border-radius:12px;background:rgba(14,13,12,0.62);border:1px solid rgba(242,239,233,0.14);font-family:'Geist Mono',monospace;font-size:12px;line-height:1.5;color:#f2efe9">
+      <div data-dh-hud title="{{ estSrc }} · decision derived from the hour's outcome" style="position:absolute;top:44px;left:18px;max-width:min(520px,80%);pointer-events:auto;padding:10px 14px;border-radius:12px;background:rgba(14,13,12,0.62);border:1px solid rgba(242,239,233,0.14);font-family:'Geist Mono',monospace;font-size:12px;line-height:1.5;color:#f2efe9">
         <div style="color:{{ decC }};font-weight:700;letter-spacing:0.06em">{{ decision }}</div><div style="color:#c4bcae">{{ decWhy }}</div>
       </div>
-      <div data-dh-est style="position:absolute;top:128px;left:18px;width:min(330px,46%);pointer-events:none;padding:12px 14px;border-radius:14px;background:rgba(14,13,12,0.58);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(242,239,233,0.16);font-family:'Geist Mono',monospace;font-size:11.5px;line-height:1.55;color:#f2efe9">
+      <div data-dh-est title="{{ estSrc }}" style="position:absolute;top:128px;left:18px;width:min(330px,46%);pointer-events:auto;padding:12px 14px;border-radius:14px;background:rgba(14,13,12,0.58);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(242,239,233,0.16);font-family:'Geist Mono',monospace;font-size:11.5px;line-height:1.55;color:#f2efe9">
         <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><span style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#a8a298">{{ estTitle }}</span><span style="font:700 20px/1 'Geist',system-ui,sans-serif;color:#ff8c1f">N = {{ recN }}</span></div>
         <div style="color:#c4bcae;margin:4px 0 8px">{{ estWhy }}</div>
         <div style="display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:2px 12px;border-top:1px solid rgba(242,239,233,0.14);padding-top:6px">
@@ -173,6 +179,8 @@ class Component extends DCLogic {
   componentDidMount() {
     this.runs = {};
     this.load(null);  // opens at the recommended N from /api/year/sizing (#104)
+    this.applyHash(false);
+    addEventListener("dh:select-job", (e) => { window.__dhSelJob = (e.detail && e.detail.unit_id) || null; });
     let last = performance.now(), lastUi = 0;
     const loop = (now) => {
       this.raf = requestAnimationFrame(loop);
@@ -215,15 +223,37 @@ class Component extends DCLogic {
     this.vm.setPolicy(this.state.pol);
     this.vm.setHour(hf);
     if (!this.fleetLoad) {  // #118: fleetview (#119) drives the algorithm-on-the-map layer
-      this.fleetLoad = Promise.all(["index", "houses.u16", "fleet", "jobs"].map((n) => fetch(this.base() + "/api/fleet/" + n)
-        .then((r) => { if (!r.ok) throw new Error(n + " " + r.status); return n === "houses.u16" ? r.arrayBuffer() : r.json(); })))
-        .then(([index, raw, fleet, jobs]) => { this.fleetIdx = index; this.vm.setFleet({ index, raw: new Uint16Array(raw), fleet, jobs }); })
+      const get = (n, bin) => fetch(this.base() + "/api/fleet/" + n).then((r) => { if (!r.ok) throw new Error(n + " " + r.status); return bin ? r.arrayBuffer() : r.json(); });
+      this.fleetLoad = Promise.all([get("index"), get("houses.u16", true), get("fleet"), get("jobs"), get("houses_baseline.u16", true).catch(() => null)])
+        .then(([index, raw, fleet, jobs, rawB]) => { this.fleetIdx = index;
+          this.vm.setFleet({ index, raw: new Uint16Array(raw), rawBase: rawB ? new Uint16Array(rawB) : null, fleet, jobs });
+          this.setState({ stories: this.vm.stories() }); this.applyHash(true); })
         .catch((e) => console.warn("fleetview", e));
     }
+    if (this.vm.setGhost) this.vm.setGhost(!!this.state.ghost);
+    if (performance.now() - (this.hashAt || 0) > 1000 && this.hashReady) { this.hashAt = performance.now();  // #125 shareable exact moment
+      const sel = this.vm.fleetOn && window.__dhSelJob, cam = this.vm.camera ? this.vm.camera().join(",") : "";
+      const h = `#h=${Math.floor(hf)}&n=${this.state.run ? this.state.run.n : ""}&p=${this.state.pol}${sel ? "&job=" + sel : ""}${this.state.ghost ? "&ghost=1" : ""}&cam=${cam}`;
+      if (h !== location.hash) history.replaceState(null, "", h); }
     const hr = Math.floor(hf), key = hr + "|" + (this.state.run && this.state.run.n) + "|" + this.state.pol;
     if (key !== this.tickKey) { this.tickKey = key;
       window.dispatchEvent(new CustomEvent("dh:tick", { detail: { hour: hr, n: this.state.run ? this.state.run.n : null, policy: this.state.pol,
         playing: !!this.state.playing, fleetKey: this.fleetIdx ? this.fleetIdx.provenance.key : null } })); }
+  }
+  applyHash(fleetReady) {  // #125: reopen the exact frame from the URL (hour, N, policy, job, camera, ghost)
+    const q = new URLSearchParams((location.hash || "").replace(/^#/, ""));
+    if (!fleetReady) {
+      const h = Number(q.get("h")), n = Number(q.get("n"));
+      if (q.get("p") === "thermostat" || q.get("p") === "ours") this.setState({ pol: q.get("p") });
+      if (q.get("ghost") === "1") this.setState({ ghost: true });
+      if (Number.isInteger(h) && h >= 0) { this.hf = h; this.setState({ h, playing: false }); }
+      if (Number.isInteger(n) && n >= 1 && n <= 8) this.load(n);
+      return;
+    }
+    const cam = (q.get("cam") || "").split(",").map(Number);
+    if (cam.length === 6 && cam.every(Number.isFinite) && this.vm) this.vm.setCamera(cam);
+    if (q.get("job") && this.vm) this.vm.selectJob(q.get("job"));
+    this.hashReady = true;
   }
   decision(s, i, n) {  // the scheduler's outcome this hour, in words (derived from the yearview run, not invented)
     if (!s) return ["–", "", "#c4bcae"];
@@ -413,12 +443,15 @@ class Component extends DCLogic {
       hMax: hours - 1, hNow: i,
       nVal: n, setN: (e) => this.load(Number(e.target.value)),
       speeds: [sp(24, "1x"), sp(48, "2x"), sp(96, "4x"), sp(192, "8x")],  // 1x = one day per second (#109)
+      ghostToggle: () => this.setState({ ghost: !this.state.ghost }), ghostC: this.state.ghost ? "#ffffff" : "#55524c", ghostBg: this.state.ghost ? "#55606e" : "#ffffff",
+      stories: (this.state.stories || []).map((st) => ({ label: st.label, src: "source: " + st.src, on: () => { this.hf = st.h; this.setState({ h: st.h, playing: false, view: "map" }); } })),
       views: [["map", "Map"], ["helix", "Helix"], ["chart", "Chart"]].map(([id, label]) => ({ label,
         on: () => { this.bg = null; this.setState({ view: id }); }, c: this.state.view === id ? "#ffffff" : "#55524c", bg: this.state.view === id ? "#141414" : "transparent" })),
       mapDisp: this.state.view === "map" ? "block" : "none", helixDisp: this.state.view === "helix" ? "block" : "none",
       chartDisp: this.state.view === "chart" ? "block" : "none",
       presets: [["city", "City"], ["district", "District"], ["house", "Reference house"]].map(([id, label]) => ({ label, on: () => this.vm && this.vm.focus(id) })),
       decision: dec[0], decWhy: dec[1], decC: dec[2], ytd,
+      estSrc: run ? `source: yearview ${String((run.provenance || {}).key || "").slice(0, 10)} · n${run.n}.json · hours 0..${i} (cumulative) · index.json sizing` : "",
       estTitle: endYear ? "2025 · year totals" : "our algorithm's estimate",
       estHead: endYear ? `at N = ${run.n}, whole year` : `so far, at N = ${run ? run.n : n}`,
       estWhy: endYear && rowN ? (rowN.ours.pays_off ? "pays off" : `does not pay off at ${idx.settings.paid_price_chf_per_server_h} CHF/server-h: needs ${Number(rowN.ours.pays_off_above_chf_per_server_h).toFixed(3)} incl. hardware`) + " · " + (sz ? sz.reason : "")

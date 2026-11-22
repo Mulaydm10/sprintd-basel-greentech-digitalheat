@@ -284,7 +284,8 @@ class Agent:
                         break  # strictly in order: refetch from the first un-accepted seq
                     wav = trust.open_(wire.envelope_from_bytes(base64.b64decode(s["envelope_b64"])), key)
                     t0 = self.clock()
-                    out = self._transcriber.transcribe(wav, d.get("context", ""), int(s["seq"]))
+                    last = d["ended"] and s is d["segments"][-1] and len(d["segments"]) < 8  # closing segment of the stream
+                    out = self._transcriber.transcribe(wav, d.get("context", ""), int(s["seq"]), final=last)
                     body = {"text": out["text"], "backend": self.cfg.transcriber, "ms": round((self.clock() - t0) * 1000, 1)}
                     if out.get("words"):
                         body["words"] = [{"w": str(w["w"]), "t0": float(w["t0"]), "t1": float(w["t1"])} for w in out["words"][:400]]

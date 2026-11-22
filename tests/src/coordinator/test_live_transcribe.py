@@ -155,3 +155,75 @@ def test_live_lease_is_not_paused_by_heat(env):
     a = EchoNode(env, "node-a", "t-na"); assert a.take()
     r = env.c.post(f"/v1/leases/{a.lease}/renew", headers=H("t-na")).json()
     assert r.get("ok") and not r.get("hold")  # no site signal at all (no heat data) and still running
+
+
+def test_local_node_preferred_cloud_only_as_fallback(env):  # #132
+    job = start(env)
+    hb = lambda node, tok, be: env.c.post(f"/v1/nodes/{node}/heartbeat", headers=H(tok), json={"backend": be})
+    hb("node-a", "t-na", "whisper-local"); hb("node-b", "t-nb", "elevenlabs")
+    r = env.c.post("/v1/nodes/node-b/lease", headers=H("t-nb")).json()  # the cloud node asks first
+    assert r.get("hold") and "local node node-a" in r["reason"]
+    la = env.c.post("/v1/nodes/node-a/lease", headers=H("t-na")).json()
+    assert la["unit"]["job_type"] == "live_transcription"
+    audit = env.c.get("/v1/ops/audit", headers=H("t-admin"), params={"limit": 20}).json()["items"]
+    assert any(e.get("type") == "lease" and e.get("reason") == "local node preferred; cloud only as fallback" for e in audit)
+    # STOP the local node -> the cloud node takes over immediately (fallback)
+    env.c.post("/v1/ops/nodes/node-a/drain", headers=H("t-admin")); env.c.post("/v1/ops/nodes/node-a/kill", headers=H("t-admin"))
+    lb = env.c.post("/v1/nodes/node-b/lease", headers=H("t-nb")).json()
+    assert lb["unit"]["job_type"] == "live_transcription"
+    audit = env.c.get("/v1/ops/audit", headers=H("t-admin"), params={"limit": 20}).json()["items"]
+    assert any(e.get("type") == "lease" and e.get("reason") == "cloud fallback: no idle local node" for e in audit)
+    assert job
+
+
+def _nodes(env, a_backend="whisper-local"):
+    env.c.post("/v1/nodes/node-a/heartbeat", headers=H("t-na"), json={"backend": a_backend})
+
+
+def test_132_two_live_jobs_back_to_back_on_the_same_node(env):
+    _nodes(env)
+    env.c.post("/v1/ops/nodes/node-b/drain", headers=H("t-admin"))
+    for key in ("k1", "k2"):
+        job = start(env, key)
+        a = EchoNode(env, "node-a", "t-na")
+        assert a.take(), key
+        for s in range(3):
+            put(env, job, s)
+        while a.step()[1]:
+            pass
+        assert env.c.post(f"/v1/client/jobs/{job}/end", headers=H("t-c1")).status_code == 200
+        assert env.c.get(f"/v1/client/jobs/{job}", headers=H("t-c1")).json()["status"] == "done"
+        assert [x["seq"] for x in env.c.get(f"/v1/client/jobs/{job}/transcript", headers=H("t-c1")).json()["segments"]] == [0, 1, 2]
+
+
+def test_132_drained_node_undrained_mid_job_gets_it_back(env):
+    _nodes(env)
+    job = start(env)
+    a = EchoNode(env, "node-a", "t-na"); assert a.take()
+    put(env, job, 0)
+    a.step()
+    env.c.post("/v1/ops/nodes/node-a/drain", headers=H("t-admin"))
+    env.c.post("/v1/ops/nodes/node-b/drain", headers=H("t-admin"))
+    assert env.c.post(f"/v1/leases/{a.lease}/renew", headers=H("t-na")).json().get("hold")  # drained: lets go
+    env.c.post("/v1/ops/nodes/node-a/undrain", headers=H("t-admin"))
+    put(env, job, 1)
+    a2 = EchoNode(env, "node-a", "t-na")
+    for _ in range(20):  # the paused lease's upload window may still hold the unit for a moment
+        if a2.take():
+            break
+        env.coord.clock = (lambda c=env.coord.clock(): (lambda: c + 20))()
+    assert a2.lease and a2.lease != a.lease
+    a2.step()
+    assert [x["seq"] for x in env.c.get(f"/v1/client/jobs/{job}/transcript", headers=H("t-c1")).json()["segments"]] == [0, 1]
+
+
+def test_132_orphan_leased_unit_is_repaired_on_the_next_tick(env):
+    _nodes(env)
+    job = start(env)
+    with env.coord._tx() as db:  # the inconsistent state seen live: unit leased, no lease row
+        db.execute("UPDATE units SET state='leased' WHERE job_id=?", (job,))
+    env.coord.tick()
+    assert env.coord.store.one("SELECT state FROM units WHERE job_id=?", job)["state"] == "pending"
+    assert EchoNode(env, "node-a", "t-na").take()  # and the job is leasable again
+    audit = env.c.get("/v1/ops/audit", headers=H("t-admin"), params={"limit": 20}).json()["items"]
+    assert any(e.get("type") == "repair_orphan_unit" for e in audit)

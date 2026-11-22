@@ -210,3 +210,26 @@ def test_merkle_proofs_for_every_size():
         root, proofs = ec.merkle(links)
         assert all(ec.verify_proof(lk, p, root) for lk, p in zip(links, proofs))
         assert not ec.verify_proof(links[0][::-1], proofs[0], root)
+
+
+def test_final_tail_flush_stays_encrypted_signed_and_linked(tmp_path):
+    app, tc, ag = setup(tmp_path, ("node-a",))
+    ph = Phone(tc)
+    a = ag["node-a"]
+
+    class Tail:  # holds back the last words of every segment (#134), so the flush must carry them
+        name = "echo"
+        def transcribe(self, wav, context="", seq=0, final=False):
+            return {"text": f"seg {seq}", "words": None, "tail": "keep going."}
+    a._transcriber = Tail()
+    for s in range(2):
+        ph.put(s)
+    tc.post(f"/v1/client/jobs/{ph.job}/end", headers=H("t-c1"))
+    assert a.run_live(tc.post("/v1/nodes/node-a/lease", headers=H("t-na")).json()) == "done"
+    t = ph.transcript()
+    segs = t["segments"]
+    assert [ph.read(s) for s in segs] == ["seg 0", "seg 1 keep going."] and all(s["text"] == "" for s in segs)
+    assert verify_chain(ph.job, segs)  # the flushed segment is re-signed and relinked
+    rc = tc.get(f"/v1/client/jobs/{ph.job}/transcript/receipt", headers=H("t-c1")).json()
+    assert rc["root"] == t["root"] and all(ec.verify_proof(p["link"], p["path"], rc["root"]) for p in rc["proofs"])
+    assert "keep going" not in "\n".join(sqlite3.connect(tmp_path / "c" / "state.db").iterdump())

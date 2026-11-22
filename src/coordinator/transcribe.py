@@ -395,10 +395,73 @@ def _maybe_finish(db, coord, job_id: str) -> None:
     if lz is not None:
         db.execute("UPDATE leases SET state='completed' WHERE lease_id=?", (lz["lease_id"],))
     coord._audit(db, {"type": "complete", "unit": u["unit_id"], "node": lz["node_id"] if lz else None, "result": "live"})
+    _receipt(db, coord, job_id)
+
+
+def _receipt(db, coord, job_id: str, flush: bool = False) -> None:
+    """v2.1: Merkle root over the segment links, anchored in the hash-chained audit log (again after a flush)."""
     rows = db.execute("SELECT link, node FROM segments WHERE job_id=? AND state='accepted' ORDER BY seq",
                       (job_id,)).fetchall()
-    root, _ = ec.merkle([r["link"] for r in rows])
-    if root is not None:  # v2.1: the receipt is anchored in the hash-chained audit log
+    root, _ = ec.merkle([r["link"] for r in rows if r["link"]])
+    if root is not None:
         db.execute("UPDATE jobs SET root=? WHERE job_id=?", (root, job_id))
         coord._audit(db, {"type": "receipt", "job": job_id, "root": root, "n_segments": len(rows),
-                          "nodes": sorted({r["node"] for r in rows})})
+                          "nodes": sorted({r["node"] for r in rows}), **({"flush": True} if flush else {})})
+
+
+def flush(coord, node_id: str, lease_id: str, seq: int, text: str, enc: dict | None = None,
+          sig: str | None = None) -> dict:
+    """#134: after /end, the node that accepted the LAST segment appends that segment's held-back tail once (the
+    words a next segment would have confirmed). Lease must be this node's (active or just completed); idempotent.
+    v2: an E2E job sends the WHOLE last segment re-sealed to the phone as `enc` (text empty). v2.1: the node re-signs
+    the new segment; its link and the job's Merkle root are recomputed (it is the last segment: no later link)."""
+    text = (text or "").strip()[:500]
+    if enc is not None:
+        try:
+            ec.check_enc(enc)
+        except ValueError as e:
+            raise _err(422, str(e)) from e
+    with coord._tx() as db:
+        lz = db.execute("SELECT * FROM leases WHERE lease_id=?", (lease_id,)).fetchone()
+        if lz is None:
+            raise _err(404, "unknown lease")
+        if lz["node_id"] != node_id:
+            raise _err(403, "lease belongs to another node")
+        if lz["state"] not in ("active", "completed"):
+            raise _err(410, f"lease {lz['state']}")
+        job = db.execute("SELECT job_id FROM units WHERE unit_id=?", (lz["unit_id"],)).fetchone()["job_id"]
+        jr = db.execute("SELECT ended_at, client_pub FROM jobs WHERE job_id=?", (job,)).fetchone()
+        if jr["ended_at"] is None:
+            raise _err(409, "the stream has not ended")
+        last = db.execute("SELECT * FROM segments WHERE job_id=? ORDER BY seq DESC LIMIT 1", (job,)).fetchone()
+        if last is None or last["seq"] != seq or last["state"] != "accepted" or last["node"] != node_id:
+            raise _err(409, "only the last segment, accepted by this node, can be flushed")
+        if jr["client_pub"]:
+            if enc is None or text:
+                raise _err(422, "E2E job: flush the whole segment re-sealed as `enc` (text empty)")
+            marker, new_text, canon = ec.enc_sha256(enc), "", ec.canon_enc(enc)
+        elif enc is not None:
+            raise _err(422, "enc is only for E2E jobs (created with client_pub)")
+        else:
+            marker, new_text, canon = text, f"{(last['text'] or '').strip()} {text}".strip(), None
+        if last["flushed"] is not None:
+            if last["flushed"] == marker:
+                return {"ok": True, "duplicate": True, "seq": seq}
+            raise _err(409, "already flushed")
+        es = ec.enc_sha256(enc, new_text)
+        me = db.execute("SELECT sig_pub FROM nodes WHERE node_id=?", (node_id,)).fetchone()
+        sig_pub = me["sig_pub"] if me else None
+        if sig_pub and (not sig or not ec.verify_sig(sig_pub, sig, ec.seg_message(job, seq, last["sha256"], es))):
+            raise _err(422, "bad or missing segment signature")
+        prev = db.execute("""SELECT link FROM segments WHERE job_id=? AND state='accepted' AND seq<? ORDER BY seq DESC
+                             LIMIT 1""", (job, seq)).fetchone()
+        lk = ec.link(prev["link"] if prev else None, job, last["sha256"], es, node_id)
+        db.execute("""UPDATE segments SET flushed=?, text=?, enc=?, enc_sha256=?, sig=?, sig_pub=?, link=?
+                      WHERE job_id=? AND seq=?""", (marker, new_text, canon, es, sig if sig_pub else None, sig_pub, lk,
+                                                    job, seq))
+        ps.emit(db, coord, "transcript.segment", {"job": job, "seq": seq, "text": new_text, "node": node_id,
+                                                  "backend": last["backend"], "enc": enc, "link": lk,
+                                                  "flush": True},  # the full segment: replaces by seq
+                **ps.scope(db, lz["unit_id"], node_id))
+        _receipt(db, coord, job, flush=True)
+    return {"ok": True, "duplicate": False, "seq": seq}

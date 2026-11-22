@@ -40,12 +40,13 @@ def stitch(words: list[dict[str, Any]], context: str = "", seq: int = 1, dur: fl
        hears those words whole, and since they are not in the context yet the alignment keeps them there.
        The final segment of a stream (`final`) holds nothing back: the client's closing segment (the last overlap +
        silence) carries the last words."""
-    ws = [w for w in words if _norm(w.get("w", ""))]
+    # word fragments cut by the boundary ('trans-', #134: ElevenLabs returns them) are never accepted as words
+    ws = [w for w in words if _norm(w.get("w", "")) and not str(w.get("w", "")).strip().endswith(("-", "\u2014", "\u2013"))]
     if dur is not None and not final and dur > HOLD_TAIL_S + 0.5:
         ws = [w for w in ws if float(w.get("t0", 0.0)) < dur - HOLD_TAIL_S]
     if seq == 0 or not ws:
         return ws
-    prev = [_norm(x) for x in context.split() if _norm(x)][-30:]
+    prev = [_norm(x) for x in context.split() if _norm(x) and not x.endswith(("-", "\u2014", "\u2013"))][-30:]
     cur = [_norm(w["w"]) for w in ws]
     best = (0, 0)  # (k, -i): longest run, then earliest start
     for i in range(0, min(MAX_LEAD, len(cur) - 1) + 1):
@@ -67,11 +68,19 @@ def _wav_seconds(wav: bytes) -> float | None:
         return None
 
 
+def _join(ws) -> str:
+    return " ".join(str(w["w"]).strip() for w in ws if str(w["w"]).strip()).replace("...", "").replace("  ", " ").strip()
+
+
 def _dedupe(words: list[dict[str, Any]], seq: int = 1, context: str = "", wav: bytes | None = None,
-            final: bool = False) -> tuple[str, list[dict[str, Any]]]:
-    kept = stitch(words, context, seq, _wav_seconds(wav) if wav else None, final=final)
-    text = " ".join(str(w["w"]).strip() for w in kept if str(w["w"]).strip())
-    return text.replace("...", "").replace("  ", " ").strip(), kept
+            final: bool = False) -> tuple[str, list[dict[str, Any]], str]:
+    """-> (text to accept, its words, the held-back TAIL text). The agent flushes the tail of the stream's last
+    segment after /end (#134): the last words are otherwise only confirmed by a next segment that never comes."""
+    dur = _wav_seconds(wav) if wav else None
+    kept = stitch(words, context, seq, dur, final=final)
+    whole = stitch(words, context, seq, dur, final=True)
+    tail = whole[len(kept):] if whole[:len(kept)] == kept else []
+    return _join(kept), kept, _join(tail)
 
 
 def _pcm16_wav_to_float(wav: bytes):
@@ -118,8 +127,8 @@ class WhisperLocal:
         # it, including NEW speech right after the overlap ('losing a single word' vanished). The overlap is
         # transcribed honestly and stitch() removes the repeats by text alignment.
         words = [{"w": w.word, "t0": float(w.start), "t1": float(w.end)} for s in segs for w in (s.words or [])]
-        text, kept = _dedupe(words, seq, context, wav, final)
-        return {"text": text, "words": kept}
+        text, kept, tail = _dedupe(words, seq, context, wav, final)
+        return {"text": text, "words": kept, "tail": tail}
 
 
 class ElevenLabs:
@@ -144,8 +153,8 @@ class ElevenLabs:
                  for w in d.get("words", []) if w.get("type", "word") == "word"]
         if not words:
             return {"text": str(d.get("text", "")).strip(), "words": None}
-        text, kept = _dedupe(words, seq, context, wav, final)
-        return {"text": text, "words": kept}
+        text, kept, tail = _dedupe(words, seq, context, wav, final)
+        return {"text": text, "words": kept, "tail": tail}
 
 
 def make(name: str, model: str = "small.en", key_file: Path | None = None):

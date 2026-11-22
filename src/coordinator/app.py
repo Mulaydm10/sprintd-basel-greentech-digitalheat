@@ -94,6 +94,12 @@ class EncIn(Strict):  # live v2: a transcript segment sealed to the phone's clie
     ct: Annotated[str, Field(max_length=40_000)]
 
 
+class FlushIn(Strict):  # #134 the final held-back words of a stream
+    text: Annotated[str, Field(max_length=500)]
+    enc: EncIn | None = None  # v2: the whole last segment re-sealed to the phone
+    sig: Annotated[str, Field(max_length=200)] | None = None  # v2.1: re-signed
+
+
 class SegmentResultIn(Strict):  # #127
     text: Annotated[str, Field(max_length=4000)]
     enc: EncIn | None = None  # v2 E2E jobs: the transcript, readable only by the phone
@@ -278,6 +284,12 @@ def create_app(state_dir: Path, tokens: dict[str, str] | None = None, clock=time
     def segment_not_recipient(lease_id: PathId, seq: Annotated[int, PathParam(ge=0, le=10_000_000)],
                               p: Principal = Depends(principal)):
         return ts.not_recipient(coord, node_token(p), lease_id, seq)  # v2: release to a node that can open it
+
+    @app.post("/v1/leases/{lease_id}/segments/{seq}/flush")
+    def segment_flush(lease_id: PathId, seq: Annotated[int, PathParam(ge=0, le=10_000_000)], body: FlushIn,
+                      p: Principal = Depends(principal)):
+        return ts.flush(coord, node_token(p), lease_id, seq, body.text, body.enc.model_dump() if body.enc else None,
+                        body.sig)  # #134 the final held-back words
 
     mount_portal(app, principal, coord)
     return app

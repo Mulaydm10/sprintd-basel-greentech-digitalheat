@@ -260,6 +260,26 @@ class Agent:
         canon = json.dumps({k: enc[k] for k in ("eph", "iv", "ct")}, sort_keys=True, separators=(",", ":")) if enc else text
         es = hashlib.sha256(canon.encode()).hexdigest()
         return base64.b64encode(self._sig_priv.sign(f"dh-seg-v1|{job}|{seq}|{blob_sha}|{es}".encode())).decode()
+    def _flush(self, lease_id: str, last_seq: int) -> None:
+        """#134: after /end, append the last segment's held-back tail ('keep going.') once. v2: an E2E job gets the
+        whole last segment re-sealed to the phone; v2.1: re-signed (the coordinator relinks it)."""
+        t = getattr(self, "_tail", None) or {}
+        self._tail = None
+        if t.get("seq") is None or t["seq"] != last_seq or not t.get("tail"):
+            return
+        full = f"{t['text']} {t['tail']}".strip()
+        body: dict[str, Any] = {"text": t["tail"]}
+        enc = None
+        if t.get("client_pub"):
+            from . import e2e
+            enc = e2e.seal_text(t["client_pub"], full)
+            body = {"text": "", "enc": enc}
+        if self._sig_priv is not None:
+            body["sig"] = self._sign_segment(t["job"], t["seq"], t["sha"], enc, "" if enc else full)
+        try:
+            self._post(f"/v1/leases/{lease_id}/segments/{t['seq']}/flush", json=body)
+        except Retry:
+            pass
 
     def run_live(self, lease: dict[str, Any]) -> str:
         """#127: hold a live transcription lease: long-poll segments, decrypt with the released job key, transcribe
@@ -278,6 +298,7 @@ class Agent:
         self.state.update(running_unit=unit_id, progress=0.0, last_error=None)
         after, last_renew = -1, self.clock()
         own_ctx = ""  # v2: E2E jobs give no context (the coordinator cannot read it): stitch with our own accepted text
+        self._tail = None
         renew_s = min(self.cfg.renew_s, float(lease.get("renew_every_s", self.cfg.renew_s)))
         try:
             while True:
@@ -285,7 +306,10 @@ class Agent:
                     r = self._post(f"/v1/leases/{lease_id}/renew")
                     if r.status_code == 410:  # moved by STOP, or the job just finished here: the fetch tells which
                         f = self.http.get(f"/v1/leases/{lease_id}/segments", params={"after": after, "wait": 0})
-                        return "done" if f.status_code == 200 and f.json().get("done") else "lapsed"
+                        if f.status_code == 200 and f.json().get("done"):
+                            self._flush(lease_id, after)
+                            return "done"
+                        return "lapsed"
                     last_renew = self.clock()
                 try:
                     r = self.http.get(f"/v1/leases/{lease_id}/segments", params={"after": after, "wait": min(2.0, renew_s)},
@@ -301,6 +325,7 @@ class Agent:
                 self._ok()
                 d = r.json()
                 if d.get("done"):
+                    self._flush(lease_id, after)
                     return "done"
                 after = max(after, int(d["next_seq"]) - 1)
                 for s in d["segments"]:
@@ -338,9 +363,12 @@ class Agent:
                         break
                     after = int(s["seq"])
                     own_ctx = (own_ctx + " " + out["text"]).strip()[-200:]
+                    self._tail = {"seq": after, "tail": out.get("tail") or "", "text": out["text"], "sha": str(s["sha256"]),
+                                  "job": str(d["job_id"]), "client_pub": client_pub}  # held back (#134)
                     self.state["progress"] = 0.0
                     last_renew = self.clock()  # an accepted result extends the lease on the coordinator
                 if d["ended"] and not d["segments"] and int(d["next_seq"]) == after + 1:
+                    self._flush(lease_id, after)
                     return "done"
         except Retry:
             self.backoff()

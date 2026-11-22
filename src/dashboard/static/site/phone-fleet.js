@@ -8,7 +8,7 @@ import { RenderPass } from "./vendor/three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "./vendor/three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "./vendor/three/addons/postprocessing/OutputPass.js";
 
-const C = { bg: 0x0b0a09, heat: 0xff6a1f, hot: 0xffb070, idle: 0xc9bfb0, stop: 0xd1173a, cold: 0x3d8fd8, ok: 0x2fbf71, laptop: 0xf2efe9 };
+const C = { bg: 0x121110, heat: 0xff6a1f, hot: 0xffb070, idle: 0xc9bfb0, stop: 0xd1173a, cold: 0x3d8fd8, ok: 0x2fbf71, laptop: 0xf2efe9 };
 const MONO = "'Geist Mono', ui-monospace, monospace";
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const LAPTOPS = { "omen-gpu": "Omen · laptop", "laptop-2": "Parth's HP · laptop", "mac-live": "Mac · laptop" };
@@ -27,8 +27,8 @@ function ui(root) {
         <div data-k="labels" style="position:absolute;inset:0;pointer-events:none;overflow:hidden"></div>
         <div data-k="banner" style="position:absolute;left:18px;top:16px;right:18px;color:#f2efe9;font-size:12px;letter-spacing:.06em;text-transform:uppercase;display:flex;justify-content:space-between;gap:10px;pointer-events:none">
           <span>coordinator · Mac mini, Basel · live fleet</span><span data-k="clock"></span></div>
-        <div data-k="flash" style="position:absolute;left:50%;bottom:22px;transform:translateX(-50%);padding:10px 16px;border-radius:999px;background:rgba(20,12,8,.78);border:1px solid rgba(255,160,90,.35);color:#ffd9bf;font-size:13px;opacity:0;transition:opacity .4s;pointer-events:none;white-space:nowrap"></div>
-        <div style="position:absolute;left:18px;bottom:16px;color:#8a8278;font-size:10.5px;pointer-events:none">● orange = phone heating (running a job) · ● red = STOP · ◆ laptops · the core = coordinator · drag to orbit</div>
+        <div data-k="flash" style="position:absolute;left:50%;bottom:22px;transform:translateX(-50%);padding:10px 16px;border-radius:999px;background:rgba(18,17,16,.72);border:1px solid rgba(242,239,233,.14);color:#e8dccf;font-size:12px;opacity:0;transition:opacity .4s;pointer-events:none;white-space:nowrap"></div>
+        <div style="position:absolute;left:18px;bottom:16px;color:#6e6a63;font-size:10px;pointer-events:none">orange · heating   red · stopped   white · laptops   centre · coordinator</div>
       </div>
       <div style="display:flex;flex-direction:column;gap:14px">
         <div style="border:1px solid #dcd6cc;border-radius:20px;background:#fff;padding:14px;text-align:center">
@@ -65,7 +65,7 @@ function start(root) {
   const cam = new THREE.PerspectiveCamera(48, 1, 0.1, 500);
   cam.position.set(0, 26, 62);
   const ctl = new OrbitControls(cam, renderer.domElement);
-  ctl.enableDamping = true; ctl.autoRotate = true; ctl.autoRotateSpeed = 0.15; ctl.minDistance = 25; ctl.maxDistance = 120;
+  ctl.enableDamping = true; ctl.autoRotate = true; ctl.autoRotateSpeed = 0.08; ctl.minDistance = 25; ctl.maxDistance = 120;
   const comp = new EffectComposer(renderer);
   comp.addPass(new RenderPass(scene, cam));
   const bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.4, 0.45, 0.4);
@@ -74,23 +74,23 @@ function start(root) {
   const key = new THREE.PointLight(0xffb070, 60, 120); key.position.set(0, 10, 0); scene.add(key);
 
   // floor grid + star dust
-  const grid = new THREE.PolarGridHelper(46, 16, 6, 96, 0x2a2420, 0x1a1512); grid.position.y = -9; scene.add(grid);
+  const grid = new THREE.PolarGridHelper(42, 8, 4, 96, 0x24201c, 0x1c1916); grid.position.y = -9; scene.add(grid);
   { const g = new THREE.BufferGeometry(), n = 900, p = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) { const r = 60 + Math.random() * 90, a = Math.random() * 6.283, y = (Math.random() - 0.5) * 80; p.set([Math.cos(a) * r, y, Math.sin(a) * r], i * 3); }
     g.setAttribute("position", new THREE.BufferAttribute(p, 3));
-    scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0x6b5a4a, size: 0.25, transparent: true, opacity: 0.25 }))); }
+    /* no star dust: cleaner */ }
 
   // coordinator core
   const core = new THREE.Group(); scene.add(core);
-  const coreMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(3.2, 1), new THREE.MeshStandardMaterial({ color: 0x1a1210, emissive: C.heat, emissiveIntensity: 0.8, flatShading: true, metalness: 0.3, roughness: 0.4 }));
+  const coreMesh = new THREE.Mesh(new THREE.SphereGeometry(2.6, 48, 32), new THREE.MeshStandardMaterial({ color: 0x1a1210, emissive: C.heat, emissiveIntensity: 0.6, flatShading: false, metalness: 0.3, roughness: 0.4 }));
   core.add(coreMesh);
   const coreWire = new THREE.Mesh(new THREE.IcosahedronGeometry(4.4, 1), new THREE.MeshBasicMaterial({ color: C.hot, wireframe: true, transparent: true, opacity: 0.1 }));
-  core.add(coreWire);
-  const rings = [5.5, 7.2].map((r, i) => { const m = new THREE.Mesh(new THREE.TorusGeometry(r, 0.05, 8, 128), new THREE.MeshBasicMaterial({ color: i ? C.cold : C.hot, transparent: true, opacity: 0.25 })); m.rotation.x = Math.PI / 2 + i * 0.4; core.add(m); return m; });
+  coreWire.visible = false; core.add(coreWire);
+  const rings = [5.8].map((r, i) => { const m = new THREE.Mesh(new THREE.TorusGeometry(r, 0.025, 6, 160), new THREE.MeshBasicMaterial({ color: i ? C.cold : C.hot, transparent: true, opacity: 0.25 })); m.rotation.x = Math.PI / 2 + i * 0.4; core.add(m); return m; });
 
   // nodes
   const nodes = new Map();    // id -> {g, mesh, glow, line, pos, kind, label, state, born, heat}
-  const phoneGeo = new THREE.BoxGeometry(1.5, 2.8, 0.22), lapGeo = new THREE.BoxGeometry(3.6, 0.28, 2.4), lapLid = new THREE.BoxGeometry(3.6, 2.3, 0.12);
+  const phoneGeo = new THREE.BoxGeometry(1.1, 2.1, 0.14), lapGeo = new THREE.BoxGeometry(3.6, 0.28, 2.4), lapLid = new THREE.BoxGeometry(3.6, 2.3, 0.12);
   const heatTex = (() => { const c = document.createElement("canvas"); c.width = c.height = 64; const x = c.getContext("2d"); const g = x.createRadialGradient(32, 32, 0, 32, 32, 32); g.addColorStop(0, "rgba(255,190,120,1)"); g.addColorStop(0.4, "rgba(255,106,31,.5)"); g.addColorStop(1, "rgba(255,106,31,0)"); x.fillStyle = g; x.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
 
   function slotFor(kind, n) {
@@ -196,7 +196,7 @@ function start(root) {
   let last = performance.now();
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
-    coreMesh.rotation.y += dt * 0.4; coreWire.rotation.y -= dt * 0.25; rings.forEach((r, i) => (r.rotation.z += dt * (i ? -0.3 : 0.5)));
+    coreMesh.rotation.y += dt * 0.1; rings.forEach((r) => (r.rotation.z += dt * 0.12));
     const busy = [...nodes.values()].filter((n) => n.state === "busy").length;
     coreMesh.material.emissiveIntensity = 0.7 + 0.12 * Math.sin(now / 600) + busy * 0.02;
     for (const n of nodes.values()) {
@@ -206,19 +206,20 @@ function start(root) {
       const col = n.state === "stopped" ? C.stop : n.state === "gone" ? 0x3a3430 : n.role === "client" ? C.cold : n.kind === "laptop" ? C.laptop : C.idle;
       n.mat.emissive.setHex(n.heat > 0.05 ? C.heat : col);
       n.mat.emissiveIntensity = n.state === "gone" ? 0.08 : 0.3 + n.heat * (0.7 + 0.15 * Math.sin(now / 400 + n.g.position.x));
-      n.glow.material.opacity = n.heat * 0.35; n.glow.scale.setScalar(5 + 1.5 * n.heat);
-      if (n.heat > 0.5 && Math.random() < 0.03) spark(n.g.position);
+      n.glow.material.opacity = n.heat * 0.22; n.glow.scale.setScalar(4 + n.heat);
+      if (n.heat > 0.5 && Math.random() < 0.012) spark(n.g.position);
       const pa = n.line.geometry.attributes.position; pa.setXYZ(1, n.g.position.x, n.g.position.y, n.g.position.z); pa.needsUpdate = true;
-      n.line.material.opacity = 0.12 + n.heat * 0.35; n.line.material.color.setHex(n.heat > 0.3 ? C.heat : 0x5a4a3c);
+      n.line.material.opacity = 0.06 + n.heat * 0.25; n.line.material.color.setHex(n.heat > 0.3 ? C.heat : 0x5a4a3c);
       v.copy(n.g.position); v.y += n.kind === "laptop" ? 2.6 : 2.2; v.project(cam);
-      const vis = v.z < 1; n.el.style.display = vis ? "block" : "none";
+      const fresh = performance.now() - n.born < 8000;
+      const vis = v.z < 1 && (n.kind === "laptop" || n.state === "busy" || n.state === "stopped" || fresh); n.el.style.display = vis ? "block" : "none";
       if (vis) { n.el.style.left = ((v.x + 1) / 2 * k.gl.clientWidth) + "px"; n.el.style.top = ((1 - v.y) / 2 * k.gl.clientHeight) + "px";
         n.el.innerHTML = `${esc(n.label)}${n.state === "busy" ? ' <span style="color:#ff9a5a">● heating</span>' : n.state === "stopped" ? ' <span style="color:#ff6b80">■ stopped</span>' : ""}`; }
     }
     for (let i = packets.length - 1; i >= 0; i--) {
       const p = packets[i], t = Math.min(1, (now - p.t0) / p.ms), e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
       p.s.position.lerpVectors(p.from, p.to, e); p.s.position.y += Math.sin(Math.PI * e) * p.arc;
-      if (Math.random() < 0.12) spark(p.s.position);
+      if (Math.random() < 0.05) spark(p.s.position);
       if (t >= 1) { scene.remove(p.s); packets.splice(i, 1); }
     }
     for (let i = sparks.length - 1; i >= 0; i--) { const s = sparks[i]; s.m.position.y += s.v; s.life -= 0.02; s.m.material.opacity = s.life * 0.8; if (s.life <= 0) { scene.remove(s.m); sparks.splice(i, 1); } }

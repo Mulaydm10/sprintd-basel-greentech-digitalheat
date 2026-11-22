@@ -1,4 +1,5 @@
 @import url("./vendor/fonts/fonts.css");
+[hidden] { display: none !important; }
 :root { --ink:#141414; --mute:#6e6a63; --line:#dcd6cc; --card:#ffffff; --cream:#f2efe9; --soft:#f8f6f1; --heat:#c93c05; --dump:#d1173a; --ok:#157a43; --held:#a86400; --cold:#1d6bb3; }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--cream); color: var(--ink); font-family: "Geist", system-ui, sans-serif; -webkit-text-size-adjust: 100%; }

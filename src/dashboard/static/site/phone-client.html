@@ -13,6 +13,7 @@
     <div class="row"><button class="primary" id="start">● Start</button><button id="end" disabled>■ End</button></div>
     <div class="transcript" id="tx"><span class="mute">Press Start and speak. Every 4 s of audio becomes one numbered segment; the coordinator gives it to a basement server and the text appears here.</span></div>
     <div class="row mono small mute"><span id="segInfo">0 sent · 0 transcribed</span><span id="nodeNow"></span></div>
+    <div class="row mono small"><span id="e2e" class="mute">encryption: –</span><span id="chain" class="mute"></span></div>
     <p class="err" id="liveErr"></p>
   </section>
 
@@ -26,10 +27,12 @@
 </main>
 <nav class="ph"><a class="on" href="./phone-client.html">Client</a><a href="./phone-server.html">Server</a><a href="./">Site</a></nav>
 <script src="./phone.js"></script>
+<script src="./phone-e2e.js"></script>
 <script>
 (function () {
   const P = window.DHPhone, $ = (id) => document.getElementById(id);
-  let job = null, rec = null, sent = 0, shown = new Set(), lastNode = null, poll = null;
+  let job = null, rec = null, sent = 0, shown = new Set(), lastNode = null, poll = null, pair = null, e2e = false, recips = [], recT = null;
+  const E = window.DHE2E;
 
   P.signin($("auth"), "client", () => { $("live").hidden = false; $("batch").hidden = false; catalogue(); });
 
@@ -38,7 +41,11 @@
     catch (e) { $("bInfo").textContent = "catalogue: " + e.message; }
   }
 
-  function render(segs) {
+  async function plain(s) {
+    if (s.enc && pair) { try { return await E.openText(pair, s.enc); } catch (e) { return "⚠ could not decrypt"; } }
+    return s.text || "…";
+  }
+  async function render(segs) {
     const tx = $("tx");
     if (!shown.size) tx.innerHTML = "";
     for (const s of segs.sort((a, b) => a.seq - b.seq)) {
@@ -47,7 +54,8 @@
       const node = s.node || "?";
       if (lastNode !== null && node !== lastNode) tx.insertAdjacentHTML("beforeend", `<div class="moved">moved to ${P.esc(node)} · no segment lost</div>`);
       lastNode = node;
-      tx.insertAdjacentHTML("beforeend", `<div class="seg" style="border-color:${P.nodeColour(node)}" title="#${s.seq} · ${P.esc(node)} · ${P.esc(s.backend || "")}">${P.esc(s.text || "…")}</div>`);
+      const txt = await plain(s);
+      tx.insertAdjacentHTML("beforeend", `<div class="seg" style="border-color:${P.nodeColour(node)}" title="#${s.seq} · ${P.esc(node)} · ${P.esc(s.backend || "")}${s.enc ? " · decrypted on this phone" : ""}">${P.esc(txt)}</div>`);
       $("nodeNow").innerHTML = `<span style="color:${P.nodeColour(node)}">● ${P.esc(node)}</span> · ${P.esc(s.backend || "")}`;
     }
     tx.scrollTop = tx.scrollHeight;
@@ -56,18 +64,39 @@
 
   async function pullTranscript() {
     if (!job) return;
-    try { const t = await P.api(`/v1/client/jobs/${job}/transcript`); render(t.segments || []); } catch (e) { /* keep going */ }
+    try {
+      const t = await P.api(`/v1/client/jobs/${job}/transcript`); const segs = t.segments || [];
+      await render(segs);
+      if (segs.some((x) => x.link)) {
+        const v = await E.verifySegments(job, segs);
+        $("chain").innerHTML = v.chainOk ? `<span style="color:var(--ok)">✓ chain intact · ${segs.length} linked${v.ed ? ` · ${v.sigOk}/${v.sigs} node signatures ✓` : " · signatures checked by server"}</span>${t.root ? " · root " + P.esc(String(t.root).slice(0, 10)) + "…" : ""}`
+                                     : `<span style="color:var(--dump)">✗ chain broken: a segment was changed, dropped or reordered</span>`;
+      }
+    } catch (e) { /* keep going */ }
   }
 
   $("start").onclick = async () => {
     $("liveErr").textContent = ""; shown = new Set(); lastNode = null; sent = 0;
     try {
-      const r = await P.api("/v1/client/jobs", { method: "POST", json: { type: "live_transcription", access_class: "public", idempotency_key: "live-" + Date.now() } });
-      job = r.job_id; $("liveState").textContent = "streaming"; $("liveState").style.color = "var(--heat)";
+      pair = E && E.supported ? await E.genPair() : null;
+      const body = { type: "live_transcription", access_class: "public", idempotency_key: "live-" + Date.now() };
+      if (pair) body.client_pub = await E.pubB64(pair);
+      let r;
+      try { r = await P.api("/v1/client/jobs", { method: "POST", json: body }); }
+      catch (e) { if (e.status !== 422 || !body.client_pub) throw e; delete body.client_pub; pair = null; r = await P.api("/v1/client/jobs", { method: "POST", json: body }); }
+      job = r.job_id;
+      e2e = false;
+      if (pair) { try { recips = (await P.api(`/v1/client/jobs/${job}/recipients`)).recipients || []; e2e = recips.length > 0; } catch (e) { e2e = false; } }
+      $("e2e").innerHTML = e2e ? `<span style="color:var(--ok)">🔒 end-to-end encrypted · ${recips.length} recipient nodes · coordinator cannot read</span>`
+                               : `<span style="color:var(--held)">encryption in transit only (E2E not deployed on the coordinator yet)</span>`;
+      if (e2e) recT = setInterval(async () => { try { const x = (await P.api(`/v1/client/jobs/${job}/recipients`)).recipients || []; if (x.length) recips = x; } catch (e) {} }, 10000); $("liveState").textContent = "streaming"; $("liveState").style.color = "var(--heat)";
       rec = await P.mic(async (seq, blob, lvl) => {
         $("lvl").style.width = Math.min(100, lvl * 400) + "%";
         for (let a = 0; a < 3; a++) {   // retry: the coordinator is idempotent per (job, seq)
-          try { await P.api(`/v1/client/jobs/${job}/segments`, { method: "POST", body: blob, headers: { "Content-Type": "audio/wav", "X-Seq": String(seq) } }); sent++; break; }
+          try {
+            if (e2e) await P.api(`/v1/client/jobs/${job}/segments`, { method: "POST", body: await E.sealSegment(blob, recips), headers: { "Content-Type": "application/json", "X-Seq": String(seq) } });
+            else await P.api(`/v1/client/jobs/${job}/segments`, { method: "POST", body: blob, headers: { "Content-Type": "audio/wav", "X-Seq": String(seq) } });
+            sent++; break; }
           catch (e) { $("liveErr").textContent = "segment " + seq + ": " + e.message; await new Promise((r) => setTimeout(r, 400)); }
         }
         $("segInfo").textContent = `${sent} sent · ${shown.size} transcribed`;
@@ -77,7 +106,7 @@
     } catch (e) { $("liveErr").textContent = e.message + (e.status === 422 ? " (live transcription not deployed yet?)" : ""); }
   };
   $("end").onclick = async () => {
-    if (rec) rec.stop(); rec = null; $("end").disabled = true; $("start").disabled = false; $("liveState").textContent = "ending";
+    if (rec) rec.stop(); rec = null; clearInterval(recT); $("end").disabled = true; $("start").disabled = false; $("liveState").textContent = "ending";
     try { await P.api(`/v1/client/jobs/${job}/end`, { method: "POST" }); } catch (e) {}
     setTimeout(() => { clearInterval(poll); pullTranscript(); $("liveState").textContent = "done"; $("liveState").style.color = "var(--ok)"; }, 8000);
   };

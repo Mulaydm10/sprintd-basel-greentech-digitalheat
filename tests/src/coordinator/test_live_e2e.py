@@ -233,3 +233,42 @@ def test_final_tail_flush_stays_encrypted_signed_and_linked(tmp_path):
     rc = tc.get(f"/v1/client/jobs/{ph.job}/transcript/receipt", headers=H("t-c1")).json()
     assert rc["root"] == t["root"] and all(ec.verify_proof(p["link"], p["path"], rc["root"]) for p in rc["proofs"])
     assert "keep going" not in "\n".join(sqlite3.connect(tmp_path / "c" / "state.db").iterdump())
+
+
+def test_139_a_drained_node_never_gets_a_new_live_lease_and_undrained_gets_it(tmp_path):
+    app, tc, ag = setup(tmp_path, ("node-a", "node-b"))
+    for n in ("node-a", "node-b"):
+        tc.post(f"/v1/ops/nodes/{n}/drain", headers=H("t-admin"))
+    ph = Phone(tc)
+    assert set(ph.recipients()) == {"node-a", "node-b"}  # standby nodes stay recipients (e8ec2cd)
+    ph.put(0)
+    for _ in range(3):
+        for n, tok in (("node-a", "t-na"), ("node-b", "t-nb")):
+            assert "unit" not in tc.post(f"/v1/nodes/{n}/lease", headers=H(tok)).json()
+    tc.post("/v1/ops/nodes/node-b/undrain", headers=H("t-admin"))
+    assert "unit" not in tc.post("/v1/nodes/node-a/lease", headers=H("t-na")).json()
+    assert tc.post("/v1/nodes/node-b/lease", headers=H("t-nb")).json()["unit"]["job_type"] == "live_transcription"
+
+
+def test_139_the_flushed_last_segment_changes_its_hash_so_the_phone_re_reads_it(tmp_path):
+    app, tc, ag = setup(tmp_path, ("node-a",))
+    ph = Phone(tc)
+    a = ag["node-a"]
+
+    class Tail:
+        name = "echo"
+        def transcribe(self, wav, context="", seq=0, final=False):
+            return {"text": "we keep", "words": None, "tail": "going."}
+    a._transcriber = Tail()
+    ph.put(0)
+    lz = tc.post("/v1/nodes/node-a/lease", headers=H("t-na")).json()
+    th = threading.Thread(target=lambda: a.run_live(lz)); th.start()
+    assert _wait(lambda: len(ph.transcript()["segments"]) == 1)
+    before = ph.transcript()["segments"][0]
+    tc.post(f"/v1/client/jobs/{ph.job}/end", headers=H("t-c1"))
+    th.join(10)
+    after = ph.transcript()["segments"][0]
+    assert ph.read(before) == "we keep" and ph.read(after) == "we keep going."
+    assert after["seq"] == before["seq"] and after["enc_sha256"] != before["enc_sha256"]  # phone-client.html keys on it
+    page = (Path(__file__).resolve().parents[3] / "src/dashboard/static/site/phone-client.html").read_text()
+    assert "last.key !== key" in page and "s.enc_sha256 || s.text" in page

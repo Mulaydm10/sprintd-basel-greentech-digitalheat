@@ -52,7 +52,19 @@ Live site: https://dhruvs-mac-mini.tailaf7ebe.ts.net:8443 · coordinator API: ht
 - City fleet, 100 houses (run c9ac768…, 1-unit jobs; superseded by the #125 rerun with 8-unit jobs): ours 0 % missed vs thermostat 25.8 %, 2.2× net CHF, same heat covered (~44 %), 9 % of demand dumped.
 - EXP-0001: Whisper-small on the M4: 35× real time, 9.2 W.
 
+## 5b. Wow moments (final pitch), runbook: docs/DEMO-RUNBOOK.md
+| Feature | Where | Status |
+|---|---|---|
+| Wow #1 live transcription: phone client → Omen (Whisper) → STOP → Mac / Parth's HP (ElevenLabs, disclosed) continue, nothing lost | phone-client.html, phone-server.html, coordinator/transcribe.py, live_agent/transcriber.py | chain Omen→Mac→Parth→Mac→Omen passed live |
+| E2E encryption, coordinator-blind (P-256 ECDH + HKDF + AES-GCM, phone WebCrypto ↔ node python) | phone-e2e.js, live_agent/e2e.py, contract live_transcribe.md v2 | live: server text empty, phone decrypts |
+| Blockchain techniques: Ed25519-signed segments, hash-linked chain, Merkle receipt in the audit log, verified on the phone | contract v2.1 | live: links + sigs + root on every run |
+| Wow #2 volunteer phone fleet: QR join (event code), cautions, 3 servers : 1 client, cap 20, server phones heat (phone-heat-test), STOP hands the job + progress to the next phone | dashboard/phones.py, phone-join.html, static/site/heat/ | real-browser flow + 6 live sim runs (up to 20 phones) passed; Mac red team: 4 bugs fixed |
+| Big screen: 3D fleet forming around the coordinator, laptops live, QR, log | phone-fleet.js on 04 Live | live |
+| One-command Mac stack | tools/demo/mac_stack.sh | done |
+
 ## 6. Open before the demo (must do)
 - [ ] **Real phone test of live transcription**: phone-client.html on Dhruv's phone (client-demo token) → Start → speak → transcript appears from omen-gpu → STOP omen-gpu on phone-server.html (admin token) → laptop-2 (Parth's HP, ElevenLabs, disclosed as cloud) continues; no lost / doubled segment. Check the mic permission prompt.
-- [ ] laptop-2 running on Parth's HP (waiting on the ElevenLabs key + Parth's OK).
-- [ ] Segment-boundary fix (#130) merged + omen-gpu restarted on it.
+- [x] Segment-boundary fix (#130, #136) merged; omen-gpu restarted on it.
+- [x] laptop-2 running on Parth's HP (ElevenLabs).
+- [ ] Wow #2 with real phones: 2-3 team phones join, one STOP, check heat + big screen.
+- [ ] Reset the phone fleet right before the pitch (runbook step 4).

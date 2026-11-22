@@ -21,7 +21,7 @@ input[type=range]{accent-color:#c93c05}
 </helmet>
 <div style="min-height:100vh;background:#f2efe9;overflow-x:hidden">
   <header style="position:fixed;top:0;left:0;right:0;z-index:40;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:16px clamp(16px,4vw,40px);font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.1em;text-transform:uppercase;color:#55524c;background:linear-gradient(#f2efe9 35%,rgba(242,239,233,0))">
-    <div style="display:flex;align-items:center;gap:10px;color:#141414"><span style="width:9px;height:9px;border-radius:50%;background:#c93c05;box-shadow:0 0 14px #c93c05"></span>DigitalHeat</div>
+    <div style="display:flex;align-items:center;gap:10px;color:#141414"><span style="width:9px;height:9px;border-radius:50%;background:#c93c05;box-shadow:0 0 14px #c93c05"></span>Hearthbeat</div>
     <div>05 · Economics · 05 / 06</div>
   </header>
 
@@ -176,7 +176,7 @@ class Component extends DCLogic {
     const { t, seen, n, capex, life, price, pol } = this.state;
     const gp = seen == null ? 0 : 1 - Math.pow(1 - Math.max(0, Math.min(1, (t - seen) / 1.6)), 3);
     const S = 0.8;
-    const G = [["DigitalHeat merit", 0.53, "#c93c05", "#141414"], ["Always on", 0.69, "#7d8088", "#55524c"], ["Thermostat", 0.74, "#7d8088", "#55524c"]];
+    const G = [["Hearthbeat merit", 0.53, "#c93c05", "#141414"], ["Always on", 0.69, "#7d8088", "#55524c"], ["Thermostat", 0.74, "#7d8088", "#55524c"]];
     const gap = G.map(([name, v, c, lc]) => ({ name, v: (v * gp).toFixed(2), w: ((v / S) * 100 * gp).toFixed(2), c, lc }));
     const rt = this.calc(pol, n, capex, life, price);
     const r = this.tw || (this.tw = { ...rt });

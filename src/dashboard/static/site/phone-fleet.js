@@ -1,4 +1,4 @@
-/* DigitalHeat · 04 Live · wow #2: the volunteer phone fleet forming live around the coordinator (Mac).
+/* Hearthbeat · 04 Live · wow #2: the volunteer phone fleet forming live around the coordinator (Mac).
  * Mounts into [data-dh-phone-fleet]. Data: /api/phones/state (volunteer phones, events) + /api/nodes (live laptops).
  * three.js r170 (vendored), bloom. Real data only: every node/edge/packet is a device or job from the fleet state. */
 import * as THREE from "./vendor/three/three.module.js";

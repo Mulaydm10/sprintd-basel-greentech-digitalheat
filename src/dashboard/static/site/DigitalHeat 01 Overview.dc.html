@@ -22,7 +22,7 @@ a{color:#c93c05}a:hover{color:#a86400}
 </helmet>
 <div style="min-height:100vh;background:#f2efe9;overflow-x:hidden">
   <header style="position:fixed;top:0;left:0;right:0;z-index:40;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:16px clamp(16px,4vw,40px);font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.1em;text-transform:uppercase;color:#55524c;background:linear-gradient(#f2efe9 35%,rgba(242,239,233,0))">
-    <div style="display:flex;align-items:center;gap:10px;color:#141414"><span style="width:9px;height:9px;border-radius:50%;background:#c93c05;box-shadow:0 0 14px #c93c05"></span>DigitalHeat</div>
+    <div style="display:flex;align-items:center;gap:10px;color:#141414"><span style="width:9px;height:9px;border-radius:50%;background:#c93c05;box-shadow:0 0 14px #c93c05"></span>Hearthbeat</div>
     <div>01 · Overview · 01 / 06</div>
   </header>
 
@@ -34,7 +34,7 @@ a{color:#c93c05}a:hover{color:#a86400}
         <span style="display:flex;align-items:center;gap:8px"><span style="width:7px;height:7px;border-radius:50%;background:#157a43;animation:dhPulse 1.6s infinite"></span>Basel 2025 · reference house · 8,760 hours</span>
         <span style="color:#6e6a63">sprintd Basel · GreenTech</span>
       </div>
-      <h1 style="margin:0;font-weight:760;font-stretch:125%;font-size:clamp(56px,13vw,220px);line-height:0.82;letter-spacing:-0.055em;text-transform:uppercase">Digital<span style="color:#c93c05">heat</span></h1>
+      <h1 style="margin:0;font-weight:760;font-stretch:125%;font-size:clamp(56px,13vw,220px);line-height:0.82;letter-spacing:-0.055em;text-transform:uppercase">Hearth<span style="color:#c93c05">beat</span></h1>
       <div style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-end;justify-content:space-between">
         <p style="margin:0;max-width:620px;font-size:clamp(18px,2vw,24px);line-height:1.35;color:#2e2b27;text-wrap:pretty">Basement servers that heat the house. We decide <em style="color:#141414;font-style:normal;font-weight:700">when</em> they compute by what their heat is worth, and we say when it doesn't pay.</p>
         <button onClick="{{ replay }}" style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;padding:12px 18px;border-radius:999px;border:1px solid #c4bcae;background:rgba(255,255,255,0.7);color:#141414;cursor:pointer" style-hover="border-color:#c93c05;color:#c93c05">↺ Replay</button>
@@ -69,7 +69,7 @@ a{color:#c93c05}a:hover{color:#a86400}
       <div style="position:absolute;top:0;bottom:0;left:{{ scanPct }}%;width:2px;background:#c93c05;box-shadow:0 0 24px 4px rgba(201,60,5,0.55);z-index:2;pointer-events:none;opacity:{{ scanVis }}"></div>
       <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);background:#f8f6f1;font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.1em;text-transform:uppercase">
         <div style="padding:16px 22px;color:#55524c;border-right:1px solid #dcd6cc"><span style="color:#7d8088">●</span> Thermostat-led: runs when the room is cold</div>
-        <div style="padding:16px 22px;color:#141414"><span style="color:#c93c05">●</span> DigitalHeat merit: runs when the heat is worth it</div>
+        <div style="padding:16px 22px;color:#141414"><span style="color:#c93c05">●</span> Hearthbeat merit: runs when the heat is worth it</div>
       </div>
       <sc-for list="{{ rows }}" as="r" hint-placeholder-count="4">
         <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);border-top:1px solid #dcd6cc">
@@ -171,7 +171,7 @@ a{color:#c93c05}a:hover{color:#a86400}
       <a href="DigitalHeat%2002%20Problem.dc.html" style="padding:16px 26px;border-radius:999px;background:#c93c05;color:#ffffff;text-decoration:none;font-weight:700;font-size:16px" style-hover="background:#e3a008;color:#ffffff">See the problem →</a>
       <a href="DigitalHeat%2006%20Simulator.dc.html" style="padding:16px 26px;border-radius:999px;border:1px solid #c4bcae;color:#141414;text-decoration:none;font-weight:600;font-size:16px" style-hover="border-color:#c93c05;color:#c93c05">Open the simulator</a>
     </div>
-    <p style="margin:40px 0 0;font-family:'Geist Mono',monospace;font-size:12px;color:#6e6a63;letter-spacing:0.06em">DigitalHeat · sprintd Basel GreenTech 2026 · useful load ⇒ useful heat</p>
+    <p style="margin:40px 0 0;font-family:'Geist Mono',monospace;font-size:12px;color:#6e6a63;letter-spacing:0.06em">Hearthbeat · sprintd Basel GreenTech 2026 · useful load ⇒ useful heat</p>
   </section>
 
   <dc-import name="Nav" active="{{ navActive }}" hint-size="100%,60px"></dc-import>

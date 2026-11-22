@@ -1,4 +1,6 @@
-# DigitalHeat: basement servers that heat the house
+# Hearthbeat: basement servers that heat the house
+
+_Hearthbeat is our project for the DigitalHeat case (case partner: DigitalHeat). Earlier commits call the project DigitalHeat._
 
 **sprintd Basel GreenTech 2026 · case "Useful Load ⇒ Useful Heat".** A heat-aware scheduler runs paid, interruptible AI jobs on servers in people's basements so that their waste heat covers the house's heat demand. The same `scheduler.decide()` drives a simulated Basel 2025 year (8,760 h) and real machines that pause, resume and move jobs between houses on the heat signal.
 

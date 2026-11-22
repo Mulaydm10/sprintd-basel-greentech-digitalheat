@@ -18,7 +18,7 @@ a{color:#c93c05}a:hover{color:#a86400}
 </helmet>
 <x-import component-from-global-scope="deck-stage" from="./deck-stage.js" width="1920" height="1080" hint-size="100%,100%">
 
-<section data-label="Title" data-speaker-notes="DigitalHeat: basement servers that heat the house. We schedule paid compute by what its heat is worth, and we say openly when it does not pay off." style="background:#f2efe9;padding:96px 110px 84px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between">
+<section data-label="Title" data-speaker-notes="Hearthbeat: basement servers that heat the house. We schedule paid compute by what its heat is worth, and we say openly when it does not pay off." style="background:#f2efe9;padding:96px 110px 84px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between">
   <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>sprintd Basel · GreenTech 2026</span><span>Case: Useful load ⇒ useful heat</span></div>
   <div style="display:flex;flex-direction:column;gap:40px">
     <h1 style="margin:0;font-size:260px;font-weight:760;letter-spacing:-0.06em;line-height:0.85"><span>Digital</span><span style="color:#c93c05">heat</span></h1>
@@ -32,7 +32,7 @@ a{color:#c93c05}a:hover{color:#a86400}
 </section>
 
 <section data-label="01 House" data-speaker-notes="Our reference house: Basel, 2025 hourly weather. 31,231 kWh a year, 206 heating days, a 10.5 kW peak on the coldest hour. Electricity is 0.3325 CHF per kWh." style="background:#f2efe9;padding:96px 110px 84px;box-sizing:border-box;display:flex;flex-direction:column;gap:56px">
-  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>01 · The problem</span><span>DigitalHeat</span></div>
+  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>01 · The problem</span><span>Hearthbeat</span></div>
   <h2 style="margin:0;font-size:72px;font-weight:650;letter-spacing:-0.035em;line-height:1.02;max-width:1500px">A Basel house needs 31,231 kWh of heat a year</h2>
   <div style="flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:2px;background:#dcd6cc;border:2px solid #dcd6cc;border-radius:28px;overflow:hidden">
     <div style="background:#ffffff;padding:44px 36px;display:flex;flex-direction:column;justify-content:space-between;gap:24px"><span style="font-family:'Geist Mono',monospace;font-size:24px;color:#6e6a63;text-transform:uppercase;letter-spacing:0.06em">Heat a year</span><span style="font-size:96px;font-weight:660;letter-spacing:-0.04em;line-height:1">31,231</span><span style="font-size:30px;line-height:1.35;color:#55524c">kWh: 26,851 space heating, 4,380 hot water</span></div>
@@ -44,7 +44,7 @@ a{color:#c93c05}a:hover{color:#a86400}
 </section>
 
 <section data-label="02 Seasons" data-speaker-notes="Bars are monthly heat demand. The line is what four always-on servers produce. In winter the house needs more than the servers make; from May to September most of the server heat has nowhere to go." style="background:#f2efe9;padding:96px 110px 84px;box-sizing:border-box;display:flex;flex-direction:column;gap:48px">
-  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>01 · The problem</span><span>DigitalHeat</span></div>
+  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>01 · The problem</span><span>Hearthbeat</span></div>
   <h2 style="margin:0;font-size:72px;font-weight:650;letter-spacing:-0.035em;line-height:1.02;max-width:1600px">Heat demand is seasonal, but paid compute arrives every day</h2>
   <div style="flex:1;display:grid;grid-template-columns:1fr 440px;gap:64px;min-height:0">
     <div style="display:flex;flex-direction:column;gap:16px">
@@ -77,7 +77,7 @@ a{color:#c93c05}a:hover{color:#a86400}
 </section>
 
 <section data-label="03 Sizing" data-speaker-notes="Every hour of 2025, sorted coldest first, expressed as the number of 0.8 kW servers needed to cover the house. You would need over 12 servers for 29 hours a year, and less than one for most of the summer. We use four as the reference." style="background:#f2efe9;padding:96px 110px 84px;box-sizing:border-box;display:flex;flex-direction:column;gap:40px">
-  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>01 · The problem</span><span>DigitalHeat</span></div>
+  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>01 · The problem</span><span>Hearthbeat</span></div>
   <h2 style="margin:0;font-size:72px;font-weight:650;letter-spacing:-0.035em;line-height:1.02;max-width:1600px">Sizing servers for the peak leaves most of them idle</h2>
   <div style="flex:1;min-height:0;background:#ffffff;border:2px solid #dcd6cc;border-radius:28px;padding:28px 40px;display:flex">
     <svg viewBox="0 0 1000 430" style="width:100%;height:100%;display:block">
@@ -101,7 +101,7 @@ a{color:#c93c05}a:hover{color:#a86400}
 </section>
 
 <section data-label="04 Dilemma" data-speaker-notes="The two simple rules. Follow the heat: run only when the house is cold. The heat is used, but 31 percent of paid deadlines slip. Follow the work: run all the time. Work is on time, but 9,910 kWh a year is dumped." style="background:#f2efe9;padding:96px 110px 84px;box-sizing:border-box;display:flex;flex-direction:column;gap:56px">
-  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>01 · The problem</span><span>DigitalHeat</span></div>
+  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>01 · The problem</span><span>Hearthbeat</span></div>
   <h2 style="margin:0;font-size:72px;font-weight:650;letter-spacing:-0.035em;line-height:1.02;max-width:1600px">Simple rules trade missed deadlines against wasted heat</h2>
   <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:40px">
     <div style="background:#ffffff;border:2px solid #dcd6cc;border-radius:28px;padding:52px;display:flex;flex-direction:column;justify-content:space-between;gap:28px">
@@ -118,7 +118,7 @@ a{color:#c93c05}a:hover{color:#a86400}
 </section>
 
 <section data-label="Section · Approach" data-speaker-notes="Our approach in one line: give heat a price, then let work go where the price clears." style="background:#141414;color:#f2efe9;padding:96px 110px 84px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between">
-  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#b1a397"><span>02</span><span>DigitalHeat</span></div>
+  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#b1a397"><span>02</span><span>Hearthbeat</span></div>
   <div style="display:flex;flex-direction:column;gap:32px">
     <span style="font-family:'Geist Mono',monospace;font-size:32px;letter-spacing:0.08em;text-transform:uppercase;color:#f26a2e">Our approach</span>
     <h2 style="margin:0;font-size:132px;font-weight:700;letter-spacing:-0.05em;line-height:0.95;max-width:1600px">Price the heat, then dispatch the work</h2>
@@ -129,7 +129,7 @@ a{color:#c93c05}a:hover{color:#a86400}
 </section>
 
 <section data-label="05 Price" data-speaker-notes="A kWh of compute costs 0.3325 CHF. If the house uses the heat, that heat is worth the price divided by 2.5, so the net cost drops to about 0.226. A cheap ballast job bidding 0.25 only clears where its heat is used. Whisper at 1.70 clears everywhere it is allowed to run. A 1 kW server uses 1 kWh per hour, so CHF per server-hour and CHF per kWh compare directly." style="background:#f2efe9;padding:96px 110px 84px;box-sizing:border-box;display:flex;flex-direction:column;gap:56px">
-  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>02 · Our approach</span><span>DigitalHeat</span></div>
+  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>02 · Our approach</span><span>Hearthbeat</span></div>
   <h2 style="margin:0;font-size:72px;font-weight:650;letter-spacing:-0.035em;line-height:1.02;max-width:1600px">Each house puts a price on every kWh, every hour</h2>
   <div style="display:flex;align-items:center;gap:28px;font-size:44px;font-weight:600;letter-spacing:-0.02em;flex-wrap:wrap">
     <span style="font-family:'Geist Mono',monospace;font-weight:500">0.3325</span><span style="color:#6e6a63">−</span><span style="font-family:'Geist Mono',monospace;font-weight:500">0.3325 ÷ 2.5</span><span style="color:#6e6a63">=</span><span style="font-family:'Geist Mono',monospace;font-weight:500;color:#157a43">0.226 CHF / kWh</span><span style="font-size:30px;font-weight:400;color:#55524c">when the house uses the heat</span>
@@ -152,7 +152,7 @@ a{color:#c93c05}a:hover{color:#a86400}
 </section>
 
 <section data-label="06 decide()" data-speaker-notes="One function, decide, runs each tick. The same code drives the 8,760-hour simulation and the node agents on real machines, so the year results and the live demo cannot drift apart." style="background:#f2efe9;padding:96px 110px 84px;box-sizing:border-box;display:flex;flex-direction:column;gap:56px">
-  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>02 · Our approach</span><span>DigitalHeat</span></div>
+  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>02 · Our approach</span><span>Hearthbeat</span></div>
   <h2 style="margin:0;font-size:72px;font-weight:650;letter-spacing:-0.035em;line-height:1.02;max-width:1600px">One decide() function drives the simulated year and the live machines</h2>
   <div style="flex:1;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:1fr 1fr;gap:2px;background:#dcd6cc;border:2px solid #dcd6cc;border-radius:28px;overflow:hidden">
     <div style="background:#ffffff;padding:36px;display:flex;flex-direction:column;gap:16px"><span style="font-family:'Geist Mono',monospace;font-size:26px;color:#c93c05">01</span><span style="font-size:38px;font-weight:600">Heat signal</span><span style="font-size:28px;line-height:1.35;color:#55524c">Each site posts demand and tank level every tick</span></div>
@@ -166,7 +166,7 @@ a{color:#c93c05}a:hover{color:#a86400}
 </section>
 
 <section data-label="07 On time" data-speaker-notes="Two mechanisms keep paid work on time. Admission only accepts a job that can finish with a one-hour safety margin; admitted jobs never missed a deadline, even at twice the load. Slack lets work wait for cold hours: 24 hours of slack cuts dumped heat by about 7 percent, 7 days by about 17. The tank stays between 10 and 33 of its 35 kWh." style="background:#f2efe9;padding:96px 110px 84px;box-sizing:border-box;display:flex;flex-direction:column;gap:56px">
-  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>02 · Our approach</span><span>DigitalHeat</span></div>
+  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>02 · Our approach</span><span>Hearthbeat</span></div>
   <h2 style="margin:0;font-size:72px;font-weight:650;letter-spacing:-0.035em;line-height:1.02;max-width:1600px">Admission and slack keep paid work on time</h2>
   <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:40px">
     <div style="background:#ffffff;border:2px solid #dcd6cc;border-radius:28px;padding:52px;display:flex;flex-direction:column;justify-content:space-between;gap:28px">
@@ -188,7 +188,7 @@ a{color:#c93c05}a:hover{color:#a86400}
 </section>
 
 <section data-label="08 Checkpoints" data-speaker-notes="Jobs run in 15-minute chunks. When the house is warm, the agent sends SIGTERM, the runner commits its chunk and exits. It resumes from the next chunk, here or on another eligible node. Every chunk runs exactly once." style="background:#f2efe9;padding:96px 110px 84px;box-sizing:border-box;display:flex;flex-direction:column;gap:56px">
-  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>02 · Our approach</span><span>DigitalHeat</span></div>
+  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>02 · Our approach</span><span>Hearthbeat</span></div>
   <h2 style="margin:0;font-size:72px;font-weight:650;letter-spacing:-0.035em;line-height:1.02;max-width:1600px">Every job pauses and resumes in 15-minute chunks</h2>
   <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center">
     <span style="padding:16px 28px;border-radius:999px;border:2px solid #c4bcae;background:#ffffff;font-size:30px;font-weight:600">Submitted</span>
@@ -218,7 +218,7 @@ a{color:#c93c05}a:hover{color:#a86400}
 </section>
 
 <section data-label="Section · Evidence" data-speaker-notes="Now the evidence: a full simulated year, a real measurement, and real machines." style="background:#141414;color:#f2efe9;padding:96px 110px 84px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between">
-  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#b1a397"><span>03</span><span>DigitalHeat</span></div>
+  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#b1a397"><span>03</span><span>Hearthbeat</span></div>
   <div style="display:flex;flex-direction:column;gap:32px">
     <span style="font-family:'Geist Mono',monospace;font-size:32px;letter-spacing:0.08em;text-transform:uppercase;color:#f26a2e">Evidence</span>
     <h2 style="margin:0;font-size:132px;font-weight:700;letter-spacing:-0.05em;line-height:0.95;max-width:1600px">Simulated for 8,760 hours, then run on real machines</h2>
@@ -229,13 +229,13 @@ a{color:#c93c05}a:hover{color:#a86400}
 </section>
 
 <section data-label="09 Results" data-speaker-notes="Same house, same four servers, same year. The merit scheduler covers the same share of heat as the thermostat, misses no paid deadlines, and needs 28 percent less per server-hour to pay off including hardware." style="background:#f2efe9;padding:96px 110px 84px;box-sizing:border-box;display:flex;flex-direction:column;gap:48px">
-  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>03 · Evidence</span><span>DigitalHeat</span></div>
+  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>03 · Evidence</span><span>Hearthbeat</span></div>
   <h2 style="margin:0;font-size:72px;font-weight:650;letter-spacing:-0.035em;line-height:1.02;max-width:1600px">Same heat as a thermostat, with no missed deadlines</h2>
   <div style="flex:1;background:#ffffff;border:2px solid #dcd6cc;border-radius:28px;overflow:hidden;display:grid;grid-template-columns:1.3fr 1fr 1fr 1.15fr;grid-template-rows:auto 1fr 1fr 1fr">
     <div style="padding:28px 40px;border-bottom:2px solid #dcd6cc;font-family:'Geist Mono',monospace;font-size:24px;color:#6e6a63;text-transform:uppercase;letter-spacing:0.06em">4 servers · Basel 2025</div>
     <div style="padding:28px 32px;border-bottom:2px solid #dcd6cc;font-size:30px;font-weight:600;color:#55524c">Thermostat</div>
     <div style="padding:28px 32px;border-bottom:2px solid #dcd6cc;font-size:30px;font-weight:600;color:#55524c">Always on</div>
-    <div style="padding:28px 32px;border-bottom:2px solid #dcd6cc;font-size:30px;font-weight:600;background:#fff1e8;color:#c93c05">DigitalHeat merit</div>
+    <div style="padding:28px 32px;border-bottom:2px solid #dcd6cc;font-size:30px;font-weight:600;background:#fff1e8;color:#c93c05">Hearthbeat merit</div>
     <div style="padding:0 40px;display:flex;align-items:center;border-bottom:2px solid #dcd6cc;font-size:34px">Heat covered</div>
     <div style="padding:0 32px;display:flex;align-items:center;border-bottom:2px solid #dcd6cc;font-size:56px;font-weight:600">58.0 %</div>
     <div style="padding:0 32px;display:flex;align-items:center;border-bottom:2px solid #dcd6cc;font-size:56px;font-weight:600">58.0 %</div>
@@ -253,7 +253,7 @@ a{color:#c93c05}a:hover{color:#a86400}
 </section>
 
 <section data-label="10 Whisper" data-speaker-notes="We measured a real job. Whisper-small on a Mac mini M4, three runs after warm-up, power read with powermetrics. 35 times faster than real time at 9.2 watts. We scale to the 1 kW reference server at equal efficiency per joule, and we label that scaling as an assumption." style="background:#f2efe9;padding:96px 110px 84px;box-sizing:border-box;display:flex;flex-direction:column;gap:56px">
-  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>03 · Evidence</span><span>DigitalHeat</span></div>
+  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>03 · Evidence</span><span>Hearthbeat</span></div>
   <h2 style="margin:0;font-size:72px;font-weight:650;letter-spacing:-0.035em;line-height:1.02;max-width:1600px">Whisper was measured on a Mac mini, then scaled to a 1 kW server</h2>
   <div style="flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:2px;background:#dcd6cc;border:2px solid #dcd6cc;border-radius:28px;overflow:hidden">
     <div style="background:#ffffff;padding:44px 36px;display:flex;flex-direction:column;justify-content:space-between;gap:24px"><span style="font-size:120px;font-weight:660;letter-spacing:-0.05em;line-height:1;color:#c93c05">35×</span><span style="font-size:30px;line-height:1.35;color:#2e2b27">faster than real time (RTF 0.028)</span></div>
@@ -265,7 +265,7 @@ a{color:#c93c05}a:hover{color:#a86400}
 </section>
 
 <section data-label="11 Real machines" data-speaker-notes="On 21 November we ran the full protocol on two real machines over a tailnet. We killed a node mid-job, killed the coordinator, paused for heat, and tried to cheat with region and tampering. Every case behaved as designed. Attestation is a mock; the crypto protocol is real." style="background:#f2efe9;padding:96px 110px 84px;box-sizing:border-box;display:flex;flex-direction:column;gap:48px">
-  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>03 · Evidence</span><span>DigitalHeat</span></div>
+  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>03 · Evidence</span><span>Hearthbeat</span></div>
   <h2 style="margin:0;font-size:72px;font-weight:650;letter-spacing:-0.035em;line-height:1.02;max-width:1600px">Two real machines survived crashes, heat pauses and tampering</h2>
   <div style="flex:1;background:#ffffff;border:2px solid #dcd6cc;border-radius:28px;overflow:hidden;display:grid;grid-template-columns:560px 1fr;grid-template-rows:repeat(5,1fr)">
     <div style="padding:0 40px;display:flex;align-items:center;border-bottom:2px solid #dcd6cc;font-size:32px;font-weight:600">Pull the plug at 30 %</div>
@@ -283,7 +283,7 @@ a{color:#c93c05}a:hover{color:#a86400}
 </section>
 
 <section data-label="Section · Economics" data-speaker-notes="The economics, including where it does not work." style="background:#141414;color:#f2efe9;padding:96px 110px 84px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between">
-  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#b1a397"><span>04</span><span>DigitalHeat</span></div>
+  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#b1a397"><span>04</span><span>Hearthbeat</span></div>
   <div style="display:flex;flex-direction:column;gap:32px">
     <span style="font-family:'Geist Mono',monospace;font-size:32px;letter-spacing:0.08em;text-transform:uppercase;color:#f26a2e">Economics</span>
     <h2 style="margin:0;font-size:132px;font-weight:700;letter-spacing:-0.05em;line-height:0.95;max-width:1600px">Where it pays off, and where it does not</h2>
@@ -294,13 +294,13 @@ a{color:#c93c05}a:hover{color:#a86400}
 </section>
 
 <section data-label="12 Break-even" data-speaker-notes="Including hardware, paid work has to sell for at least 0.53 CHF per server-hour with our scheduler. The thermostat approach needs 0.74, always-on 0.69. At today's assumed 0.50 it does not pay off yet, and we say so." style="background:#f2efe9;padding:96px 110px 84px;box-sizing:border-box;display:flex;flex-direction:column;gap:56px">
-  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>04 · Economics</span><span>DigitalHeat</span></div>
+  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>04 · Economics</span><span>Hearthbeat</span></div>
   <h2 style="margin:0;font-size:72px;font-weight:650;letter-spacing:-0.035em;line-height:1.02;max-width:1600px">Paid work must sell for at least 0.53 CHF per server-hour</h2>
   <div style="flex:1;background:#ffffff;border:2px solid #dcd6cc;border-radius:28px;padding:64px 60px 52px;display:flex;flex-direction:column;justify-content:center;gap:40px">
     <div style="position:relative;display:flex;flex-direction:column;gap:40px;padding-top:56px">
       <div style="position:absolute;top:0;bottom:0;left:calc(380px + (100% - 380px) * 0.625);width:4px;background:#141414"></div>
       <div style="position:absolute;top:0;left:calc(380px + (100% - 380px) * 0.625 + 16px);font-family:'Geist Mono',monospace;font-size:26px">today's assumed price 0.50</div>
-      <div style="display:grid;grid-template-columns:380px 1fr;align-items:center"><span style="font-size:36px;font-weight:600;color:#c93c05">DigitalHeat merit</span><div style="height:84px;width:66.25%;background:#c93c05;border-radius:12px;display:flex;align-items:center;justify-content:flex-end;padding-right:24px;box-sizing:border-box;font-family:'Geist Mono',monospace;font-size:40px;font-weight:700;color:#ffffff">0.53</div></div>
+      <div style="display:grid;grid-template-columns:380px 1fr;align-items:center"><span style="font-size:36px;font-weight:600;color:#c93c05">Hearthbeat merit</span><div style="height:84px;width:66.25%;background:#c93c05;border-radius:12px;display:flex;align-items:center;justify-content:flex-end;padding-right:24px;box-sizing:border-box;font-family:'Geist Mono',monospace;font-size:40px;font-weight:700;color:#ffffff">0.53</div></div>
       <div style="display:grid;grid-template-columns:380px 1fr;align-items:center"><span style="font-size:36px;font-weight:500;color:#55524c">Always on</span><div style="height:84px;width:86.25%;background:#9b958b;border-radius:12px;display:flex;align-items:center;justify-content:flex-end;padding-right:24px;box-sizing:border-box;font-family:'Geist Mono',monospace;font-size:40px;font-weight:700;color:#ffffff">0.69</div></div>
       <div style="display:grid;grid-template-columns:380px 1fr;align-items:center"><span style="font-size:36px;font-weight:500;color:#55524c">Thermostat</span><div style="height:84px;width:92.5%;background:#9b958b;border-radius:12px;display:flex;align-items:center;justify-content:flex-end;padding-right:24px;box-sizing:border-box;font-family:'Geist Mono',monospace;font-size:40px;font-weight:700;color:#ffffff">0.74</div></div>
     </div>
@@ -309,7 +309,7 @@ a{color:#c93c05}a:hover{color:#a86400}
 </section>
 
 <section data-label="13 Conditions" data-speaker-notes="Break-even equals electricity minus the value of the heat used, divided by server-hours sold, plus hardware per hour. It pays off at 4 servers above 0.53, with hardware near CHF 5k, or at about 80 percent load. It does not with CHF 15k hardware over 3 years, or at 0.50. One server per house is cheapest per hour at 0.52 but covers only about 20 percent of the heat." style="background:#f2efe9;padding:96px 110px 84px;box-sizing:border-box;display:flex;flex-direction:column;gap:48px">
-  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>04 · Economics</span><span>DigitalHeat</span></div>
+  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>04 · Economics</span><span>Hearthbeat</span></div>
   <h2 style="margin:0;font-size:72px;font-weight:650;letter-spacing:-0.035em;line-height:1.02;max-width:1600px">It pays off under a clear set of conditions</h2>
   <div style="display:flex;align-items:center;gap:22px;flex-wrap:wrap;font-family:'Geist Mono',monospace;font-size:34px;background:#ffffff;border:2px solid #dcd6cc;border-radius:20px;padding:28px 36px">
     <span>(</span><span style="color:#d1173a">electricity</span><span>−</span><span style="color:#157a43">heat used ÷ 2.5</span><span>)</span><span>÷</span><span style="color:#1d6bb3">server-hours</span><span>+</span><span style="color:#a86400">hardware / h</span><span>=</span><span style="color:#c93c05;font-weight:700">break-even</span>
@@ -331,7 +331,7 @@ a{color:#c93c05}a:hover{color:#a86400}
 </section>
 
 <section data-label="14 Assumptions" data-speaker-notes="Every number regenerates from one command. These are the inputs; the two marked assumed are the ones a pilot should replace with real figures." style="background:#f2efe9;padding:96px 110px 84px;box-sizing:border-box;display:flex;flex-direction:column;gap:48px">
-  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>04 · Economics</span><span>DigitalHeat</span></div>
+  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>04 · Economics</span><span>Hearthbeat</span></div>
   <h2 style="margin:0;font-size:72px;font-weight:650;letter-spacing:-0.035em;line-height:1.02;max-width:1600px">Assumptions and sources</h2>
   <div style="flex:1;background:#ffffff;border:2px solid #dcd6cc;border-radius:28px;overflow:hidden;display:grid;grid-template-columns:420px 1fr 220px;grid-template-rows:repeat(6,1fr)">
     <div style="padding:0 40px;display:flex;align-items:center;border-bottom:2px solid #dcd6cc;font-size:30px;font-weight:600">Electricity</div>
@@ -357,7 +357,7 @@ a{color:#c93c05}a:hover{color:#a86400}
 </section>
 
 <section data-label="15 Next" data-speaker-notes="What we would do next. A pilot in real houses, with the first question being whether customers accept 24 hours of slack. Replace the two assumed prices with quotes. Replace the mock attestation with real hardware attestation." style="background:#f2efe9;padding:96px 110px 84px;box-sizing:border-box;display:flex;flex-direction:column;gap:56px">
-  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>05 · Next</span><span>DigitalHeat</span></div>
+  <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.08em;text-transform:uppercase;color:#55524c"><span>05 · Next</span><span>Hearthbeat</span></div>
   <h2 style="margin:0;font-size:72px;font-weight:650;letter-spacing:-0.035em;line-height:1.02;max-width:1600px">A pilot should test whether customers accept 24 hours of slack</h2>
   <div style="flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:40px">
     <div style="border-top:6px solid #c93c05;padding-top:36px;display:flex;flex-direction:column;gap:22px"><span style="font-family:'Geist Mono',monospace;font-size:30px;color:#c93c05">01</span><span style="font-size:44px;font-weight:600;letter-spacing:-0.02em;line-height:1.15">Pilot in real Basel houses</span><span style="font-size:30px;line-height:1.4;color:#55524c">Same scheduler code, real tanks and real heat meters</span></div>

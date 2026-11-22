@@ -20,7 +20,7 @@ a{color:#c93c05}a:hover{color:#a86400}
 </helmet>
 <div style="min-height:100vh;background:#f2efe9;overflow-x:hidden">
   <header style="position:fixed;top:0;left:0;right:0;z-index:40;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:16px clamp(16px,4vw,40px);font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.1em;text-transform:uppercase;color:#55524c;background:linear-gradient(#f2efe9 35%,rgba(242,239,233,0))">
-    <div style="display:flex;align-items:center;gap:10px;color:#141414"><span style="width:9px;height:9px;border-radius:50%;background:#c93c05;box-shadow:0 0 14px #c93c05"></span>DigitalHeat</div>
+    <div style="display:flex;align-items:center;gap:10px;color:#141414"><span style="width:9px;height:9px;border-radius:50%;background:#c93c05;box-shadow:0 0 14px #c93c05"></span>Hearthbeat</div>
     <div>02 · The problem · 02 / 06</div>
   </header>
 
@@ -203,7 +203,7 @@ class Component extends DCLogic {
         { v: (0.3325 * k).toFixed(4), l: "CHF per kWh, IWB Basel H4 2026. Heat is worth a 2.5th of that", c: "#a86400" }
       ]; })(), cap: "the heat wins · the customer loses" },
       work: { tilt: 9, heat: 34, work: 74, tag: "FOLLOW THE WORK · ALWAYS ON", c: "#d1173a", title: "Work on time, heat in the bin.", body: "Servers run every hour. Work finishes, but in summer the tank is full and the heat goes out the window.", stats: [{ v: "58.0 %", l: "heat covered", c: "#141414" }, { v: "9,910", l: "kWh dumped", c: "#d1173a" }, { v: "0.69", l: "CHF/h to pay off", c: "#a86400" }], cap: "the customer wins · the heat is wasted" },
-      merit: { tilt: 0, heat: 58, work: 58, tag: "PRICE THE HEAT · DIGITALHEAT MERIT", c: "#157a43", title: "Both, priced honestly.", body: "Each house posts what its heat is worth this hour. Patient jobs wait for cold hours; urgent ones run anyway. Admission refuses what can't finish on time.", stats: [{ v: "57.9 %", l: "heat covered", c: "#141414" }, { v: "0 %", l: "deadlines missed", c: "#157a43" }, { v: "0.53", l: "CHF/h to pay off", c: "#a86400" }], cap: "balanced by price, not by rule" }
+      merit: { tilt: 0, heat: 58, work: 58, tag: "PRICE THE HEAT · HEARTHBEAT MERIT", c: "#157a43", title: "Both, priced honestly.", body: "Each house posts what its heat is worth this hour. Patient jobs wait for cold hours; urgent ones run anyway. Admission refuses what can't finish on time.", stats: [{ v: "57.9 %", l: "heat covered", c: "#141414" }, { v: "0 %", l: "deadlines missed", c: "#157a43" }, { v: "0.53", l: "CHF/h to pay off", c: "#a86400" }], cap: "balanced by price, not by rule" }
     }[mode];
     const mk = (id, label) => ({ label, on: () => this.setState({ mode: id }), c: mode === id ? "#ffffff" : "#55524c", bg: mode === id ? (id === "merit" ? "#157a43" : "#c93c05") : "transparent" });
     return {

@@ -1,4 +1,4 @@
-/* DigitalHeat phone pages (client + server), shared helpers. Vanilla, offline, website theme.
+/* Hearthbeat phone pages (client + server), shared helpers. Vanilla, offline, website theme.
  * Token lives in sessionStorage only (this tab), never in the URL or persistent storage; "Sign out" clears it.
  * Talks directly to the coordinator (CORS allows this site's origin). */
 (function () {

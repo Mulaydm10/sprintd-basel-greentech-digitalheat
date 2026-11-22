@@ -1,4 +1,4 @@
-/* DigitalHeat · 07 Year · city-fleet job telemetry (#118, design half). Vanilla JS, offline, no dependencies.
+/* Hearthbeat · 07 Year · city-fleet job telemetry (#118, design half). Vanilla JS, offline, no dependencies.
  *
  * Mounts into every element with [data-dh-fleet-telemetry]. Reads the #119 fleetview-v1 run from the dashboard:
  *   /api/fleet/index, /api/fleet/fleet, /api/fleet/jobs, /api/fleet/houses.u16

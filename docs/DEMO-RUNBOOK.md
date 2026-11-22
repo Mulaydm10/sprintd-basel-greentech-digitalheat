@@ -1,4 +1,4 @@
-# Demo runbook: final pitch (Sun 22 Nov)
+# Hearthbeat demo runbook: final pitch (Sun 22 Nov)
 
 All URLs are public (Tailscale Funnel on the Mac). Tokens live on the Mac under
 `~/Dhruv/hackathons/sprintd-basel-greentech-digitalheat/runs/coordinator/tok/` (never printed, never committed).

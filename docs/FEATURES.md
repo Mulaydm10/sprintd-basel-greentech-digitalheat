@@ -1,4 +1,4 @@
-# DigitalHeat: feature inventory (what exists, where, and why)
+# Hearthbeat: feature inventory (what exists, where, and why)
 
 Living list of everything built, kept for the pitch, the video and later work. Updated by the design session.
 Live site: https://dhruvs-mac-mini.tailaf7ebe.ts.net:8443 · coordinator API: https://dhruvs-mac-mini.tailaf7ebe.ts.net

@@ -1,4 +1,4 @@
-/* DigitalHeat · 07 Year · 3D heat helix (#101). Raw WebGL2, no dependencies, offline.
+/* Hearthbeat · 07 Year · 3D heat helix (#101). Raw WebGL2, no dependencies, offline.
  *
  * The Basel 2025 year as a helix: one turn = one day (24 h around), 365 turns stacked bottom (1 Jan) to top (31 Dec).
  *  - radius   = the house's heat demand that hour   (cold days bulge outward)

@@ -1,4 +1,4 @@
-// DigitalHeat · 07 Year · Basel 2025 in 3D (#109). three.js r170 vendored offline; map from OpenStreetMap (ODbL).
+// Hearthbeat · 07 Year · Basel 2025 in 3D (#109). three.js r170 vendored offline; map from OpenStreetMap (ODbL).
 //
 // The year played through our scheduler: every hour, each simulated house glows by the server heat it received,
 // turns cold-blue by the demand its servers did not cover (backup heater), throws red sparks for heat dumped, and goes
@@ -624,7 +624,7 @@ export async function create(host, opts = {}) {
         + (k ? `<div style="margin-top:6px;color:#a8a298">= the reference year × ${sc.toFixed(2)} (footprint, seeded variation)</div>` : "") + close;
     }
     return head("building · OpenStreetMap", "#a8a298") + row("type", esc(type.replace(/_/g, " "))) + row("height", hgt.toFixed(1) + " m")
-      + row("footprint", map.areas_m2[b] + " m²") + `<div style="margin-top:8px;color:#a8a298">no DigitalHeat server</div>` + close;
+      + row("footprint", map.areas_m2[b] + " m²") + `<div style="margin-top:8px;color:#a8a298">no Hearthbeat server</div>` + close;
   }
   function select(b) {
     selU.value = b; S.sel = b;

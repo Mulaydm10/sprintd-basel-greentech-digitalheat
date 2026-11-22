@@ -1,4 +1,4 @@
-/* DigitalHeat phone E2E for live transcription (contract live_transcribe.md v2 + v2.1). WebCrypto only.
+/* Hearthbeat phone E2E for live transcription (contract live_transcribe.md v2 + v2.1). WebCrypto only.
  * - per job: ephemeral P-256 keypair (private key never leaves this tab) -> client_pub
  * - per segment: random AES-256 key K; ct = AES-GCM(K, wav); for each recipient node: k = AES-GCM(HKDF(ECDH(eph, node_pub)), K)
  * - transcript: each segment's enc {eph, iv, ct} decrypted here with the job key; nothing readable reaches the coordinator

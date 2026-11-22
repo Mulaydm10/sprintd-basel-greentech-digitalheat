@@ -99,7 +99,7 @@ def test_stitch_joins_segments_in_any_direction():
 def test_navigation_and_clickable_buildings_are_wired():  # #115
     js = (SITE / "basel3d.js").read_text(encoding="utf-8")
     for needle in ("pickRT", "readRenderTargetPixels", "function select(", "function flyTo(", "data-dh-mapnav", "data-dh-minimap",
-                   "data-dh-panel", '"Escape"', "arrowup", "no DigitalHeat server", "const esc ="):
+                   "data-dh-panel", '"Escape"', "arrowup", "no Hearthbeat server", "const esc ="):
         assert needle in js, needle
     assert "o.material.dispose()" in js and "el.remove()" in js  # #114 review: no leaks, clean destroy
     html = (SITE / PAGE).read_text(encoding="utf-8")

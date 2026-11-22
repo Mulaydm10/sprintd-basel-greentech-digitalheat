@@ -154,10 +154,24 @@ FLEET_ROW = ('  <div data-dh-phone-fleet style="padding:0 clamp(16px,4vw,40px);m
 FLEET_SCRIPT_OLD = "</body>"
 FLEET_SCRIPT_NEW = '<script type="module" src="./phone-fleet.js"></script>\n</body>'
 
+# Brand: the project is now called Hearthbeat (Dhruv, 22 Nov). Visible text only; page file names stay "DigitalHeat NN …"
+import re as _re
+BRAND = [(_re.compile(r"DigitalHeat(?!(?:%20| )(?:\d\d|Pitch Deck))"), "Hearthbeat"), (_re.compile(r"DIGITALHEAT"), "HEARTHBEAT"),
+         (_re.compile(r'Digital<span style="color:#c93c05">heat'), 'Hearth<span style="color:#c93c05">beat')]
+BRAND_UNDO = [("Hearthbeat", "DigitalHeat"), ("HEARTHBEAT", "DIGITALHEAT"),
+              ('Hearth<span style="color:#c93c05">beat', 'Digital<span style="color:#c93c05">heat')]
+
+
+def brand(html: str) -> str:
+    for rx, new in BRAND:
+        html = rx.sub(new, html)
+    return html
+
+
 WIRING = ["vendor/resources.js before support.js", "local fonts.css", "apiBase default '.' on 04 and 06",
           "04 Live: LIVE controls row + liveAct()", "Nav: extra tabs 07-10 (#96, #102, #103)",
           "Nav: one line (compact numbers, sideways scroll) + bottom spacer (#102)",
-          "04 Live: volunteer phone-fleet section + phone-fleet.js (wow #2)"]
+          "04 Live: volunteer phone-fleet section + phone-fleet.js (wow #2)", "brand: DigitalHeat -> Hearthbeat (visible text)"]
 
 
 def wire(name: str, html: str) -> str:
@@ -183,7 +197,7 @@ def wire(name: str, html: str) -> str:
         html = sub(html, RET_OLD, RET_NEW)
         html = sub(html, FLEET_ANCHOR, FLEET_ROW)
         html = sub(html, FLEET_SCRIPT_OLD, FLEET_SCRIPT_NEW)
-    return html
+    return brand(html)
 
 
 def build(src: Path = SRC, dst: Path = DST) -> list[str]:
@@ -201,7 +215,7 @@ def build(src: Path = SRC, dst: Path = DST) -> list[str]:
         html = p.read_text(encoding="utf-8")
         if pos is not None:
             html = html.replace("__NAV_INDEX__", str(pos)).replace("__NAV_TOTAL__", f"{total:02d}")
-        (dst / p.name).write_text(html, encoding="utf-8", newline="\n")
+        (dst / p.name).write_text(brand(html), encoding="utf-8", newline="\n")
         out.append(p.name)
     return out
 

@@ -22,7 +22,7 @@ input[type=range]{accent-color:#c93c05}
 </helmet>
 <div style="min-height:100vh;background:#f2efe9;overflow-x:hidden">
   <header style="position:fixed;top:0;left:0;right:0;z-index:40;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:16px clamp(16px,4vw,40px);font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.1em;text-transform:uppercase;color:#55524c;background:linear-gradient(#f2efe9 35%,rgba(242,239,233,0))">
-    <div style="display:flex;align-items:center;gap:10px;color:#141414"><span style="width:9px;height:9px;border-radius:50%;background:#c93c05;box-shadow:0 0 14px #c93c05"></span>DigitalHeat</div>
+    <div style="display:flex;align-items:center;gap:10px;color:#141414"><span style="width:9px;height:9px;border-radius:50%;background:#c93c05;box-shadow:0 0 14px #c93c05"></span>Hearthbeat</div>
     <div style="display:flex;gap:14px;align-items:center"><span style="display:flex;gap:6px;align-items:center;color:{{ srcC }}"><span style="width:6px;height:6px;border-radius:50%;background:{{ srcC }};animation:dhPulse 1.2s infinite"></span>{{ srcLabel }}</span><span>06 · Simulator · 06 / 06</span></div>
   </header>
 
@@ -294,7 +294,7 @@ class Component extends DCLogic {
     const year = [
       { name: "Heat-led", tag: "no dump", tc: "#157a43", bd: "#dcd6cc", covW: (yf[0] * 100).toFixed(1), cov: (yf[0] * 100).toFixed(1) + " %", dump: "0 kWh", dc: "#157a43", util: (yf[2] * 100).toFixed(0) + " %", note: "Runs only when the heat is used. Deadlines are ignored, so paid work waits for winter." },
       { name: "Always on", tag: "dumps", tc: "#d1173a", bd: "#dcd6cc", covW: (ya[0] * 100).toFixed(1), cov: (ya[0] * 100).toFixed(1) + " %", dump: ya[1].toLocaleString("en-CH") + " kWh", dc: "#d1173a", util: "100 %", note: "Every hour sold, but the extra hours only make heat that gets dumped." },
-      { name: "DigitalHeat merit", tag: n === 4 ? "N = 4 · full run" : "run at N = 4", tc: "#c93c05", bd: "#c93c05", covW: n === 4 ? 57.9 : 0, cov: n === 4 ? "57.9 %" : "–", dump: n === 4 ? "minimal" : "–", dc: "#a86400", util: n === 4 ? "sold by price" : "–", note: n === 4 ? "Same heat as the thermostat, 0 % missed paid deadlines, 0.53 CHF/h to pay off incl. hardware." : "Merit figures come from the full simulation at 4 servers. Set N to 4." }
+      { name: "Hearthbeat merit", tag: n === 4 ? "N = 4 · full run" : "run at N = 4", tc: "#c93c05", bd: "#c93c05", covW: n === 4 ? 57.9 : 0, cov: n === 4 ? "57.9 %" : "–", dump: n === 4 ? "minimal" : "–", dc: "#a86400", util: n === 4 ? "sold by price" : "–", note: n === 4 ? "Same heat as the thermostat, 0 % missed paid deadlines, 0.53 CHF/h to pay off incl. hardware." : "Merit figures come from the full simulation at 4 servers. Set N to 4." }
     ];
     const base = (this.props.apiBase ?? "").trim();
     const srcLabel = useReal ? "REAL RUN · " + (real.balance ? real.balance.policy || "run" : "api") : base ? (real.err ? "API UNREACHABLE · MODEL" : day === "apr" ? "MODEL (no April replay)" : "CONNECTING · MODEL") : "BROWSER MODEL";

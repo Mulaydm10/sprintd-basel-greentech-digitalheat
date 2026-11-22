@@ -43,7 +43,10 @@ def test_only_the_listed_wiring_differs():
     for name in PAGES:
         orig = (site_build.SRC / name).read_text(encoding="utf-8")
         new = (SITE / name).read_text(encoding="utf-8")
-        undo = new.replace(site_build.SUPPORT_LOCAL, site_build.SUPPORT)
+        undo = new
+        for newer, old in site_build.BRAND_UNDO:   # the brand rename is applied last, so it is undone first
+            undo = undo.replace(newer, old)
+        undo = undo.replace(site_build.SUPPORT_LOCAL, site_build.SUPPORT)
         if site_build.FONT_LINKS in orig:
             undo = undo.replace(site_build.FONT_LOCAL, site_build.FONT_LINKS)
         if name in site_build.API_PAGES:

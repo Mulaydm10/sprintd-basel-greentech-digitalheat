@@ -151,7 +151,7 @@ def create_app(state_dir: Path, tokens: dict[str, str] | None = None, clock=time
     if origins:  # exact origins only; bearer tokens, never cookies -> no credentials, never "*"
         app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=False,
                            allow_methods=["GET", "POST", "DELETE"],
-                           allow_headers=["Authorization", "Content-Type", "Last-Event-ID"],
+                           allow_headers=["Authorization", "Content-Type", "Last-Event-ID", "X-Seq"],  # X-Seq: live-transcription segments from the phone page
                            expose_headers=["X-Result-SHA256"], max_age=600)
     app.add_middleware(ConnCap, per_client=16)  # added last = outermost: runs before body read and auth (F34)
 

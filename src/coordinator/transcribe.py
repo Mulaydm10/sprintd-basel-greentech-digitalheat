@@ -297,7 +297,8 @@ def flush(coord, node_id: str, lease_id: str, seq: int, text: str) -> dict:
             raise _err(409, "already flushed")
         db.execute("UPDATE segments SET flushed=?, text=TRIM(COALESCE(text, '') || ' ' || ?) WHERE job_id=? AND seq=?",
                    (text, text, job, seq))
-        ps.emit(db, coord, "transcript.segment", {"job": job, "seq": seq, "text": text, "node": node_id,
-                                                  "backend": last["backend"], "flush": True},
+        full = db.execute("SELECT text FROM segments WHERE job_id=? AND seq=?", (job, seq)).fetchone()["text"]
+        ps.emit(db, coord, "transcript.segment", {"job": job, "seq": seq, "text": full, "node": node_id,
+                                                  "backend": last["backend"], "flush": True},  # full text: replaces
                 **ps.scope(db, lz["unit_id"], node_id))
     return {"ok": True, "duplicate": False, "seq": seq}

@@ -228,3 +228,22 @@ def test_132_orphan_leased_unit_is_repaired_on_the_next_tick(env):
     assert EchoNode(env, "node-a", "t-na").take()  # and the job is leasable again
     audit = env.c.get("/v1/ops/audit", headers=H("t-admin"), params={"limit": 20}).json()["items"]
     assert any(e.get("type") == "repair_orphan_unit" for e in audit)
+
+
+def test_134_final_tail_flush_once_after_end(env):
+    job = start(env)
+    a = EchoNode(env, "node-a", "t-na"); assert a.take()
+    for s in range(2):
+        put(env, job, s)
+    while a.step()[1]:
+        pass
+    url = f"/v1/leases/{a.lease}/segments/1/flush"
+    assert env.c.post(url, headers=H("t-na"), json={"text": "keep going."}).status_code == 409  # not ended yet
+    env.c.post(f"/v1/client/jobs/{job}/end", headers=H("t-c1"))
+    assert env.c.post(f"/v1/leases/{a.lease}/segments/0/flush", headers=H("t-na"), json={"text": "x"}).status_code == 409
+    assert env.c.post(url, headers=H("t-nb"), json={"text": "x"}).status_code == 403
+    assert env.c.post(url, headers=H("t-na"), json={"text": "keep going."}).json()["duplicate"] is False
+    assert env.c.post(url, headers=H("t-na"), json={"text": "keep going."}).json()["duplicate"] is True
+    assert env.c.post(url, headers=H("t-na"), json={"text": "other"}).status_code == 409
+    segs = env.c.get(f"/v1/client/jobs/{job}/transcript", headers=H("t-c1")).json()["segments"]
+    assert segs[-1]["text"].endswith("keep going.") and segs[-1]["seq"] == 1

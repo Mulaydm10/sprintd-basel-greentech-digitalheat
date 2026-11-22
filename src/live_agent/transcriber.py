@@ -46,7 +46,7 @@ def stitch(words: list[dict[str, Any]], context: str = "", seq: int = 1, dur: fl
         ws = [w for w in ws if float(w.get("t0", 0.0)) < dur - HOLD_TAIL_S]
     if seq == 0 or not ws:
         return ws
-    prev = [_norm(x) for x in context.split() if _norm(x)][-30:]
+    prev = [_norm(x) for x in context.split() if _norm(x) and not x.endswith(("-", "\u2014", "\u2013"))][-30:]
     cur = [_norm(w["w"]) for w in ws]
     best = (0, 0)  # (k, -i): longest run, then earliest start
     for i in range(0, min(MAX_LEAD, len(cur) - 1) + 1):

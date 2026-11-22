@@ -87,3 +87,30 @@ def test_echo_agents_stop_and_resume(tmp_path):
     assert [x["seq"] for x in t["segments"]] == list(range(30)) and t["pending"] == 0
     assert t["text"] == " ".join(f"seg {i}" for i in range(30))
     assert {x["backend"] for x in t["segments"]} == {"echo"}
+
+
+def test_134_agent_flushes_the_last_segments_held_tail_after_end(tmp_path):
+    app = create_app(tmp_path / "c", tokens=TOK, registry=REG)
+    app.state.limiter.allow = lambda k: True
+    tc = TestClient(app)
+    H = lambda t: {"Authorization": f"Bearer {t}"}
+    ev = {"node_id": "node-a", "region": "CH-BS", "measurement": "digitalheat-node-image-v1", "certified": False}
+    tc.post("/v1/nodes/register", headers=H("t-na"), json={"node_id": "node-a", "site_id": "site-a",
+            "eligible_classes": ["public"], "server_kw_el": 1.0, "attestation": wire.attestation_to_json(trust.attest("node-a", ev))})
+    tc.post("/v1/nodes/node-a/heartbeat", headers=H("t-na"), json={"backend": "echo"})
+    job = tc.post("/v1/client/jobs", headers=H("t-c1"), json={"type": "live_transcription", "access_class": "public",
+                                                               "idempotency_key": "f"}).json()["job_id"]
+    A = agent(tc, "node-a", "t-na", tmp_path)
+
+    class Tail:  # a backend that holds back the last words of every segment unless told it is final
+        name = "echo"
+        def transcribe(self, wav, context="", seq=0, final=False):
+            return {"text": f"seg {seq}", "words": None, "tail": "keep going."}
+    A._transcriber = Tail()
+    for s in range(2):
+        tc.post(f"/v1/client/jobs/{job}/segments", headers={**H("t-c1"), "X-Seq": str(s)}, content=wav(s))
+    tc.post(f"/v1/client/jobs/{job}/end", headers=H("t-c1"))
+    la = tc.post("/v1/nodes/node-a/lease", headers=H("t-na")).json()
+    assert A.run_live(la) == "done"
+    segs = tc.get(f"/v1/client/jobs/{job}/transcript", headers=H("t-c1")).json()["segments"]
+    assert [x["text"] for x in segs] == ["seg 0", "seg 1 keep going."]

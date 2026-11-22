@@ -39,6 +39,7 @@ def env(tmp_path):
         assert c.post("/v1/nodes/register", headers=H(t), json={"node_id": n, "site_id": f"site-{n[-1]}",
                       "eligible_classes": ["public"], "server_kw_el": 1.0,
                       "attestation": wire.attestation_to_json(trust.attest(n, ev))}).status_code == 200
+        c.post(f"/v1/nodes/{n}/heartbeat", headers=H(t), json={"backend": "echo"})  # transcriber nodes only (6a1144f)
     return type("E", (), {"c": c, "app": app, "coord": app.state.coord})
 
 

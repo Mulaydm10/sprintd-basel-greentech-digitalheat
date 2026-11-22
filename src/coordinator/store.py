@@ -71,6 +71,17 @@ MIGRATIONS = (
     ("jobs", "ended_at", "ALTER TABLE jobs ADD COLUMN ended_at REAL"),  # #127 live transcription: client ended
     ("nodes", "backend", "ALTER TABLE nodes ADD COLUMN backend TEXT"),  # #127 transcriber backend from heartbeat
     ("jobs", "idem_params", "ALTER TABLE jobs ADD COLUMN idem_params TEXT"),  # F37: the request a key was used for
+    # live transcription v2 (E2E) / v2.1 (signed, hash-linked segments, Merkle receipt)
+    ("jobs", "client_pub", "ALTER TABLE jobs ADD COLUMN client_pub TEXT"),
+    ("jobs", "root", "ALTER TABLE jobs ADD COLUMN root TEXT"),
+    ("nodes", "e2e_pub", "ALTER TABLE nodes ADD COLUMN e2e_pub TEXT"),
+    ("nodes", "sig_pub", "ALTER TABLE nodes ADD COLUMN sig_pub TEXT"),
+    ("segments", "recipients", "ALTER TABLE segments ADD COLUMN recipients TEXT"),
+    ("segments", "enc", "ALTER TABLE segments ADD COLUMN enc TEXT"),
+    ("segments", "enc_sha256", "ALTER TABLE segments ADD COLUMN enc_sha256 TEXT"),
+    ("segments", "sig", "ALTER TABLE segments ADD COLUMN sig TEXT"),
+    ("segments", "sig_pub", "ALTER TABLE segments ADD COLUMN sig_pub TEXT"),
+    ("segments", "link", "ALTER TABLE segments ADD COLUMN link TEXT"),
 )
 
 

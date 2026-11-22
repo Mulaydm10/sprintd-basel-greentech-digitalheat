@@ -335,6 +335,9 @@ class Coordinator:
             unit, progress = ps.bound_running_unit(db, self, node_id, hb.get("running_unit"), hb.get("progress"))
             if hb.get("backend"):
                 db.execute("UPDATE nodes SET backend=? WHERE node_id=?", (str(hb["backend"])[:32], node_id))
+            for col in ("e2e_pub", "sig_pub"):  # live transcription v2/v2.1 node keys (validated in app.HeartbeatIn)
+                if hb.get(col):
+                    db.execute(f"UPDATE nodes SET {col}=? WHERE node_id=?", (str(hb[col]), node_id))
             sets = {"last_hb": now, "watts": hb.get("watts"), "running_unit": unit,
                     "progress": progress, "last_error": hb.get("last_error")}
             if hb.get("tank_level_kwh") is not None or hb.get("demand_kw") is not None:

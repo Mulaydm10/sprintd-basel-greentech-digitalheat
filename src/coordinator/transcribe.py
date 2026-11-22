@@ -23,6 +23,7 @@ from typing import Any
 import trust
 from live_agent import wire
 
+from . import e2e_chain as ec
 from . import portal_store as ps
 
 LIVE = "live_transcription"
@@ -47,8 +48,12 @@ def live_unit(db, job_id: str):
     return db.execute("SELECT * FROM units WHERE job_id=? AND job_class=?", (job_id, LIVE)).fetchone()
 
 
-def create_job(coord, client_id: str, idempotency_key: str, access_class: str = "public") -> dict:
-    """POST /v1/client/jobs {type: live_transcription}: idempotent per (client, key)."""
+def create_job(coord, client_id: str, idempotency_key: str, access_class: str = "public",
+               client_pub: str | None = None) -> dict:
+    """POST /v1/client/jobs {type: live_transcription}: idempotent per (client, key). `client_pub` (v2): the phone's
+    per-job P-256 key (SPKI b64); nodes then return every transcript segment encrypted to it."""
+    if client_pub is not None and not ec.valid_p256(client_pub):
+        raise _err(422, "client_pub must be a P-256 public key (SPKI DER, base64)")
     now = coord.clock()
     old = coord.store.one("SELECT * FROM jobs WHERE client_id=? AND idempotency_key=?", client_id, idempotency_key)
     if old is not None:
@@ -67,8 +72,11 @@ def create_job(coord, client_id: str, idempotency_key: str, access_class: str = 
         db.execute("""INSERT INTO units(unit_id, job_id, seq, job_class, access_class, kwh_el, bid, deadline_hour, slack_h,
                       checkpointable, chunks, state) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
                    (f"{job_id}-live", job_id, 0, LIVE, access_class, 0.25, 1.0, 10 ** 6, 0.0, 1, 1, "pending"))
-        coord._audit(db, {"type": "submit", "job": job_id, "admitted": True, "reason": "live transcription", "units": 1})
-    return {"job_id": job_id, "status": "admitted", "eta": None, "created": True}
+        if client_pub:
+            db.execute("UPDATE jobs SET client_pub=? WHERE job_id=?", (client_pub, job_id))
+        coord._audit(db, {"type": "submit", "job": job_id, "admitted": True, "reason": "live transcription", "units": 1,
+                          "e2e": bool(client_pub)})
+    return {"job_id": job_id, "status": "admitted", "eta": None, "created": True, "e2e": bool(client_pub)}
 
 
 def _owned_live(db, client_id: str, job_id: str):
@@ -82,10 +90,18 @@ def add_segment(coord, client_id: str, job_id: str, seq: int, body: bytes) -> di
     """Client upload. None = unknown/foreign job (404). Idempotent per (job, seq)."""
     if not isinstance(seq, int) or seq < 0:
         raise _err(422, "X-Seq must be an integer >= 0")
-    if len(body) > SEG_MAX:
+    e2e, recips = ec.is_e2e(body), None
+    if e2e:  # v2: {v, iv, ct, wraps}; stored as is, the coordinator holds no key that opens it
+        if len(body) > ec.E2E_MAX:
+            raise _err(413, f"segment larger than {ec.E2E_MAX} bytes")
+        try:
+            recips = ec.check_blob(body)
+        except ValueError as e:
+            raise _err(422, str(e)) from e
+    elif len(body) > SEG_MAX:
         raise _err(413, f"segment larger than {SEG_MAX} bytes")
-    if len(body) < 44 or body[:4] != b"RIFF" or body[8:12] != b"WAVE":
-        raise _err(422, "segment must be a WAV file")
+    elif len(body) < 44 or body[:4] != b"RIFF" or body[8:12] != b"WAVE":
+        raise _err(422, "segment must be a WAV file or an E2E JSON blob")
     sha = hashlib.sha256(body).hexdigest()
     now = coord.clock()
     with coord._tx() as db:
@@ -102,15 +118,18 @@ def add_segment(coord, client_id: str, job_id: str, seq: int, body: bytes) -> di
         top = db.execute("SELECT MAX(seq) FROM segments WHERE job_id=?", (job_id,)).fetchone()[0]
         if seq > (-1 if top is None else top) + 1 + MAX_GAP:
             raise _err(422, f"seq gap larger than {MAX_GAP}")
-        pub = coord.broker._jobs[job_id].priv.public_key()
-        env = wire.envelope_to_bytes(trust.seal(body, pub))
+        if e2e:
+            env, ext = body, "e2e"
+        else:  # legacy v1: sealed to the job key (released to the lease holder)
+            env, ext = wire.envelope_to_bytes(trust.seal(body, coord.broker._jobs[job_id].priv.public_key())), "env"
         d = coord.dir / "segments" / job_id
         d.mkdir(parents=True, exist_ok=True)
-        f, tmp = d / f"{seq}.env", d / f".{seq}.tmp"
+        f, tmp = d / f"{seq}.{ext}", d / f".{seq}.tmp"
         tmp.write_bytes(env)
         os.replace(tmp, f)
-        db.execute("""INSERT INTO segments(job_id, seq, path, sha256, size, received_at, state)
-                      VALUES(?,?,?,?,?,?,'pending')""", (job_id, seq, str(f.relative_to(coord.dir)), sha, len(body), now))
+        db.execute("""INSERT INTO segments(job_id, seq, path, sha256, size, received_at, state, recipients)
+                      VALUES(?,?,?,?,?,?,'pending',?)""", (job_id, seq, str(f.relative_to(coord.dir)), sha, len(body), now,
+                                                          json.dumps(recips) if recips is not None else None))
     return {"ok": True, "seq": seq, "duplicate": False}
 
 
@@ -132,12 +151,56 @@ def transcript(coord, client_id: str, job_id: str) -> dict | None:
         j = _owned_live(db, client_id, job_id)
         if j is None:
             return None
-        rows = db.execute("""SELECT seq, text, node, backend, state FROM segments WHERE job_id=? ORDER BY seq""",
-                          (job_id,)).fetchall()
-    segs = [{"seq": r["seq"], "text": r["text"], "node": r["node"], "backend": r["backend"]} for r in rows
-            if r["state"] == "accepted"]
+        rows = db.execute("""SELECT * FROM segments WHERE job_id=? ORDER BY seq""", (job_id,)).fetchall()
+    segs = [_seg_out(r) for r in rows if r["state"] == "accepted"]
     return {"job_id": job_id, "segments": segs, "pending": sum(1 for r in rows if r["state"] != "accepted"),
-            "ended": j["ended_at"] is not None, "text": " ".join(s["text"].strip() for s in segs if s["text"].strip())}
+            "ended": j["ended_at"] is not None, "e2e": bool(j["client_pub"]), "root": j["root"],
+            "text": " ".join((s["text"] or "").strip() for s in segs if (s["text"] or "").strip())}
+
+
+def _seg_out(r) -> dict:
+    """One transcript segment: clear `text` (legacy) or `enc` (v2, only the phone can open it) + the v2.1 proof."""
+    return {"seq": r["seq"], "text": r["text"] or "", "node": r["node"], "backend": r["backend"],
+            "enc": json.loads(r["enc"]) if r["enc"] else None, "blob_sha256": r["sha256"],
+            "enc_sha256": r["enc_sha256"], "link": r["link"], "sig": r["sig"], "sig_pub": r["sig_pub"]}
+
+
+def recipients(coord, client_id: str, job_id: str) -> dict | None:
+    """GET /v1/client/jobs/{id}/recipients (v2): the nodes a segment must be wrapped for = online, undrained,
+    untampered transcriber nodes eligible for the job's class that published an `e2e_pub`."""
+    now = coord.clock()
+    with coord.store.lock:
+        db = coord.store.db
+        j = _owned_live(db, client_id, job_id)
+        if j is None:
+            return None
+        rows = db.execute("""SELECT node_id, e2e_pub, backend, eligible_classes FROM nodes WHERE tampered=0 AND drained=0
+                             AND last_hb >= ? AND e2e_pub IS NOT NULL ORDER BY node_id""",
+                          (now - _core().SUSPECT_S,)).fetchall()
+    return {"recipients": [{"node_id": r["node_id"], "e2e_pub": r["e2e_pub"], "backend": r["backend"]} for r in rows
+                           if (r["backend"] or "") in TRANSCRIBERS and j["access_class"] in json.loads(r["eligible_classes"])]}
+
+
+def receipt(coord, client_id: str, job_id: str) -> dict | None:
+    """GET /v1/client/jobs/{id}/receipt (v2.1): Merkle root over the segment links + inclusion proofs + where the
+    root sits in the hash-chained audit log."""
+    with coord.store.lock:
+        db = coord.store.db
+        j = _owned_live(db, client_id, job_id)
+        if j is None:
+            return None
+        rows = db.execute("SELECT seq, link, node FROM segments WHERE job_id=? AND state='accepted' ORDER BY seq",
+                          (job_id,)).fetchall()
+        a = db.execute("""SELECT idx, hash FROM audit WHERE event LIKE ? ORDER BY idx DESC LIMIT 1""",
+                       (f'%"job": "{job_id}"%"type": "receipt"%',)).fetchone()
+        head = db.execute("SELECT idx, hash FROM audit ORDER BY idx DESC LIMIT 1").fetchone()
+    if j["root"] is None:
+        raise _err(409, "no receipt yet: the stream has not finished")
+    root, proofs = ec.merkle([r["link"] for r in rows])
+    return {"job_id": job_id, "root": root, "n_segments": len(rows), "nodes": sorted({r["node"] for r in rows}),
+            "audit_entry": {"idx": a["idx"], "hash": a["hash"]} if a else None,
+            "audit_head": {"idx": head["idx"], "hash": head["hash"]} if head else None,
+            "proofs": [{"seq": r["seq"], "link": r["link"], "path": p} for r, p in zip(rows, proofs)]}
 
 
 # ------------------------------------------------------------------ node side (called from core.lease / app)
@@ -149,6 +212,8 @@ def lease_live(db, coord, me, now: float) -> dict | None:
     u = db.execute("""SELECT * FROM units WHERE job_class=? AND state='pending' ORDER BY rowid LIMIT 1""", (LIVE,)).fetchone()
     if u is None or u["access_class"] not in classes or (me["backend"] or "") not in TRANSCRIBERS:
         return None  # batch nodes (cpu-hash, ...) never take a live job: it would only lapse there (found live)
+    if not _can_open(db, u["job_id"], me["node_id"]):
+        return None  # v2: the next segment is not wrapped for this node; a recipient takes the job
     core = _core()
     node_id = me["node_id"]
     if (me["backend"] or "") in CLOUD_BACKENDS:
@@ -157,7 +222,8 @@ def lease_live(db, coord, me, now: float) -> dict | None:
                             (node_id, now - core.SUSPECT_S)).fetchall():
             if (n["backend"] or "") not in TRANSCRIBERS or (n["backend"] or "") in CLOUD_BACKENDS or u["access_class"] not in set(json.loads(n["eligible_classes"])):
                 continue
-            if n["backend"] and db.execute("SELECT 1 FROM leases WHERE node_id=? AND state='active'", (n["node_id"],)).fetchone() is None:
+            if n["backend"] and _can_open(db, u["job_id"], n["node_id"]) and \
+                    db.execute("SELECT 1 FROM leases WHERE node_id=? AND state='active'", (n["node_id"],)).fetchone() is None:
                 return {"hold": True, "reason": f"live job reserved for local node {n['node_id']}; cloud only as fallback",
                         "retry_after_s": 2.0}
     reason = "cloud fallback: no idle local node" if (me["backend"] or "") in CLOUD_BACKENDS else \
@@ -178,6 +244,13 @@ def lease_live(db, coord, me, now: float) -> dict | None:
                 **ps.scope(db, u["unit_id"], node_id))
     cur = db.execute("SELECT * FROM leases WHERE lease_id=?", (lease_id,)).fetchone()
     return coord._lease_payload(db, cur, now, False, key=rel)
+
+
+def _can_open(db, job_id: str, node_id: str) -> bool:
+    """v2: can this node read the next segment to transcribe? (legacy WAV segments: any lease holder can)."""
+    r = db.execute("""SELECT recipients FROM segments WHERE job_id=? AND state!='accepted' ORDER BY seq LIMIT 1""",
+                   (job_id,)).fetchone()
+    return r is None or r["recipients"] is None or node_id in json.loads(r["recipients"])
 
 
 def _next_seq(db, job_id: str) -> int:
@@ -216,16 +289,50 @@ def fetch(coord, node_id: str, lease_id: str, after: int) -> dict:
                              ORDER BY seq LIMIT ?""", (job, int(after), FETCH_LIMIT)).fetchall()
         acc = db.execute("""SELECT text FROM segments WHERE job_id=? AND state='accepted' ORDER BY seq DESC LIMIT 12""",
                          (job,)).fetchall()
-        ended = db.execute("SELECT ended_at FROM jobs WHERE job_id=?", (job,)).fetchone()["ended_at"] is not None
+        jr = db.execute("SELECT ended_at, client_pub FROM jobs WHERE job_id=?", (job,)).fetchone()
+        ended = jr["ended_at"] is not None
         nxt = _next_seq(db, job)
+    # E2E jobs: the coordinator has no clear text, so no context (the node stitches with its own accepted text)
     ctx = " ".join(r["text"].strip() for r in reversed(acc) if r["text"])[-CONTEXT_CHARS:]
-    segs = [{"seq": r["seq"], "sha256": r["sha256"],
-             "envelope_b64": base64.b64encode((coord.dir / r["path"]).read_bytes()).decode()} for r in rows]
-    return {"job_id": job, "segments": segs, "next_seq": nxt, "ended": ended, "done": False, "context": ctx}
+    segs = []
+    for r in rows:
+        raw = (coord.dir / r["path"]).read_bytes()
+        if r["path"].endswith(".e2e"):
+            segs.append({"seq": r["seq"], "sha256": r["sha256"], "blob_b64": base64.b64encode(raw).decode()})
+        else:
+            segs.append({"seq": r["seq"], "sha256": r["sha256"], "envelope_b64": base64.b64encode(raw).decode()})
+    return {"job_id": job, "segments": segs, "next_seq": nxt, "ended": ended, "done": False, "context": ctx,
+            "client_pub": jr["client_pub"]}
 
 
-def accept(coord, node_id: str, lease_id: str, seq: int, text: str, words, backend: str, ms: float) -> dict:
-    """Exactly once per seq, in order: dup = 200 no-op, conflicting text = 409, out of order = 409."""
+def not_recipient(coord, node_id: str, lease_id: str, seq: int) -> dict:
+    """v2: the lease holder cannot open segment `seq` (no wrap for it): verified, then the lease is released at once
+    and the job goes to a node that is a recipient (lease_live only hands it to one)."""
+    with coord._tx() as db:
+        lz, u = _held(db, node_id, lease_id)
+        r = db.execute("SELECT recipients FROM segments WHERE job_id=? AND seq=?", (u["job_id"], seq)).fetchone()
+        if r is None:
+            raise _err(404, "no such segment")
+        if r["recipients"] is None or node_id in json.loads(r["recipients"]):
+            raise _err(409, "this node is a recipient of that segment")
+        db.execute("UPDATE leases SET state='lapsed' WHERE lease_id=?", (lease_id,))
+        db.execute("UPDATE units SET state='pending' WHERE unit_id=? AND state='leased'", (u["unit_id"],))
+        coord._audit(db, {"type": "lease_released", "lease": lease_id, "unit": u["unit_id"], "node": node_id,
+                          "reason": f"not a recipient of segment {seq}"})
+    return {"ok": True, "released": True}
+
+
+def accept(coord, node_id: str, lease_id: str, seq: int, text: str, words, backend: str, ms: float,
+           enc: dict | None = None, sig: str | None = None) -> dict:
+    """Exactly once per seq, in order: dup = 200 no-op, conflicting text = 409, out of order = 409.
+    v2: an E2E job (client_pub) takes `enc` (sealed to the phone) and an empty `text`. v2.1: a node that published a
+    `sig_pub` must sign m(job, seq, blob_sha256, enc_sha256); bad signature = 422. Every accepted segment is linked."""
+    if enc is not None:
+        try:
+            ec.check_enc(enc)
+        except ValueError as e:
+            raise _err(422, str(e)) from e
+    canon = ec.canon_enc(enc) if enc is not None else None
     now = coord.clock()
     with coord._tx() as db:
         coord._expire(db, now)
@@ -235,7 +342,7 @@ def accept(coord, node_id: str, lease_id: str, seq: int, text: str, words, backe
             u0 = db.execute("SELECT job_id FROM units WHERE unit_id=?", (lz["unit_id"],)).fetchone()
             row = db.execute("SELECT * FROM segments WHERE job_id=? AND seq=?", (u0["job_id"], seq)).fetchone() if u0 else None
         if row is not None and row["state"] == "accepted":  # idempotent even after the lease moved on
-            if (row["text"] or "") == (text or ""):
+            if (row["text"] or "") == (text or "") and row["enc"] == canon:
                 return {"ok": True, "duplicate": True, "seq": seq}
             raise _err(409, "conflicting text for an already accepted segment")
         lz, u = _held(db, node_id, lease_id)
@@ -245,11 +352,28 @@ def accept(coord, node_id: str, lease_id: str, seq: int, text: str, words, backe
         nxt = _next_seq(db, job)
         if seq != nxt:
             raise _err(409, f"out of order: the next segment to accept is {nxt}")
-        db.execute("""UPDATE segments SET state='accepted', text=?, words=?, node=?, backend=?, ms=?, accepted_at=?
-                      WHERE job_id=? AND seq=?""", (text, json.dumps(words) if words is not None else None, node_id,
-                                                    backend, ms, now, job, seq))
+        jr = db.execute("SELECT client_pub FROM jobs WHERE job_id=?", (job,)).fetchone()
+        if jr["client_pub"]:
+            if enc is None or (text or "").strip() or words:
+                raise _err(422, "E2E job: send the transcript only as `enc` (text empty, no words)")
+        elif enc is not None:
+            raise _err(422, "enc is only for E2E jobs (created with client_pub)")
+        es = ec.enc_sha256(enc, text or "")
+        me = db.execute("SELECT sig_pub FROM nodes WHERE node_id=?", (node_id,)).fetchone()
+        sig_pub = me["sig_pub"] if me else None
+        if sig_pub:
+            if not sig or not ec.verify_sig(sig_pub, sig, ec.seg_message(job, seq, row["sha256"], es)):
+                raise _err(422, "bad or missing segment signature")
+        prev = db.execute("""SELECT link FROM segments WHERE job_id=? AND state='accepted' AND seq<? ORDER BY seq DESC
+                             LIMIT 1""", (job, seq)).fetchone()
+        lk = ec.link(prev["link"] if prev else None, job, row["sha256"], es, node_id)
+        db.execute("""UPDATE segments SET state='accepted', text=?, words=?, node=?, backend=?, ms=?, accepted_at=?,
+                      enc=?, enc_sha256=?, sig=?, sig_pub=?, link=? WHERE job_id=? AND seq=?""",
+                   (text, json.dumps(words) if words is not None else None, node_id, backend, ms, now, canon, es,
+                    sig if sig_pub else None, sig_pub, lk, job, seq))
         db.execute("UPDATE leases SET expires_at=? WHERE lease_id=?", (now + _core().LEASE_S, lease_id))  # progress = alive
-        ps.emit(db, coord, "transcript.segment", {"job": job, "seq": seq, "text": text, "node": node_id, "backend": backend},
+        ps.emit(db, coord, "transcript.segment", {"job": job, "seq": seq, "text": text, "node": node_id, "backend": backend,
+                                                  "enc": enc, "link": lk},
                 **ps.scope(db, u["unit_id"], node_id))
         _maybe_finish(db, coord, job)
     return {"ok": True, "duplicate": False, "seq": seq}
@@ -271,3 +395,10 @@ def _maybe_finish(db, coord, job_id: str) -> None:
     if lz is not None:
         db.execute("UPDATE leases SET state='completed' WHERE lease_id=?", (lz["lease_id"],))
     coord._audit(db, {"type": "complete", "unit": u["unit_id"], "node": lz["node_id"] if lz else None, "result": "live"})
+    rows = db.execute("SELECT link, node FROM segments WHERE job_id=? AND state='accepted' ORDER BY seq",
+                      (job_id,)).fetchall()
+    root, _ = ec.merkle([r["link"] for r in rows])
+    if root is not None:  # v2.1: the receipt is anchored in the hash-chained audit log
+        db.execute("UPDATE jobs SET root=? WHERE job_id=?", (root, job_id))
+        coord._audit(db, {"type": "receipt", "job": job_id, "root": root, "n_segments": len(rows),
+                          "nodes": sorted({r["node"] for r in rows})})

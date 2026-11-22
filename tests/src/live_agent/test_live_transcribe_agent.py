@@ -55,6 +55,8 @@ def test_echo_agents_stop_and_resume(tmp_path):
                                                                "idempotency_key": "live"}).json()["job_id"]
     put = lambda s: tc.post(f"/v1/client/jobs/{job}/segments", headers={**H("t-c1"), "X-Seq": str(s)}, content=wav(s))
     A, B = agent(tc, "node-a", "t-na", tmp_path), agent(tc, "node-b", "t-nb", tmp_path)
+    for n, t in (("node-a", "t-na"), ("node-b", "t-nb")):  # live jobs go only to transcriber nodes (6a1144f)
+        tc.post(f"/v1/nodes/{n}/heartbeat", headers=H(t), json={"backend": "echo"})
     la = tc.post("/v1/nodes/node-a/lease", headers=H("t-na")).json()
     res = {}
     ta = threading.Thread(target=lambda: res.__setitem__("a", A.run_live(la))); ta.start()

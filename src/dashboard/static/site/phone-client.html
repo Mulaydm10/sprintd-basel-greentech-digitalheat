@@ -89,7 +89,7 @@
       if (pair) { try { recips = (await P.api(`/v1/client/jobs/${job}/recipients`)).recipients || []; e2e = recips.length > 0; } catch (e) { e2e = false; } }
       $("e2e").innerHTML = e2e ? `<span style="color:var(--ok)">🔒 end-to-end encrypted · ${recips.length} recipient nodes · coordinator cannot read</span>`
                                : `<span style="color:var(--held)">encryption in transit only (E2E not deployed on the coordinator yet)</span>`;
-      if (e2e) recT = setInterval(async () => { try { const x = (await P.api(`/v1/client/jobs/${job}/recipients`)).recipients || []; if (x.length) recips = x; } catch (e) {} }, 10000); $("liveState").textContent = "streaming"; $("liveState").style.color = "var(--heat)";
+      if (e2e) recT = setInterval(async () => { try { const x = (await P.api(`/v1/client/jobs/${job}/recipients`)).recipients || []; if (x.length) recips = x; } catch (e) {} }, 4000); $("liveState").textContent = "streaming"; $("liveState").style.color = "var(--heat)";
       rec = await P.mic(async (seq, blob, lvl) => {
         $("lvl").style.width = Math.min(100, lvl * 400) + "%";
         for (let a = 0; a < 3; a++) {   // retry: the coordinator is idempotent per (job, seq)

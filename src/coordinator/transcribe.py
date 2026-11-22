@@ -166,15 +166,16 @@ def _seg_out(r) -> dict:
 
 
 def recipients(coord, client_id: str, job_id: str) -> dict | None:
-    """GET /v1/client/jobs/{id}/recipients (v2): the nodes a segment must be wrapped for = online, undrained,
-    untampered transcriber nodes eligible for the job's class that published an `e2e_pub`."""
+    """GET /v1/client/jobs/{id}/recipients (v2): the nodes a segment must be wrapped for = online, untampered
+    transcriber nodes eligible for the job's class that published an `e2e_pub`. Drained nodes are INCLUDED (standby):
+    a node undrained mid-job must be able to open segments sealed while it was drained (found in the chain rehearsal)."""
     now = coord.clock()
     with coord.store.lock:
         db = coord.store.db
         j = _owned_live(db, client_id, job_id)
         if j is None:
             return None
-        rows = db.execute("""SELECT node_id, e2e_pub, backend, eligible_classes FROM nodes WHERE tampered=0 AND drained=0
+        rows = db.execute("""SELECT node_id, e2e_pub, backend, eligible_classes FROM nodes WHERE tampered=0
                              AND last_hb >= ? AND e2e_pub IS NOT NULL ORDER BY node_id""",
                           (now - _core().SUSPECT_S,)).fetchall()
     return {"recipients": [{"node_id": r["node_id"], "e2e_pub": r["e2e_pub"], "backend": r["backend"]} for r in rows

@@ -192,6 +192,10 @@ def fetch(coord, node_id: str, lease_id: str, after: int) -> dict:
     """Pending segments with seq > after (sealed to the job key), the next seq to accept, and the context."""
     with coord._tx() as db:
         coord._expire(db, coord.clock())
+        lz0 = db.execute("SELECT * FROM leases WHERE lease_id=?", (lease_id,)).fetchone()
+        if lz0 is not None and lz0["node_id"] == node_id and lz0["state"] == "completed":  # the job finished on this node
+            j0 = db.execute("SELECT job_id FROM units WHERE unit_id=?", (lz0["unit_id"],)).fetchone()["job_id"]
+            return {"job_id": j0, "segments": [], "next_seq": _next_seq(db, j0), "ended": True, "done": True, "context": ""}
         lz, u = _held(db, node_id, lease_id)
         job = u["job_id"]
         rows = db.execute("""SELECT seq, path, sha256 FROM segments WHERE job_id=? AND state='pending' AND seq>?
@@ -203,7 +207,7 @@ def fetch(coord, node_id: str, lease_id: str, after: int) -> dict:
     ctx = " ".join(r["text"].strip() for r in reversed(acc) if r["text"])[-CONTEXT_CHARS:]
     segs = [{"seq": r["seq"], "sha256": r["sha256"],
              "envelope_b64": base64.b64encode((coord.dir / r["path"]).read_bytes()).decode()} for r in rows]
-    return {"job_id": job, "segments": segs, "next_seq": nxt, "ended": ended, "context": ctx}
+    return {"job_id": job, "segments": segs, "next_seq": nxt, "ended": ended, "done": False, "context": ctx}
 
 
 def accept(coord, node_id: str, lease_id: str, seq: int, text: str, words, backend: str, ms: float) -> dict:

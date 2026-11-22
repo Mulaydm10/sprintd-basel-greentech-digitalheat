@@ -67,3 +67,14 @@ def test_panel_is_wired_offline_and_uses_the_agreed_events():
         assert ev in js
     assert "http://" not in js and "https://" not in js  # no external fetches
     assert "ASSUMED" in js
+
+
+@pytest.mark.parametrize("page", ["phone-client.html", "phone-server.html"])
+def test_phone_pages_served_offline_token_in_session_only(client, page):
+    r = client.get("/" + page)
+    assert r.status_code == 200
+    js = (SITE / "phone.js").read_text()
+    assert "sessionStorage" in js and "localStorage" not in js
+    body = r.text
+    assert "https://unpkg" not in body and "googleapis" not in body
+    assert client.get("/phone.js").status_code == 200 and client.get("/phone-base.css").status_code == 200

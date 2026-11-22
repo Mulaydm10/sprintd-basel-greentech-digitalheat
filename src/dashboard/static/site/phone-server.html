@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>DigitalHeat · Server</title><link rel="stylesheet" href="./phone-base.css"><link rel="icon" href="/favicon.ico"></head>
+<body><main>
+  <header><span><span class="dot"></span>DigitalHeat</span><span class="mute">server side · phone</span></header>
+  <div><div class="kick">Basement servers · live</div><h1>Pull the plug. <em>Nothing is lost.</em></h1></div>
+
+  <section class="card" id="auth"></section>
+
+  <section class="card" id="fleet" hidden>
+    <h2><span>Fleet</span><span id="role" class="pill mute"></span></h2>
+    <div class="tiles" id="tiles"></div>
+  </section>
+
+  <section id="nodes" style="display:flex;flex-direction:column;gap:12px" hidden></section>
+
+  <section class="card" id="feed" hidden>
+    <h2><span>Live events</span><span class="mute" id="feedN">0</span></h2>
+    <div class="log" id="log"></div>
+  </section>
+  <p class="err" id="err"></p>
+</main>
+<nav class="ph"><a href="./phone-client.html">Client</a><a class="on" href="./phone-server.html">Server</a><a href="./">Site</a></nav>
+<script src="./phone.js"></script>
+<script>
+(function () {
+  const P = window.DHPhone, $ = (id) => document.getElementById(id);
+  let admin = false, n = 0;
+  const HIDE = new Set(["node-demo-tamper"]);   // demo-only node, never offered a STOP
+
+  P.signin($("auth"), "observer or admin", start);
+
+  async function start() {
+    ["fleet", "nodes", "feed"].forEach((id) => ($(id).hidden = false));
+    // admin? try a harmless admin-only GET-equivalent: tamper on an unknown node returns 404 for admin, 403 otherwise
+    try { await P.api("/v1/ops/nodes/zz-not-a-node/undrain", { method: "POST" }); admin = true; }
+    catch (e) { admin = e.status === 404; }
+    $("role").textContent = admin ? "admin · controls on" : "observer · read-only"; $("role").style.color = admin ? "var(--dump)" : "var(--mute)";
+    refresh(); setInterval(refresh, 1500);
+    P.events(onEvent);
+  }
+
+  function tile(k, v, c) { return `<div><div class="k">${k}</div><div class="v" style="color:${c || "var(--ink)"}">${v}</div></div>`; }
+
+  async function refresh() {
+    try {
+      const [o, ns] = await Promise.all([P.api("/v1/ops/overview"), P.api("/v1/ops/nodes")]);
+      $("tiles").innerHTML = tile("online", o.nodes.online, "var(--ok)") + tile("running jobs", o.jobs.running, "var(--heat)") +
+        tile("leases", o.leases_active) + tile("audit", o.audit.ok ? "✓ verified" : "✗", o.audit.ok ? "var(--ok)" : "var(--dump)");
+      const live = (ns.items || []).filter((x) => !HIDE.has(x.node_id) && x.state !== "offline");
+      $("nodes").innerHTML = live.map(card).join("") || `<div class="card mute">No node online.</div>`;
+      $("nodes").querySelectorAll("[data-act]").forEach((b) => (b.onclick = () => act(b.dataset.node, b.dataset.act, b)));
+      $("err").textContent = "";
+    } catch (e) { $("err").textContent = e.message; }
+  }
+
+  function card(x) {
+    const st = x.drained ? "stopped" : x.state, col = st === "online" ? "var(--ok)" : st === "stopped" ? "var(--dump)" : "var(--held)";
+    const busy = x.running_unit ? `running <b>${P.esc(x.running_unit)}</b>${x.progress != null ? " · " + Math.round(x.progress * 100) + "%" : ""}` : "idle, waiting for work";
+    const btn = !admin ? "" : x.drained
+      ? `<button data-act="resume" data-node="${P.esc(x.node_id)}">▶ Resume ${P.esc(x.node_id)}</button>`
+      : `<button class="stop" data-act="stop" data-node="${P.esc(x.node_id)}">■ STOP ${P.esc(x.node_id)}</button>`;
+    return `<div class="card node" style="border-color:${P.nodeColour(x.node_id)}">
+      <div class="row"><b class="mono" style="color:${P.nodeColour(x.node_id)}">● ${P.esc(x.node_id)}</b><span class="pill" style="color:${col}">${P.esc(st)}</span></div>
+      <div class="mono small">${busy}</div>
+      <div class="mono small mute">${x.watts != null ? Math.round(x.watts) + " W · " : ""}${P.esc((x.classes || []).join(", "))}${x.certified ? " · certified" : ""}${x.backend ? " · " + P.esc(x.backend) : ""}</div>
+      ${btn}</div>`;
+  }
+
+  async function act(node, what, b) {
+    b.disabled = true;
+    try {
+      if (what === "stop") {
+        if (!confirm(`STOP ${node}? Its job moves to another server.`)) { b.disabled = false; return; }
+        await P.api(`/v1/ops/nodes/${encodeURIComponent(node)}/drain`, { method: "POST" });
+        await P.api(`/v1/ops/nodes/${encodeURIComponent(node)}/kill`, { method: "POST" });
+        log(`■ STOP ${node}: drained + lease revoked; the coordinator re-assigns its work`, "var(--dump)");
+      } else {
+        await P.api(`/v1/ops/nodes/${encodeURIComponent(node)}/undrain`, { method: "POST" });
+        log(`▶ ${node} back in the pool`, "var(--ok)");
+      }
+    } catch (e) { $("err").textContent = what + ": " + e.message; }
+    refresh();
+  }
+
+  function log(t, c) {
+    $("log").insertAdjacentHTML("afterbegin", `<div style="color:${c || "var(--ink)"}">${new Date().toLocaleTimeString("de-CH")} · ${P.esc(t)}</div>`);
+    $("feedN").textContent = ++n;
+    while ($("log").children.length > 60) $("log").lastChild.remove();
+  }
+
+  const WORDS = {
+    "lease.granted": (e) => [`${e.node_id || e.data.node} took ${e.job_id || e.data.unit || "work"}`, "var(--heat)"],
+    "lease.lapsed": (e) => [`lease lapsed on ${e.node_id || e.data.node}`, "var(--dump)"],
+    "lease.released": (e) => [`lease released by ${e.node_id || e.data.node} (${e.data.reason || ""})`, "var(--held)"],
+    "unit.migrated": (e) => [`job moved ${e.data.from} → ${e.data.to} at chunk ${e.data.next_chunk}`, "var(--cold)"],
+    "job.moved": (e) => [`job moved ${e.data.from} → ${e.data.to} at segment ${e.data.at_seq}`, "var(--cold)"],
+    "transcript.segment": (e) => [`#${e.data.seq} by ${e.data.node}: “${String(e.data.text || "").slice(0, 60)}”`, "var(--ink)"],
+    "job.state": (e) => [`${e.job_id}: ${e.data.status || e.data.state || ""}`, "var(--mute)"],
+    "node.state": (e) => [`${e.node_id}: ${e.data.state || ""}`, "var(--mute)"],
+  };
+  function onEvent(e) { const f = WORDS[e.type]; if (f) { const [t, c] = f(e); log(t, c); } }
+})();
+</script>
+</body></html>

@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>DigitalHeat · Client</title><link rel="stylesheet" href="./phone-base.css"><link rel="icon" href="/favicon.ico"></head>
+<body><main>
+  <header><span><span class="dot"></span>DigitalHeat</span><span class="mute">client · phone</span></header>
+  <div><div class="kick">Client · compute customer</div><h1>Speak. <em>A basement listens.</em></h1></div>
+
+  <section class="card" id="auth"></section>
+
+  <section class="card" id="live" hidden>
+    <h2><span>Live transcription</span><span id="liveState" class="pill mute">idle</span></h2>
+    <div class="meter"><i id="lvl"></i></div>
+    <div class="row"><button class="primary" id="start">● Start</button><button id="end" disabled>■ End</button></div>
+    <div class="transcript" id="tx"><span class="mute">Press Start and speak. Every 4 s of audio becomes one numbered segment; the coordinator gives it to a basement server and the text appears here.</span></div>
+    <div class="row mono small mute"><span id="segInfo">0 sent · 0 transcribed</span><span id="nodeNow"></span></div>
+    <p class="err" id="liveErr"></p>
+  </section>
+
+  <section class="card" id="batch" hidden>
+    <h2><span>Batch job</span><span id="bState" class="pill mute">–</span></h2>
+    <div class="row"><select id="bType"></select><select id="bClass"><option>public</option><option>swiss-only</option><option>certified</option></select></div>
+    <button id="bGo">Submit small job</button>
+    <div class="meter"><i id="bProg"></i></div>
+    <div class="mono small mute" id="bInfo"></div>
+  </section>
+</main>
+<nav class="ph"><a class="on" href="./phone-client.html">Client</a><a href="./phone-server.html">Server</a><a href="./">Site</a></nav>
+<script src="./phone.js"></script>
+<script>
+(function () {
+  const P = window.DHPhone, $ = (id) => document.getElementById(id);
+  let job = null, rec = null, sent = 0, shown = new Set(), lastNode = null, poll = null;
+
+  P.signin($("auth"), "client", () => { $("live").hidden = false; $("batch").hidden = false; catalogue(); });
+
+  async function catalogue() {
+    try { const c = await P.api("/v1/client/catalogue"); $("bType").innerHTML = c.filter((x) => x.type !== "live_transcription").map((x) => `<option value="${P.esc(x.type)}">${P.esc(x.label)}</option>`).join(""); }
+    catch (e) { $("bInfo").textContent = "catalogue: " + e.message; }
+  }
+
+  function render(segs) {
+    const tx = $("tx");
+    if (!shown.size) tx.innerHTML = "";
+    for (const s of segs.sort((a, b) => a.seq - b.seq)) {
+      if (shown.has(s.seq)) continue;
+      shown.add(s.seq);
+      const node = s.node || "?";
+      if (lastNode !== null && node !== lastNode) tx.insertAdjacentHTML("beforeend", `<div class="moved">moved to ${P.esc(node)} · no segment lost</div>`);
+      lastNode = node;
+      tx.insertAdjacentHTML("beforeend", `<div class="seg" style="border-color:${P.nodeColour(node)}" title="#${s.seq} · ${P.esc(node)} · ${P.esc(s.backend || "")}">${P.esc(s.text || "…")}</div>`);
+      $("nodeNow").innerHTML = `<span style="color:${P.nodeColour(node)}">● ${P.esc(node)}</span> · ${P.esc(s.backend || "")}`;
+    }
+    tx.scrollTop = tx.scrollHeight;
+    $("segInfo").textContent = `${sent} sent · ${shown.size} transcribed`;
+  }
+
+  async function pullTranscript() {
+    if (!job) return;
+    try { const t = await P.api(`/v1/client/jobs/${job}/transcript`); render(t.segments || []); } catch (e) { /* keep going */ }
+  }
+
+  $("start").onclick = async () => {
+    $("liveErr").textContent = ""; shown = new Set(); lastNode = null; sent = 0;
+    try {
+      const r = await P.api("/v1/client/jobs", { method: "POST", json: { type: "live_transcription", access_class: "public", idempotency_key: "live-" + Date.now() } });
+      job = r.job_id; $("liveState").textContent = "streaming"; $("liveState").style.color = "var(--heat)";
+      rec = await P.mic(async (seq, blob, lvl) => {
+        $("lvl").style.width = Math.min(100, lvl * 400) + "%";
+        for (let a = 0; a < 3; a++) {   // retry: the coordinator is idempotent per (job, seq)
+          try { await P.api(`/v1/client/jobs/${job}/segments`, { method: "POST", body: blob, headers: { "Content-Type": "audio/wav", "X-Seq": String(seq) } }); sent++; break; }
+          catch (e) { $("liveErr").textContent = "segment " + seq + ": " + e.message; await new Promise((r) => setTimeout(r, 400)); }
+        }
+        $("segInfo").textContent = `${sent} sent · ${shown.size} transcribed`;
+      });
+      poll = setInterval(pullTranscript, 1000);
+      $("start").disabled = true; $("end").disabled = false;
+    } catch (e) { $("liveErr").textContent = e.message + (e.status === 422 ? " (live transcription not deployed yet?)" : ""); }
+  };
+  $("end").onclick = async () => {
+    if (rec) rec.stop(); rec = null; $("end").disabled = true; $("start").disabled = false; $("liveState").textContent = "ending";
+    try { await P.api(`/v1/client/jobs/${job}/end`, { method: "POST" }); } catch (e) {}
+    setTimeout(() => { clearInterval(poll); pullTranscript(); $("liveState").textContent = "done"; $("liveState").style.color = "var(--ok)"; }, 8000);
+  };
+
+  $("bGo").onclick = async () => {
+    try {
+      const r = await P.api("/v1/client/jobs", { method: "POST", json: { type: $("bType").value, access_class: $("bClass").value, deadline_h: 24, rounds: 20000, chunks: 20, idempotency_key: "ph-" + Date.now() } });
+      $("bState").textContent = r.status; const id = r.job_id;
+      const t = setInterval(async () => {
+        try { const j = await P.api(`/v1/client/jobs/${id}`); const u = (j.units || [])[0] || {};
+          $("bProg").style.width = Math.round((j.progress || 0) * 100) + "%"; $("bState").textContent = j.status;
+          $("bInfo").textContent = `${id} · ${u.node_id || "waiting"} · ${u.done_chunks ?? 0}/${u.total_chunks ?? "?"} chunks`;
+          if (["done", "failed", "cancelled"].includes(j.status)) clearInterval(t); } catch (e) { clearInterval(t); }
+      }, 1500);
+    } catch (e) { $("bInfo").textContent = e.message; $("bState").textContent = "rejected"; }
+  };
+})();
+</script>
+</body></html>

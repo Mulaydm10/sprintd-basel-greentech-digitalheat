@@ -187,6 +187,18 @@ LAYERS_ROW = LAYERS_ANCHOR + f"""
       <span style="{_K};color:#ff9a5a">🔒 End to end encrypted</span>
       <span style="line-height:1.45">Customer data is encrypted on the customer's device. Only the machine holding the job can open its piece; the coordinator stores locked boxes it cannot read. Every result is signed by the machine that made it and hash-linked to the one before, so nothing can be dropped, edited or reordered unnoticed.</span>
     </div>
+    <div style="border:1px solid #dcd6cc;border-radius:20px;background:#f8f6f1;padding:18px 22px;display:flex;flex-direction:column;gap:10px">
+      <span style="{_K};color:#a86400">Built from scheduling techniques the big platforms run in production</span>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:8px 18px;font-size:14px;line-height:1.4;color:#33302b">
+        <span><b>Merit-order dispatch</b> · how electricity markets run power plants</span>
+        <span><b>Leases + heartbeats</b> · cluster schedulers (HTCondor, Google-style lock services)</span>
+        <span><b>Preemption + checkpoint/restart</b> · Borg / Kubernetes-style job eviction and resume</span>
+        <span><b>Admission control</b> · accept only work that can meet its deadline (earliest-deadline-first)</span>
+        <span><b>Work-fetch backpressure</b> · BOINC volunteer computing</span>
+        <span><b>Exactly-once, content-addressed results</b> · stream processing (Kafka / Spark-style)</span>
+      </div>
+      <span style="font-family:'Geist Mono',monospace;font-size:12px;color:#6e6a63">These deterministic algorithms are the tools the AI planner calls; each one is implemented and tested in our code today.</span>
+    </div>
     <div style="font-family:'Geist Mono',monospace;font-size:12px;color:#6e6a63">Plan (operator-approved) → hourly decisions → second-by-second safety. Anything that changes the year plan needs a human approval. End-to-end encryption shown live on the transcription demo; batch checkpoints are sealed with AES-GCM.</div>
   </section>
 """

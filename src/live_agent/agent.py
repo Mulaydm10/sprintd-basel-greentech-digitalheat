@@ -20,6 +20,7 @@ Ids from the coordinator are checked against ``[a-z0-9-]{1,64}`` before they nam
 """
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -40,6 +41,8 @@ from common.config import ROOT
 from jobs.catalogue import load_catalogue
 from trust import attest, open_, seal
 
+import trust
+
 from . import wire
 from .power import PowerMeter
 
@@ -48,6 +51,7 @@ ID_RE = re.compile(r"^[a-z0-9-]{1,64}$")
 MEASUREMENT = "digitalheat-node-image-v1"  # what the (mock) broker expects; the attestation is labelled mock
 REGION = "CH-BS"
 BACKOFF_CAP_S = 10.0
+TRANSCRIBERS = ("echo", "whisper-local", "elevenlabs")  # #127 live transcription backends (live_agent/transcriber.py)
 BACKENDS = ("cpu-hash", "fake")  # what jobs.runner implements today; mlx / faster-whisper need runner backends
 
 
@@ -76,10 +80,15 @@ class Config:
     poll_s: float = 0.05
     default_rounds: int = 50  # v2.1: used only when the unit carries no `rounds` (CLI --rounds)
     default_chunks: int = 20  # v2.1: used only when the unit carries no `chunks` (CLI --chunks)
+    transcriber: str | None = None  # #127: echo | whisper-local | elevenlabs (live transcription leases)
+    whisper_model: str = "small.en"
+    key_file: Path | None = None  # elevenlabs key (or ELEVENLABS_API_KEY); never logged
 
     def __post_init__(self) -> None:
         if not ID_RE.match(self.node_id) or not ID_RE.match(self.site_id):
             raise ValueError(f"node_id/site_id must match {ID_RE.pattern}")
+        if self.backend in TRANSCRIBERS:  # `--backend whisper-local` (contract #127): the transcriber; batch units keep cpu-hash
+            self.transcriber, self.backend = self.backend, "cpu-hash"
         if self.backend not in BACKENDS:
             raise ValueError(f"backend {self.backend!r} is not available in jobs.runner yet; use one of {BACKENDS}")
 
@@ -106,6 +115,7 @@ class Agent:
         self._clean_stale_units()
         self.job_types = {j.name for j in load_catalogue()}
         self.state: dict[str, Any] = {"running_unit": None, "progress": 0.0, "last_error": None}
+        self._transcriber = None  # #127: built lazily on the first live lease (Whisper loads a model)
         self._failures = 0
         self._hb_stop = threading.Event()
         self._hb_thread: threading.Thread | None = None
@@ -161,6 +171,8 @@ class Agent:
         watts, source = self.power.read()
         body = {"watts": watts, "watts_source": source, "running_unit": self.state["running_unit"],
                 "progress": round(float(self.state["progress"]), 4)}
+        if self.cfg.transcriber:
+            body["backend"] = self.cfg.transcriber  # #127: shown per node on the pages and the trace card
         if self.state["last_error"]:
             body["last_error"] = self.state["last_error"]
         try:
@@ -226,9 +238,77 @@ class Agent:
             raise ValueError(f"unit dir {d} escapes {self.workdir}")
         return d
 
+    def run_live(self, lease: dict[str, Any]) -> str:
+        """#127: hold a live transcription lease: long-poll segments, decrypt with the released job key, transcribe
+        in seq order, post each result once; renew; stop at once on 410 (STOP moved the job). -> done | lapsed | denied."""
+        kr = lease.get("key_release") or {}
+        if "key_b64" not in kr:
+            self.state["last_error"] = "key denied for live transcription"
+            return "denied"
+        if not self.cfg.transcriber:
+            self.state["last_error"] = "live transcription lease but no transcriber configured (--backend echo|whisper-local|elevenlabs)"
+            return "rejected"
+        if self._transcriber is None:
+            from .transcriber import make
+            self._transcriber = make(self.cfg.transcriber, self.cfg.whisper_model, self.cfg.key_file)
+        key, lease_id, unit_id = wire.key_from_json(kr), str(lease["lease_id"]), str(lease["unit"]["unit_id"])
+        self.state.update(running_unit=unit_id, progress=0.0, last_error=None)
+        after, last_renew = -1, self.clock()
+        renew_s = min(self.cfg.renew_s, float(lease.get("renew_every_s", self.cfg.renew_s)))
+        try:
+            while True:
+                if self.clock() - last_renew >= renew_s:
+                    r = self._post(f"/v1/leases/{lease_id}/renew")
+                    if r.status_code == 410:  # moved by STOP, or the job just finished here: the fetch tells which
+                        f = self.http.get(f"/v1/leases/{lease_id}/segments", params={"after": after, "wait": 0})
+                        return "done" if f.status_code == 200 and f.json().get("done") else "lapsed"
+                    last_renew = self.clock()
+                try:
+                    r = self.http.get(f"/v1/leases/{lease_id}/segments", params={"after": after, "wait": min(2.0, renew_s)},
+                                      timeout=httpx.Timeout(15.0, connect=5.0))
+                except httpx.TransportError:
+                    self.backoff()
+                    continue
+                if r.status_code == 410:
+                    return "lapsed"
+                if r.status_code != 200:
+                    self.backoff()
+                    continue
+                self._ok()
+                d = r.json()
+                if d.get("done"):
+                    return "done"
+                after = max(after, int(d["next_seq"]) - 1)
+                for s in d["segments"]:
+                    if int(s["seq"]) != after + 1:
+                        break  # strictly in order: refetch from the first un-accepted seq
+                    wav = trust.open_(wire.envelope_from_bytes(base64.b64decode(s["envelope_b64"])), key)
+                    t0 = self.clock()
+                    out = self._transcriber.transcribe(wav, d.get("context", ""), int(s["seq"]))
+                    body = {"text": out["text"], "backend": self.cfg.transcriber, "ms": round((self.clock() - t0) * 1000, 1)}
+                    if out.get("words"):
+                        body["words"] = [{"w": str(w["w"]), "t0": float(w["t0"]), "t1": float(w["t1"])} for w in out["words"][:400]]
+                    rr = self._post(f"/v1/leases/{lease_id}/segments/{s['seq']}/result", json=body)
+                    if rr.status_code == 410:
+                        return "lapsed"
+                    if rr.status_code not in (200, 201):
+                        break
+                    after = int(s["seq"])
+                    self.state["progress"] = 0.0
+                    last_renew = self.clock()  # an accepted result extends the lease on the coordinator
+                if d["ended"] and not d["segments"] and int(d["next_seq"]) == after + 1:
+                    return "done"
+        except Retry:
+            self.backoff()
+            return "lapsed"
+        finally:
+            self.state.update(running_unit=None, progress=0.0)
+
     def run_unit(self, lease: dict[str, Any]) -> str:
         u, lease_id = lease["unit"], str(lease["lease_id"])
         unit_id, job_type = str(u["unit_id"]), str(u["job_type"])
+        if job_type == "live_transcription" and ID_RE.match(lease_id) and ID_RE.match(unit_id):
+            return self.run_live(lease)
         if not ID_RE.match(lease_id) or job_type not in self.job_types:
             self.state["last_error"] = f"rejected lease {lease_id!r}: bad id or unknown job_type {job_type!r}"
             return "rejected"

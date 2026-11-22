@@ -14,7 +14,7 @@ from pathlib import Path
 
 import httpx
 
-from .agent import BACKENDS, Agent, Config, Fatal
+from .agent import BACKENDS, TRANSCRIBERS, Agent, Config, Fatal
 
 
 def read_token(path: Path) -> str:
@@ -35,7 +35,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--node-id", required=True)
     p.add_argument("--token-file", required=True, type=Path)
     p.add_argument("--site-id", default=None, help="default: the node id")
-    p.add_argument("--backend", default="cpu-hash", choices=BACKENDS)
+    p.add_argument("--backend", default="cpu-hash", choices=BACKENDS + TRANSCRIBERS,
+                   help="compute backend for batch units, or a live-transcription backend (#127)")
+    p.add_argument("--model", default="small.en", help="whisper-local model (cached locally)")
+    p.add_argument("--key-file", type=Path, default=None, help="elevenlabs API key file (or ELEVENLABS_API_KEY)")
     p.add_argument("--eligible", default="public", help="comma-separated access classes this node may run")
     p.add_argument("--certified", action="store_true", help="evidence flag for the (mock) attestation")
     p.add_argument("--server-kw-el", type=float, default=1.0)
@@ -47,7 +50,8 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.DEBUG if a.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     cfg = Config(node_id=a.node_id, site_id=a.site_id or a.node_id, eligible_classes=a.eligible.split(","),
-                 server_kw_el=a.server_kw_el, certified=a.certified, backend=a.backend,
+                 server_kw_el=a.server_kw_el, certified=a.certified, backend=a.backend, whisper_model=a.model,
+                 key_file=a.key_file,
                  **({"default_rounds": a.rounds} if a.rounds else {}),
                  **({"default_chunks": a.chunks} if a.chunks else {}))
     tok = read_token(a.token_file)

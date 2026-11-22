@@ -10,6 +10,7 @@ before parsing.
 """
 from __future__ import annotations
 
+import asyncio
 import importlib
 import logging
 import os
@@ -18,7 +19,7 @@ import time
 from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Path as PathParam, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Path as PathParam, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
@@ -66,6 +67,14 @@ class HeartbeatIn(Strict):
     tank_level_kwh: Annotated[float, Field(ge=0, le=1e4, allow_inf_nan=False)] | None = None
     demand_kw: Annotated[float, Field(ge=0, le=1e4, allow_inf_nan=False)] | None = None
     last_error: Annotated[str, Field(max_length=500)] | None = None
+    backend: Annotated[str, Field(pattern=r"^[a-z0-9_-]{1,32}$")] | None = None  # #127 transcriber backend
+
+
+class SegmentResultIn(Strict):  # #127
+    text: Annotated[str, Field(max_length=4000)]
+    words: Annotated[list[dict[str, str | float]], Field(max_length=400)] | None = None
+    backend: Annotated[str, Field(pattern=r"^[a-z0-9_-]{1,32}$")]
+    ms: Annotated[float, Field(ge=0, le=600_000, allow_inf_nan=False)] = 0.0
 
 
 class CompleteIn(Strict):
@@ -218,6 +227,25 @@ def create_app(state_dir: Path, tokens: dict[str, str] | None = None, clock=time
         if p.role not in ("observer", "admin"):
             raise HTTPException(403, "observer or admin token required")
         return coord.status()
+
+    # ---- #127 live transcription, node side (the client side is in portal/client.py)
+    from . import transcribe as ts
+
+    @app.get("/v1/leases/{lease_id}/segments")
+    async def segments(lease_id: PathId, after: Annotated[int, Query(ge=-1, le=10_000_000)] = -1,
+                       wait: Annotated[float, Query(ge=0, le=10)] = 10.0, p: Principal = Depends(principal)):
+        node = node_token(p)
+        loop_end = time.monotonic() + wait
+        while True:  # long-poll: return as soon as segments or the end arrive, at most `wait` s
+            d = await asyncio.to_thread(ts.fetch, coord, node, lease_id, after)
+            if d["segments"] or d["ended"] or time.monotonic() >= loop_end:
+                return d
+            await asyncio.sleep(0.25)
+
+    @app.post("/v1/leases/{lease_id}/segments/{seq}/result")
+    def segment_result(lease_id: PathId, seq: Annotated[int, PathParam(ge=0, le=10_000_000)], body: SegmentResultIn,
+                       p: Principal = Depends(principal)):
+        return ts.accept(coord, node_token(p), lease_id, seq, body.text, body.words, body.backend, body.ms)
 
     mount_portal(app, principal, coord)
     return app

@@ -12,10 +12,11 @@ Mounted by the coordinator (P1) the same way as P3's routers::
 """
 from __future__ import annotations
 
+import asyncio
 import importlib
 from typing import Annotated, Any, Callable, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -44,7 +45,7 @@ class Open(BaseModel):
 class SubmitIn(Strict):
     type: Annotated[str, Field(pattern=JOB_TYPE)]
     access_class: Classes
-    deadline_h: Annotated[float, Field(ge=0.25, le=720, allow_inf_nan=False)]
+    deadline_h: Annotated[float, Field(ge=0.25, le=720, allow_inf_nan=False)] | None = None  # required except live (#127)
     idempotency_key: Annotated[str, Field(pattern=ID)]
     rounds: Annotated[int, Field(ge=1, le=MAX_ROUNDS)] | None = None
     chunks: Annotated[int, Field(ge=1, le=MAX_CHUNKS)] | None = None
@@ -151,6 +152,14 @@ def make_router(principal: Callable[..., Any], coord: Callable[[], Any], store: 
             responses={200: {"model": Admitted, "description": "idempotent replay: the job this key already made"},
                        422: {"model": Rejected, "description": "rejected at admission (or invalid input)"}})
     def submit(body: SubmitIn, response: Response, cid: str = Depends(client_id)):
+        if body.type == "live_transcription":  # #127: unbounded live job, leased at once
+            from coordinator import transcribe as ts
+            res = ts.create_job(coord(), cid, body.idempotency_key, body.access_class)
+            if res.get("created") is False:
+                response.status_code = 200
+            return res
+        if body.deadline_h is None:
+            return JSONResponse({"status": "rejected", "reason": "deadline_h is required"}, status_code=422)
         try:
             res = ps().submit_client_job(coord(), cid, type=body.type, access_class=body.access_class,
                                          deadline_h=body.deadline_h, idempotency_key=body.idempotency_key,
@@ -183,6 +192,27 @@ def make_router(principal: Callable[..., Any], coord: Callable[[], Any], store: 
         data, sha = found(ps().get_result(coord(), cid, job_id))
         return Response(content=data, media_type="application/octet-stream",
                         headers={"X-Result-SHA256": sha, "Cache-Control": "no-store"})
+
+    # ---- #127 live transcription (contracts/src/live_transcribe.md): segments in, transcript out
+    @r.post("/jobs/{job_id}/segments", status_code=201)
+    async def segment(job_id: PathId, request: Request, response: Response,
+                      x_seq: Annotated[int, Header(ge=0, le=10_000_000)], cid: str = Depends(client_id)):
+        from coordinator import transcribe as ts
+        body = await request.body()
+        res = found(await asyncio.to_thread(ts.add_segment, coord(), cid, job_id, x_seq, body))
+        if res.get("duplicate"):
+            response.status_code = 200
+        return res
+
+    @r.post("/jobs/{job_id}/end")
+    def end(job_id: PathId, cid: str = Depends(client_id)):
+        from coordinator import transcribe as ts
+        return found(ts.end_job(coord(), cid, job_id))
+
+    @r.get("/jobs/{job_id}/transcript")
+    def transcript(job_id: PathId, cid: str = Depends(client_id)):
+        from coordinator import transcribe as ts
+        return found(ts.transcript(coord(), cid, job_id))
 
     @r.get("/jobs/{job_id}/receipt", response_model=Receipt, responses={409: {"description": "not done yet"}})
     def receipt(job_id: PathId, cid: str = Depends(client_id)):

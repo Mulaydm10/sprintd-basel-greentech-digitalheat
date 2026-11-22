@@ -87,3 +87,10 @@ def test_traced_jobs_are_capped():  # 11 M units/year at 100 houses: jobs.json m
     rate_units = sum(r["fleet"]["arrivals"])
     assert len(r["tracked"]) <= fv.MAX_TRACKED and r["track_every"] >= fv.TRACK_EVERY
     assert r["track_every"] * fv.MAX_TRACKED >= rate_units * 0.99  # sized for the simulated horizon
+
+
+def test_multi_unit_jobs_can_span_houses():  # #125: arcs between houses sharing a job need real multi-house jobs
+    r = fv.run_fleet(fv.place_houses(30, 0), "merit", True, 72, 0, units_per_job=8)
+    spans = [len({run[1] for u in j["units"] for run in u["runs"]}) for j in r["tracked"]]
+    assert all(len(j["units"]) <= 8 for j in r["tracked"]) and max(spans) > 1
+    assert all(j["state"] in ("done", "missed", "pending at year end") for j in r["tracked"])

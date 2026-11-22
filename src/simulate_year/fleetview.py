@@ -49,7 +49,8 @@ MAX_SERVERS = 8
 CERTIFIED_EVERY_SITE = 10  # every 10th house is a certified site
 CERTIFIED_EVERY_UNIT = 10  # every 10th paid unit needs a certified site
 TRACK_EVERY = 25  # jobs.json traces every 25th paid unit fully ...
-MAX_TRACKED = 5000  # ... but never more than ~5k jobs in total (browser budget: 11 M units/year at 100 houses)
+MAX_TRACKED = 5000
+UNITS_PER_JOB = 8  # ASSUMED (#125): a city job is 2 h of work = 8 units, so its units can land on different houses  # ... but never more than ~5k jobs in total (browser budget: 11 M units/year at 100 houses)
 
 
 def _ring_centroid(b: list[int], q: float) -> tuple[float, float]:
@@ -103,7 +104,7 @@ def place_houses(k: int, seed: int, servers: int | None = None) -> list[dict]:
 
 def run_fleet(houses: list[dict], policy: str, ballast: bool, hours: int | None = None, seed: int = 0,
               load: float = REF_LOAD, slack_h: float = REF_SLACK, cert_every_unit: int = CERTIFIED_EVERY_UNIT,
-              track_every: int | None = None) -> dict:
+              track_every: int | None = None, units_per_job: int = 1) -> dict:
     """One policy over the whole fleet. Returns per-site arrays, fleet arrays, tracked jobs and totals."""
     a = load_assumptions()
     validate_assumptions(a)
@@ -132,6 +133,9 @@ def run_fleet(houses: list[dict], policy: str, ballast: bool, hours: int | None 
     rate = sum(nserv) * (1.0 / unit_h) * load
     if track_every is None:  # adaptive: cap the traced sample for the whole run
         track_every = max(TRACK_EVERY, math.ceil(rate * (hours or len(prof)) / MAX_TRACKED))
+    upj = max(1, int(units_per_job))
+    tjobs = max(1, math.ceil(track_every / upj))  # trace every tjobs-th JOB with all its units (same unit budget)
+    tunit: dict[str, dict] = {}
     acc = float(np.random.default_rng(seed).uniform(0.0, 1.0)) if rate > 0 else 0.0
     lvl, mode = np.zeros(K), [True] * K
     queue: list[Unit] = []
@@ -162,12 +166,16 @@ def run_fleet(houses: list[dict], policy: str, ballast: bool, hours: int | None 
             acc += rate
             arrived = 0
             while acc >= 1.0 - 1e-12:
-                cls = "certified" if cert_every_unit and k % cert_every_unit == cert_every_unit - 1 else access
-                u = Unit(f"u{k}", f"j{k}", job_class, cls, unit_kwh, bid, h + int(math.ceil(slack_h)) + 1, slack_h, True)
-                if track_every and k % track_every == 0:
-                    tracked[u.unit_id] = {"job": u.job_id, "type": job_class, "class": cls, "bid": bid, "arrival_h": h,
-                                          "deadline_h": u.deadline_hour, "slack_h": slack_h, "state": "queued",
-                                          "units": [{"unit": u.unit_id, "runs": []}]}
+                ji = k // upj  # job index: upj consecutive units form one job (same class, deadline, arrival)
+                cls = "certified" if cert_every_unit and ji % cert_every_unit == cert_every_unit - 1 else access
+                u = Unit(f"u{k}", f"j{ji}", job_class, cls, unit_kwh, bid, h + int(math.ceil(slack_h)) + 1, slack_h, True)
+                if track_every and ji % tjobs == 0:
+                    if u.job_id not in tracked:
+                        tracked[u.job_id] = {"job": u.job_id, "type": job_class, "class": cls, "bid": bid, "arrival_h": h,
+                                             "deadline_h": u.deadline_hour, "slack_h": slack_h, "state": "queued", "units": []}
+                    ue = {"unit": u.unit_id, "runs": [], "state": "queued"}
+                    tracked[u.job_id]["units"].append(ue)
+                    tunit[u.unit_id] = ue
                 queue.append(u)
                 offer.append(u)
                 k += 1
@@ -182,9 +190,9 @@ def run_fleet(houses: list[dict], policy: str, ballast: bool, hours: int | None 
                     done[x.unit_id] = x.site_id
             n_ball = sum(1 for u in done if u in filler)
             for u, s in done.items():
-                if u in tracked:
-                    tracked[u]["units"][0]["runs"].append([h, idx[s]])
-                    tracked[u]["state"] = "done"
+                if u in tunit:
+                    tunit[u]["runs"].append([h, idx[s]])
+                    tunit[u]["state"] = "done"
             hour_used = hour_dump = hour_back = 0.0
             for i in range(K):
                 s = sid[i]
@@ -219,8 +227,8 @@ def run_fleet(houses: list[dict], policy: str, ballast: bool, hours: int | None 
             late = [u for u in queue if u.deadline_hour <= h]
             if late:
                 for u in late:
-                    if u.unit_id in tracked:
-                        tracked[u.unit_id]["state"] = "missed"
+                    if u.unit_id in tunit:
+                        tunit[u.unit_id]["state"] = "missed"
                 queue = [u for u in queue if u.deadline_hour > h]
             paid = len(done) - n_ball
             tot["used"] += hour_used
@@ -251,16 +259,16 @@ def run_fleet(houses: list[dict], policy: str, ballast: bool, hours: int | None 
               "units_arrived": k, "units_done": tot["done"], "units_rejected": 0, "units_missed": tot["missed"],
               "missed_pct": round(100 * tot["missed"] / k, 4) if k else 0.0,
               "net_chf_excl_hardware": round(heat_value + income + b_inc - elec, 3)}
-    for t in tracked.values():
-        if t["state"] == "queued":
-            t["state"] = "pending at year end"
+    for t in tracked.values():  # a job is done when all its units are; missed if any unit missed its deadline
+        st = [x["state"] for x in t["units"]]
+        t["state"] = "missed" if "missed" in st else "done" if all(x == "done" for x in st) else "pending at year end"
     return {"F": F, "fleet": fleet, "tracked": list(tracked.values()), "totals": totals, "H": H, "cap": cap,
             "track_every": track_every}
 
 
 def _run(args):
     houses, policy, ballast, hours, seed = args
-    return run_fleet(houses, policy, ballast, hours, seed)
+    return run_fleet(houses, policy, ballast, hours, seed, units_per_job=UNITS_PER_JOB)
 
 
 def _commit() -> str | None:
@@ -313,7 +321,8 @@ def build(out: Path, k: int = DEFAULT_HOUSES, seed: int = 0, servers: int | None
                                    f"{CERTIFIED_EVERY_UNIT}th paid unit needs one",
                  "job_stream": f"ASSUMED: one city-wide paid stream = paid load {REF_LOAD} x the fleet's server capacity, "
                                f"slack {REF_SLACK:g} h, bid = {ballast_type(a).price_chf_per_h} CHF/server-h; heat-backed "
-                               f"filler on (merit) as in the reference run",
+                               f"filler on (merit) as in the reference run; each job = {UNITS_PER_JOB} units of "
+                               f"15 min (2 h of work) that the scheduler may place on different houses",
                  "real": "REAL: Basel 2025 hourly weather, the reference-house heat model, scheduler.decide() over all sites "
                          "every hour"},
              "start": "2025-01-01T00:00:00+01:00", "tz": "Europe/Zurich", "step_h": 1, "hours": ours["H"],

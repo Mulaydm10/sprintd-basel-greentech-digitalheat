@@ -407,9 +407,9 @@ export async function create(host, opts = {}) {
     FL.jobs.forEach((j, ji) => { for (const u of j.units) { TR.unit.set(u.unit, { j, u, ji }); let prev = null;
       for (const [h, house] of u.runs) { if (!TR.byHour.has(h)) TR.byHour.set(h, []); TR.byHour.get(h).push({ j, u, ji, house, prev });
         if (prev !== null && prev !== house) TR.moves.set(h, (TR.moves.get(h) || 0) + 1); prev = house; } } });
-    TR.fan = new Map();  // hour -> the arrival batch spread over the most houses (the merit order fanning work out)
+    TR.fan = new Map();  // hour -> the most houses one job ran on in that hour (its units placed by decide())
     for (const [h, list] of TR.byHour) { const by = new Map();
-      for (const e of list) { const k = e.j.arrival_h; if (!by.has(k)) by.set(k, new Set()); by.get(k).add(e.house); }
+      for (const e of list) { const k = e.j.job; if (!by.has(k)) by.set(k, new Set()); by.get(k).add(e.house); }
       let best = 0; for (const v of by.values()) best = Math.max(best, v.size); TR.fan.set(h, best); }
   }
   function why(house, h) { const st = fv("state", house, h);
@@ -469,7 +469,7 @@ export async function create(host, opts = {}) {
     let hold = -1; for (let h = 2160; h < FL.H && hold < 0; h++) { let c = 0; for (let i = 0; i < FL.K; i++) if (fv("state", i, h) === 3) c++; if (c >= FL.K * 0.5) hold = h; }
     let dumpH = 0, dv = -1; for (let h = 0; h < FL.H; h++) { const v = FL.fleet.dumped_kwh[h]; if (v > dv) { dv = v; dumpH = h; } }
     return [{ h: cold, label: `coldest hour · ${temps[cold].toFixed(1)} °C`, src: "yearview weather" },
-      ...(rv > 0 ? [{ h: reroute, label: TR.moves.size ? `biggest re-route · ${rv} traced jobs moved` : `widest fan-out · one batch on ${rv} houses`, src: src("jobs.json", reroute) }] : []),
+      ...(rv > 0 ? [{ h: reroute, label: TR.moves.size ? `biggest re-route · ${rv} traced jobs moved` : `widest job · one job on ${rv} houses in 1 h`, src: src("jobs.json", reroute) }] : []),
       ...(hold >= 0 ? [{ h: hold, label: "first summer hold · half the fleet idle", src: src("houses.u16", hold) }] : []),
       { h: dumpH, label: `most heat dumped · ${dv.toFixed(0)} kWh in 1 h`, src: src("fleet.json", dumpH) }];
   }
@@ -479,7 +479,7 @@ export async function create(host, opts = {}) {
     if (h !== TR.lastH) { TR.lastH = h;  // rebuild the hour's arcs (max 30, one colour per job)
       while (TR.arcs.children.length) { const o = TR.arcs.children.pop(); o.geometry.dispose(); o.material.dispose(); }
       const list = TR.byHour.get(h) || [], moves = list.filter((e) => e.prev !== null && e.prev !== e.house);
-      const by = new Map(); for (const e of list) { const k = e.j.arrival_h; if (!by.has(k)) by.set(k, []); by.get(k).push(e); }
+      const by = new Map(); for (const e of list) { const k = e.j.job; if (!by.has(k)) by.set(k, []); by.get(k).push(e); }  // houses sharing a job this hour
       const links = [];
       for (const [, arr] of [...by].sort((a, b) => b[1].length - a[1].length)) {  // busiest batches first
         const seen = []; for (const e of arr) if (!seen.some((x) => x.house === e.house)) seen.push(e);

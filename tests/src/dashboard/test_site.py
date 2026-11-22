@@ -55,6 +55,8 @@ def test_only_the_listed_wiring_differs():
             for old, newer in reversed(site_build.NAV_LAYOUT):
                 undo = undo.replace(newer, old)
             undo = undo.replace(site_build.NAV_NEW, site_build.NAV_OLD).replace(site_build.NAV_MAX_NEW, site_build.NAV_MAX_OLD)
+        if name == site_build.SCHED_PAGE:
+            undo = undo.replace(site_build.LAYERS_ROW.replace("DigitalHeat", "Hearthbeat"), site_build.LAYERS_ANCHOR)
         if name == site_build.LIVE_PAGE:
             for old, newer in ((site_build.FLEET_SCRIPT_OLD, site_build.FLEET_SCRIPT_NEW),   # undo in reverse build order
                                (site_build.FLEET_ANCHOR, site_build.FLEET_ROW),

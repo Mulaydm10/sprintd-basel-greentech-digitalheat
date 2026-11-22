@@ -100,6 +100,7 @@ class JoinIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     code: str = Field(min_length=1, max_length=64)
     name: str | None = Field(default=None, max_length=24)
+    role: str | None = Field(default=None, pattern=r"^(client|server)$")   # role QR codes (judges); default: 3 servers : 1 client
 
 
 class DevIn(BaseModel):
@@ -163,7 +164,7 @@ def join(body: JoinIn, request: Request) -> dict:
             raise HTTPException(429, f"fleet is full ({CAP} devices)")
         S["joined"] += 1
         n = S["joined"]
-        role = "client" if n % CLIENT_EVERY == 1 else "server"
+        role = body.role or ("client" if n % CLIENT_EVERY == 1 else "server")
         dev_id = f"ph-{n:02d}-{secrets.token_hex(2)}"
         token = secrets.token_urlsafe(24)
         label = (body.name or "").strip()[:24] or f"Volunteer {n}"
@@ -295,12 +296,14 @@ def state(after: int = 0) -> dict:
 
 
 @router.get("/qr.svg")
-def qr(request: Request) -> Response:
+def qr(request: Request, role: str | None = None) -> Response:
     code = _code()
     if not code:
         raise HTTPException(404, "set DH_EVENT_CODE to open joining")
+    if role not in (None, "client", "server"):
+        raise HTTPException(422, "role must be client or server")
     base = os.environ.get("DH_PUBLIC_SITE", str(request.base_url)).rstrip("/")
-    url = f"{base}/phone-join.html#code={code}"
+    url = f"{base}/phone-join.html#code={code}" + (f"&role={role}" if role else "")
     try:
         import segno  # tiny pure-python QR library
         import io

@@ -81,6 +81,7 @@
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const code = new URLSearchParams(location.hash.slice(1)).get("code") || new URLSearchParams(location.search).get("code") || "";
+  const forcedRole = new URLSearchParams(location.hash.slice(1)).get("role");   // role QR codes for judges
   const KEY = "dh.fleet.dev";
   let dev = null; try { dev = JSON.parse(sessionStorage.getItem(KEY) || "null"); } catch (e) {}
   const post = async (p, b) => { const r = await fetch("./api/phones/" + p, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
@@ -99,7 +100,7 @@
   if (dev) show(); else if (!code) { $("jerr").textContent = "This page needs the QR code from the big screen."; $("agree").disabled = true; }
   $("agree").onclick = async () => {
     $("agree").disabled = true;
-    try { dev = await post("join", { code, name: $("nick").value.trim() || null }); sessionStorage.setItem(KEY, JSON.stringify(dev)); show(); }
+    try { dev = await post("join", { code, name: $("nick").value.trim() || null, ...(forcedRole === "client" || forcedRole === "server" ? { role: forcedRole } : {}) }); sessionStorage.setItem(KEY, JSON.stringify(dev)); show(); }
     catch (e) { $("jerr").textContent = e.status === 429 ? "The fleet is full. Thank you!" : e.status === 403 ? "This QR code is no longer valid." : "Could not join: " + e.message; $("agree").disabled = false; }
   };
 

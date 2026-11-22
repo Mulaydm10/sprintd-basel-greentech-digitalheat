@@ -34,7 +34,11 @@ function ui(root) {
         <div style="border:1px solid #dcd6cc;border-radius:20px;background:#fff;padding:14px;text-align:center">
           <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#6e6a63;margin-bottom:6px">Scan to join</div>
           <img data-k="qr" alt="join QR" style="width:100%;max-width:240px;aspect-ratio:1;image-rendering:pixelated;border-radius:8px">
-          <div data-k="qrnote" style="font-size:11px;color:#6e6a63;margin-top:6px">max 20 phones · 3 servers : 1 client</div>
+          <div data-k="qrnote" style="font-size:11px;color:#6e6a63;margin-top:6px">random role · max 20 phones · 3 servers : 1 client</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;border-top:1px solid #efeae2;padding-top:12px">
+            <div><img data-k="qrc" alt="join as client" style="width:100%;aspect-ratio:1;image-rendering:pixelated;border-radius:6px"><div style="font-size:11px;color:#1d6bb3;margin-top:4px">● join as client</div></div>
+            <div><img data-k="qrs" alt="join as server" style="width:100%;aspect-ratio:1;image-rendering:pixelated;border-radius:6px"><div style="font-size:11px;color:#c93c05;margin-top:4px">● join as server</div></div>
+          </div>
         </div>
         <div style="border:1px solid #dcd6cc;border-radius:20px;background:#fff;padding:14px;flex:1;min-height:200px;display:flex;flex-direction:column">
           <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#6e6a63;margin-bottom:8px">Coordinator log</div>
@@ -202,6 +206,8 @@ function start(root) {
 
   // join QR
   k.qr.src = "./api/phones/qr.svg?" + Date.now();
+  k.qrc.src = "./api/phones/qr.svg?role=client&t=" + Date.now();
+  k.qrs.src = "./api/phones/qr.svg?role=server&t=" + Date.now();
   k.qr.onerror = () => { k.qr.replaceWith(Object.assign(document.createElement("div"), { textContent: "joining closed (no event code set)", style: "font-size:12px;color:#a86400;padding:40px 0" })); };
 
   // ---------- loop ----------

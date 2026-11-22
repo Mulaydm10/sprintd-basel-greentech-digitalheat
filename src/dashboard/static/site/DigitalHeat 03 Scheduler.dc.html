@@ -43,6 +43,36 @@ input[type=range]{accent-color:#c93c05}
     </div>
   </section>
 
+  <section data-dh-layers style="padding:40px clamp(16px,4vw,40px) 80px;max-width:1400px;margin:0 auto;display:flex;flex-direction:column;gap:22px">
+    <div style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#a86400">02 · Three horizons, three layers</div>
+    <h2 style="margin:0;font-weight:760;font-size:clamp(32px,4.6vw,64px);line-height:.95;letter-spacing:-0.05em">Every scheduler faces three problems. <span style="color:#c93c05">We solve each one separately.</span></h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px">
+      <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;padding:22px;display:flex;flex-direction:column;gap:10px;border-top:4px solid #1d6bb3">
+        <span style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#1d6bb3">Long term · the year plan</span>
+        <b style="font-size:22px;letter-spacing:-0.02em">How many servers, where, for a whole city year</b>
+        <span style="color:#55524c;line-height:1.45">We run all 8,760 hours of Basel 2025 through the scheduler for every fleet size and recommend the plan (N = 3 servers per house for the reference house; a 100-house city fleet). <b>An operator approves the year plan</b> before it goes live.</span>
+        <span style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#6e6a63">today: simulator + sizing rule · next: an AI planner proposes the plan, the operator approves</span>
+      </div>
+      <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;padding:22px;display:flex;flex-direction:column;gap:10px;border-top:4px solid #c93c05">
+        <span style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#c93c05">Mid term · every hour</span>
+        <b style="font-size:22px;letter-spacing:-0.02em">Which job runs in which house, this hour</b>
+        <span style="color:#55524c;line-height:1.45">decide() prices every house's heat, dispatches work in merit order (heat wanted first), lets jobs with slack wait for colder hours, admits only work that can finish in time, and prefers local machines over cloud.</span>
+        <span style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#6e6a63">deterministic · same code in the simulation and on the live machines</span>
+      </div>
+      <div style="border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;padding:22px;display:flex;flex-direction:column;gap:10px;border-top:4px solid #157a43">
+        <span style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#157a43">Short term · seconds</span>
+        <b style="font-size:22px;letter-spacing:-0.02em">Outages, overheating, a pulled plug</b>
+        <span style="color:#55524c;line-height:1.45">The coordinator holds every job on a lease. A machine that stops, overheats or is tampered with loses its lease within seconds and the job continues elsewhere from its last checkpoint: nothing lost. Stale heat data switches to a safe degraded mode.</span>
+        <span style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#6e6a63">deterministic · leases, checkpoints, exactly-once, signed audit log</span>
+      </div>
+    </div>
+    <div style="border:1px solid #141414;border-radius:20px;background:#141414;color:#f2efe9;padding:18px 22px;display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+      <span style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#ff9a5a">🔒 End to end encrypted</span>
+      <span style="line-height:1.45">Customer data is encrypted on the customer's device. Only the machine holding the job can open its piece; the coordinator stores locked boxes it cannot read. Every result is signed by the machine that made it and hash-linked to the one before, so nothing can be dropped, edited or reordered unnoticed.</span>
+    </div>
+    <div style="font-family:'Geist Mono',monospace;font-size:12px;color:#6e6a63">Plan (operator-approved) → hourly decisions → second-by-second safety. Anything that changes the year plan needs a human approval. End-to-end encryption shown live on the transcription demo; batch checkpoints are sealed with AES-GCM.</div>
+  </section>
+
   <section style="padding:40px clamp(16px,4vw,40px) 120px;max-width:1400px;margin:0 auto">
     <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#55524c;margin-bottom:20px"><span>02 · One tick of decide()</span><span style="color:#c93c05">step {{ pipeStep }} / 6</span></div>
     <div style="position:relative;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:1px;background:#dcd6cc;border:1px solid #dcd6cc;border-radius:20px;overflow:hidden">

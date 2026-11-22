@@ -92,3 +92,12 @@ def test_state_is_anonymised_and_qr_served(c):
     st = c.get("/api/phones/state").json()
     assert "token" not in str(st) and "token_hash" not in str(st)
     assert c.get("/api/phones/qr.svg").headers["content-type"].startswith("image/svg")
+
+
+def test_role_qr_codes_force_the_role(c):
+    assert c.post("/api/phones/join", json={"code": "basel-2026", "role": "server"}).json()["role"] == "server"
+    assert c.post("/api/phones/join", json={"code": "basel-2026", "role": "client"}).json()["role"] == "client"
+    assert c.post("/api/phones/join", json={"code": "basel-2026", "role": "admin"}).status_code == 422
+    for r in ("client", "server"):
+        assert c.get(f"/api/phones/qr.svg?role={r}").status_code == 200
+    assert c.get("/api/phones/qr.svg?role=x").status_code == 422

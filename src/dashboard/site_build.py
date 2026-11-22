@@ -154,6 +154,43 @@ FLEET_ROW = ('  <div data-dh-phone-fleet style="padding:0 clamp(16px,4vw,40px);m
 FLEET_SCRIPT_OLD = "</body>"
 FLEET_SCRIPT_NEW = '<script type="module" src="./phone-fleet.js"></script>\n</body>'
 
+# 03 Scheduler: the three-layer story (long / mid / short term), inserted after the hero (Dhruv, 22 Nov)
+SCHED_PAGE = "DigitalHeat 03 Scheduler.dc.html"
+LAYERS_ANCHOR = "      </svg>\n    </div>\n  </section>\n"
+_L = ("border:1px solid #dcd6cc;border-radius:20px;background:#ffffff;padding:22px;display:flex;flex-direction:column;gap:10px")
+_K = "font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.08em;text-transform:uppercase"
+LAYERS_ROW = LAYERS_ANCHOR + f"""
+  <section data-dh-layers style="padding:40px clamp(16px,4vw,40px) 80px;max-width:1400px;margin:0 auto;display:flex;flex-direction:column;gap:22px">
+    <div style="{_K};color:#a86400">02 · Three horizons, three layers</div>
+    <h2 style="margin:0;font-weight:760;font-size:clamp(32px,4.6vw,64px);line-height:.95;letter-spacing:-0.05em">Every scheduler faces three problems. <span style="color:#c93c05">We solve each one separately.</span></h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px">
+      <div style="{_L};border-top:4px solid #1d6bb3">
+        <span style="{_K};color:#1d6bb3">Long term · the year plan</span>
+        <b style="font-size:22px;letter-spacing:-0.02em">How many servers, where, for a whole city year</b>
+        <span style="color:#55524c;line-height:1.45">We run all 8,760 hours of Basel 2025 through the scheduler for every fleet size and recommend the plan (N = 3 servers per house for the reference house; a 100-house city fleet). <b>An operator approves the year plan</b> before it goes live.</span>
+        <span style="{_K};color:#6e6a63">today: simulator + sizing rule · next: an AI planner proposes the plan, the operator approves</span>
+      </div>
+      <div style="{_L};border-top:4px solid #c93c05">
+        <span style="{_K};color:#c93c05">Mid term · every hour</span>
+        <b style="font-size:22px;letter-spacing:-0.02em">Which job runs in which house, this hour</b>
+        <span style="color:#55524c;line-height:1.45">decide() prices every house's heat, dispatches work in merit order (heat wanted first), lets jobs with slack wait for colder hours, admits only work that can finish in time, and prefers local machines over cloud.</span>
+        <span style="{_K};color:#6e6a63">deterministic · same code in the simulation and on the live machines</span>
+      </div>
+      <div style="{_L};border-top:4px solid #157a43">
+        <span style="{_K};color:#157a43">Short term · seconds</span>
+        <b style="font-size:22px;letter-spacing:-0.02em">Outages, overheating, a pulled plug</b>
+        <span style="color:#55524c;line-height:1.45">The coordinator holds every job on a lease. A machine that stops, overheats or is tampered with loses its lease within seconds and the job continues elsewhere from its last checkpoint: nothing lost. Stale heat data switches to a safe degraded mode.</span>
+        <span style="{_K};color:#6e6a63">deterministic · leases, checkpoints, exactly-once, signed audit log</span>
+      </div>
+    </div>
+    <div style="border:1px solid #141414;border-radius:20px;background:#141414;color:#f2efe9;padding:18px 22px;display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+      <span style="{_K};color:#ff9a5a">🔒 End to end encrypted</span>
+      <span style="line-height:1.45">Customer data is encrypted on the customer's device. Only the machine holding the job can open its piece; the coordinator stores locked boxes it cannot read. Every result is signed by the machine that made it and hash-linked to the one before, so nothing can be dropped, edited or reordered unnoticed.</span>
+    </div>
+    <div style="font-family:'Geist Mono',monospace;font-size:12px;color:#6e6a63">Plan (operator-approved) → hourly decisions → second-by-second safety. Anything that changes the year plan needs a human approval. End-to-end encryption shown live on the transcription demo; batch checkpoints are sealed with AES-GCM.</div>
+  </section>
+"""
+
 # Brand: the project is now called Hearthbeat (Dhruv, 22 Nov). Visible text only; page file names stay "DigitalHeat NN …"
 import re as _re
 BRAND = [(_re.compile(r"DigitalHeat(?!(?:%20| )(?:\d\d|Pitch Deck))"), "Hearthbeat"), (_re.compile(r"DIGITALHEAT"), "HEARTHBEAT"),
@@ -171,7 +208,8 @@ def brand(html: str) -> str:
 WIRING = ["vendor/resources.js before support.js", "local fonts.css", "apiBase default '.' on 04 and 06",
           "04 Live: LIVE controls row + liveAct()", "Nav: extra tabs 07-10 (#96, #102, #103)",
           "Nav: one line (compact numbers, sideways scroll) + bottom spacer (#102)",
-          "04 Live: volunteer phone-fleet section + phone-fleet.js (wow #2)", "brand: DigitalHeat -> Hearthbeat (visible text)"]
+          "04 Live: volunteer phone-fleet section + phone-fleet.js (wow #2)", "brand: DigitalHeat -> Hearthbeat (visible text)",
+          "03 Scheduler: three-layer section (long / mid / short term)"]
 
 
 def wire(name: str, html: str) -> str:
@@ -190,6 +228,8 @@ def wire(name: str, html: str) -> str:
         html = sub(html, NAV_MAX_OLD, NAV_MAX_NEW)
         for old, new in NAV_LAYOUT:
             html = sub(html, old, new)
+    if name == SCHED_PAGE:
+        html = sub(html, LAYERS_ANCHOR, LAYERS_ROW)
     if name == LIVE_PAGE:
         html = sub(html, LIVE_ANCHOR, LIVE_ROW)
         html = sub(html, POLL_OLD, POLL_NEW)

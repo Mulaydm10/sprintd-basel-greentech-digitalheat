@@ -17,13 +17,56 @@ import os
 from pathlib import Path
 from typing import Any
 
-OVERLAP_S = 0.5
+OVERLAP_S = 1.0  # the client's overlap prefix (#127 boundary fix: 1.0 s, was 0.5 s); alignment copes with either
+HOLD_BACK_S = 0.06  # a word ending this close to the segment's end is probably cut: leave it to the next segment
 NAMES = ("echo", "whisper-local", "elevenlabs")
 
 
-def _dedupe(words: list[dict[str, Any]], seq: int = 1) -> tuple[str, list[dict[str, Any]]]:
-    # segment 0 has no overlap prefix: keep everything; later segments drop words ending inside the 0.5 s prefix
-    kept = words if seq == 0 else [w for w in words if float(w.get("t1", 0.0)) > OVERLAP_S]
+def _norm(w: str) -> str:
+    return "".join(ch for ch in str(w).lower() if ch.isalnum() or ch == "'")
+
+
+def stitch(words: list[dict[str, Any]], context: str = "", seq: int = 1, dur: float | None = None,
+           overlap_s: float = OVERLAP_S) -> list[dict[str, Any]]:
+    """The words of this segment to accept (#127 boundary fix).
+    1. Overlap: the first words (inside the overlap prefix) that repeat the END of the already-accepted text
+       (`context`) are dropped by TEXT ALIGNMENT: the longest run of the context's last words that reappears at the
+       start of this segment. Nothing is dropped by time alone: Whisper, prompted with the context, often skips the
+       repeated words itself and starts at the first NEW word inside the overlap, which must be kept.
+    2. Hold back: a last word that touches the end of the audio is probably cut ('base...'); it is left out here and
+       heard whole in the next segment's overlap (it is not in the context, so the alignment keeps it there)."""
+    ws = [w for w in words if _norm(w.get("w", ""))]
+    if dur is not None and ws and float(ws[-1].get("t1", 0.0)) >= dur - HOLD_BACK_S:
+        ws = ws[:-1]
+    if seq == 0 or not ws:
+        return ws
+    prev = [_norm(x) for x in context.split() if _norm(x)][-30:]
+    cur = [_norm(w["w"]) for w in ws]
+    head = sum(1 for w in ws if float(w.get("t0", 0.0)) < overlap_s + 0.3)  # words that can lie in the overlap
+    best_end = 0
+    for i in range(0, head + 1):  # this segment may start mid-way into words the previous one already had
+        k = 0
+        for kk in range(min(len(prev), len(cur) - i), 0, -1):
+            if cur[i:i + kk] == prev[-kk:]:
+                k = kk
+                break
+        if k and i + k <= head + 1 and i + k > best_end:
+            best_end = i + k
+    return ws[best_end:]
+
+
+def _wav_seconds(wav: bytes) -> float | None:
+    try:
+        import wave
+        with wave.open(io.BytesIO(wav), "rb") as w:
+            return w.getnframes() / float(w.getframerate())
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _dedupe(words: list[dict[str, Any]], seq: int = 1, context: str = "", wav: bytes | None = None
+            ) -> tuple[str, list[dict[str, Any]]]:
+    kept = stitch(words, context, seq, _wav_seconds(wav) if wav else None)
     text = " ".join(str(w["w"]).strip() for w in kept if str(w["w"]).strip())
     return text.replace("...", "").replace("  ", " ").strip(), kept
 
@@ -67,9 +110,12 @@ class WhisperLocal:
 
     def transcribe(self, wav: bytes, context: str = "", seq: int = 0) -> dict[str, Any]:
         segs, _ = self.model.transcribe(_pcm16_wav_to_float(wav), language="en", word_timestamps=True, beam_size=1,
-                                        initial_prompt=context[-200:] or None, vad_filter=False)
+                                        initial_prompt=None, vad_filter=False)
+        # no initial_prompt (#127 boundary fix): prompted with the accepted text, Whisper skips words that continue
+        # it, including NEW speech right after the overlap ('losing a single word' vanished). The overlap is
+        # transcribed honestly and stitch() removes the repeats by text alignment.
         words = [{"w": w.word, "t0": float(w.start), "t1": float(w.end)} for s in segs for w in (s.words or [])]
-        text, kept = _dedupe(words, seq)
+        text, kept = _dedupe(words, seq, context, wav)
         return {"text": text, "words": kept}
 
 
@@ -95,7 +141,7 @@ class ElevenLabs:
                  for w in d.get("words", []) if w.get("type", "word") == "word"]
         if not words:
             return {"text": str(d.get("text", "")).strip(), "words": None}
-        text, kept = _dedupe(words, seq)
+        text, kept = _dedupe(words, seq, context, wav)
         return {"text": text, "words": kept}
 
 

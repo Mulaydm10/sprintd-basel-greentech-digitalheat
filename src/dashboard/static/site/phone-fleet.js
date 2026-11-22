@@ -68,7 +68,7 @@ function start(root) {
   ctl.enableDamping = true; ctl.minPolarAngle = 0.95; ctl.maxPolarAngle = 1.2; ctl.target.set(0, -1, 0); ctl.autoRotate = true; ctl.autoRotateSpeed = 0.08; ctl.minDistance = 25; ctl.maxDistance = 120;
   const comp = new EffectComposer(renderer);
   comp.addPass(new RenderPass(scene, cam));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.4, 0.45, 0.4);
+  const bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.7, 0.6, 0.55);
   comp.addPass(bloom); comp.addPass(new OutputPass());
   scene.add(new THREE.AmbientLight(0xffffff, 0.35));
   const key = new THREE.PointLight(0xffb070, 60, 120); key.position.set(0, 10, 0); scene.add(key);
@@ -112,17 +112,20 @@ function start(root) {
     mat.side = THREE.DoubleSide;
     g.add(mesh);
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: heatTex, color: C.heat, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
-    glow.scale.set(9, 9, 1); g.add(glow);
+    glow.scale.set(5, 5, 1); g.add(glow);
+    const arcMat = new THREE.MeshBasicMaterial({ color: C.hot, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
+    const arc = new THREE.Mesh(new THREE.RingGeometry(1.25, 1.36, 64, 1, Math.PI / 2, 0.0001), arcMat); arc.visible = false; g.add(arc);
     const pos = slotFor(kind, n);
     g.position.copy(kind === "laptop" ? pos : pos.clone().multiplyScalar(4.5).setY(pos.y + 40));   // phones fly in
     scene.add(g);
-    const lg = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), g.position.clone()]);
-    const line = new THREE.Line(lg, new THREE.LineBasicMaterial({ color: kind === "laptop" ? 0x8a8278 : 0x5a4a3c, transparent: true, opacity: 0.35 }));
+    const lg = new THREE.BufferGeometry().setFromPoints(new Array(33).fill(0).map(() => new THREE.Vector3()));
+    const line = new THREE.Line(lg, new THREE.LineDashedMaterial({ color: 0x8a8278, transparent: true, opacity: 0.25, dashSize: 0.6, gapSize: 0.5 }));
     scene.add(line);
+    ripple(kind === "laptop" ? pos : pos);
     const el = document.createElement("div");
     el.style.cssText = `position:absolute;transform:translate(-50%,-140%);font:10px ${MONO};color:#cfc6b8;white-space:nowrap;text-shadow:0 0 4px #000;opacity:.7`;
     k.labels.appendChild(el);
-    const nd = { id, g, mesh, mat, glow, line, pos, kind, label, state: "idle", born: performance.now(), el, heat: 0 };
+    const nd = { id, g, mesh, mat, glow, line, pos, kind, label, state: "idle", born: performance.now(), el, heat: 0, arc, prog: 0, shownProg: -1 };
     nodes.set(id, nd); return nd;
   }
 
@@ -132,6 +135,11 @@ function start(root) {
     const s = new THREE.Mesh(new THREE.SphereGeometry(0.35, 10, 10), new THREE.MeshBasicMaterial({ color }));
     scene.add(s);
     const trail = []; packets.push({ s, from: from.clone(), to: to.clone(), t0: performance.now(), ms, arc, trail, color });
+  }
+  const ripples = [];
+  function ripple(p) {
+    const m = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.0, 64), new THREE.MeshBasicMaterial({ color: C.hot, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false }));
+    m.rotation.x = -Math.PI / 2; m.position.set(p.x, -8.9, p.z); scene.add(m); ripples.push({ m, t0: performance.now() });
   }
   const sparks = [];
   function spark(p) {
@@ -159,6 +167,8 @@ function start(root) {
         let nd = nodes.get(d.id);
         if (!nd) { nd = addNode(d.id, "phone", `${d.label} · ${d.role}`, d.n); if (d.role === "client") nd.mat.emissive.setHex(C.cold); }
         nd.state = d.online ? d.state : "gone"; nd.role = d.role;
+        const j = st.jobs.find((x) => x.device === d.id && x.state === "running");
+        nd.prog = j ? Math.round(j.step / j.total * 100) / 100 : 0;
       }
       for (const e of st.events || []) onEvent(e);
       const ph = st.devices.filter((d) => d.state !== "left");
@@ -211,10 +221,23 @@ function start(root) {
       const col = n.state === "stopped" ? C.stop : n.state === "gone" ? 0x3a3430 : n.role === "client" ? C.cold : n.kind === "laptop" ? C.laptop : C.idle;
       n.mat.emissive.setHex(n.heat > 0.05 ? C.heat : col);
       n.mat.emissiveIntensity = n.state === "gone" ? 0.12 : 0.85 + n.heat * (0.35 + 0.1 * Math.sin(now / 400 + n.g.position.x));
-      n.glow.material.opacity = n.heat * 0.22; n.glow.scale.setScalar(4 + n.heat);
       if (n.heat > 0.5 && Math.random() < 0.012) spark(n.g.position);
-      const pa = n.line.geometry.attributes.position; pa.setXYZ(1, n.g.position.x, n.g.position.y, n.g.position.z); pa.needsUpdate = true;
-      n.line.material.opacity = 0.06 + n.heat * 0.25; n.line.material.color.setHex(n.heat > 0.3 ? C.heat : 0x5a4a3c);
+      { // a gentle arc from the coordinator to the device, dashes flowing while it works
+        const a = new THREE.Vector3(0, 0, 0), b = n.g.position, m = a.clone().add(b).multiplyScalar(0.5); m.y += 6 + b.length() * 0.12;
+        const curve = new THREE.QuadraticBezierCurve3(a, m, b), pa = n.line.geometry.attributes.position;
+        for (let i = 0; i <= 32; i++) { const q = curve.getPoint(i / 32); pa.setXYZ(i, q.x, q.y, q.z); }
+        pa.needsUpdate = true; n.line.computeLineDistances();
+        n.line.material.opacity = 0.14 + n.heat * 0.5; n.line.material.color.setHex(n.heat > 0.3 ? C.heat : n.state === "stopped" ? C.stop : 0x8a8278);
+        n.line.material.dashOffset = -(now / 1000) * (0.4 + n.heat * 2.2);
+      }
+      n.glow.material.color.setHex(n.heat > 0.05 ? C.heat : n.state === "stopped" ? C.stop : 0xf2efe9);
+      n.glow.material.opacity = n.state === "gone" ? 0 : 0.16 + n.heat * 0.34 + (n.heat > 0.5 ? 0.06 * Math.sin(now / 500 + n.pos.x) : 0);
+      n.glow.scale.setScalar((n.kind === "laptop" ? 6.5 : 4.2) + n.heat * 1.4);
+      if (n.prog !== n.shownProg) {   // progress ring around a working phone = how far its job has got
+        n.arc.geometry.dispose(); n.arc.geometry = new THREE.RingGeometry(1.25, 1.36, 64, 1, Math.PI / 2, Math.max(0.0001, n.prog * Math.PI * 2));
+        n.shownProg = n.prog;
+      }
+      n.arc.visible = n.state === "busy" && n.prog > 0;
       v.copy(n.g.position); v.y += n.kind === "laptop" ? 2.6 : 2.2; v.project(cam);
       const fresh = performance.now() - n.born < 8000;
       const vis = v.z < 1 && (n.kind === "laptop" || n.state === "busy" || n.state === "stopped" || fresh); n.el.style.display = vis ? "block" : "none";
@@ -228,6 +251,7 @@ function start(root) {
       if (t >= 1) { scene.remove(p.s); packets.splice(i, 1); }
     }
     for (let i = sparks.length - 1; i >= 0; i--) { const s = sparks[i]; s.m.position.y += s.v; s.life -= 0.02; s.m.material.opacity = s.life * 0.8; if (s.life <= 0) { scene.remove(s.m); sparks.splice(i, 1); } }
+    for (let i = ripples.length - 1; i >= 0; i--) { const r = ripples[i], t = (now - r.t0) / 2200; r.m.scale.setScalar(1 + t * 9); r.m.material.opacity = 0.6 * (1 - t); if (t >= 1) { scene.remove(r.m); ripples.splice(i, 1); } }
     k.clock.textContent = new Date().toLocaleTimeString("de-CH");
     ctl.update(); comp.render(); requestAnimationFrame(frame);
   }

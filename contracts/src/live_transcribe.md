@@ -61,3 +61,18 @@ Crypto: ECDH **P-256** + HKDF-SHA256 + **AES-256-GCM** (WebCrypto on phones supp
    node (ElevenLabs) sends its segments to the provider; metadata (timing, sizes, which node) is visible to the coordinator.
 Tests: coordinator DB contains no plaintext audio/text (grep for known words); a non-recipient node gets a blob it cannot open;
 handover across 3 nodes still exactly once; legacy WAV path stays for the batch/e2e tool behind `e2e: false`.
+
+## v2.1: verifiability with blockchain techniques (no chain, no token)
+- **Signed work (like signed transactions):** each transcriber node also has an **Ed25519** signing key (in memory; public key
+  in register/heartbeat as `sig_pub`). For every accepted segment the node signs
+  `m = "dh-seg-v1|" + job + "|" + seq + "|" + sha256(upload blob) + "|" + sha256(enc json)` and sends `sig` (b64).
+  The coordinator verifies before accepting (bad sig → 422) and stores it.
+- **Hash-linked segments (like a chain of blocks):** `link_n = sha256(link_{n-1} || sha256(upload_n) || sha256(enc_n) || node_n)`,
+  `link_-1 = sha256(job_id)`. Returned with each transcript segment; any edit, drop or reorder breaks every later link.
+- **Merkle receipt:** on /end the coordinator computes a Merkle root over the per-segment leaves and appends
+  `{job, root, n_segments, nodes}` to the existing hash-chained audit log (anchored head). `/receipt` returns the root, the
+  audit head and per-segment inclusion proofs.
+- **Phone verifies locally:** recomputes the links, checks each node signature (WebCrypto Ed25519 where available; else shows
+  'signature checked by server'), and shows a ✓ per segment + "chain intact · root ab12…". The coordinator cannot forge a
+  segment (no node key) nor silently drop/reorder one (links), and the node that did each segment is provable.
+Scope: live-transcription demo path only.

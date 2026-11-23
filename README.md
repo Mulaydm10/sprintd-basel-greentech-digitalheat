@@ -4,9 +4,14 @@ _Hearthbeat is our project for the DigitalHeat case (case partner: DigitalHeat).
 
 **sprintd Basel GreenTech 2026 · case "Useful Load ⇒ Useful Heat".** A heat-aware scheduler runs paid, interruptible AI jobs on servers in people's basements so that their waste heat covers the house's heat demand. The same `scheduler.decide()` drives a simulated Basel 2025 year (8,760 h) and real machines that pause, resume and move jobs between houses on the heat signal.
 
-## Try it (live)
-- **Website** (overview, problem, scheduler, live demo, economics, simulator, whole-year simulation, coordinator): https://dhruvs-mac-mini.tailaf7ebe.ts.net:8443
-- **Coordinator API** (token required; `/healthz` is open): https://dhruvs-mac-mini.tailaf7ebe.ts.net
+## Result
+**4th place** at sprintd Basel GreenTech 2026 (DigitalHeat case). Final pitch on Sun 22 Nov 2026, run entirely from our website, with two live demos:
+- **Pull the plug, lose nothing:** live transcription from a phone, encrypted end to end on the phone. We pulled the plug on the laptop doing the work, and the job carried on on the next machine without losing a segment.
+- **The room becomes a data centre:** 42 phones from the audience joined by QR code. They ran 22 jobs, 18 of which moved between phones when their owners pressed STOP, with no progress lost.
+
+Recap, lessons and how to bring the demo back: [`docs/HACKATHON_RECAP.md`](docs/HACKATHON_RECAP.md). Pitch video: [Drive folder](https://drive.google.com/drive/folders/1Eb63LOGi8SYdlr9FwLd1c_kAurRclTqS).
+
+> **The live system is offline** (shut down 23 Nov 2026). The `*.ts.net` links in the docs no longer answer; run it yourself with the steps below.
 
 ## Key results (reference house, Basel 2025; every number regenerates with `python -m tools.pitch` → `research/PITCH_NUMBERS.md`)
 - With 4 servers our scheduler covers **57.9 %** of the house's heat and misses **0 %** of paid deadlines; a thermostat-led policy covers the same heat but misses **31 %**.

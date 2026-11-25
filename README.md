@@ -31,6 +31,7 @@ Recap, lessons and how to bring the demo back: [`docs/HACKATHON_RECAP.md`](docs/
 ```bash
 git clone https://github.com/Mulaydm10/sprintd-basel-greentech-digitalheat && cd sprintd-basel-greentech-digitalheat
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt     # or: uv sync --extra dev
+python3.12 -m venv .venv-node && .venv-node/bin/pip install -r requirements-node.txt   # only for the live agent node (tools/demo/mac_stack.sh)
 PYTHONPATH=src .venv/bin/python -m pytest -q                               # ~1,190 tests
 PYTHONPATH=src .venv/bin/python -m simulate_year --servers 4 --policy merit --slack-h 24   # one year → runs/
 PYTHONPATH=src .venv/bin/python -m simulate_year.yearview --out runs/yearview             # N=1..8, ours vs thermostat (~7 s)
@@ -115,3 +116,10 @@ MLPerf Inference datacenter power results; Alibaba cluster-trace-gpu-v2020 (job 
 | `tests/` | pytest |
 
 Onboard any AI agent: paste `notes/2026-11-21_onboarding_addendum.md`.
+
+## Archived run output
+
+`runs/` output (pitch video frames and renders, coordinator jobs, logs) is not in git. It is archived on Google Drive at
+`Dhruv-archive/sprintd-basel/runs.tar`, and the final pitch videos are next to it
+(`hearthbeat_16x9.mp4`, `hearthbeat_9x16.mp4`). Restore: `rclone copy gdrive:Dhruv-archive/sprintd-basel/runs.tar . && tar -xf runs.tar`.
+
